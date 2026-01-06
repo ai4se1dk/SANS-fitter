@@ -133,12 +133,12 @@ def suggest_models_ai(
     q_data: np.ndarray, i_data: np.ndarray, api_key: Optional[str] = None
 ) -> List[str]:
     """
-    AI-powered model suggestion using Anthropic Claude API.
+    AI-powered model suggestion using OpenAI API.
 
     Args:
         q_data: Q values
         i_data: Intensity values
-        api_key: Anthropic API key
+        api_key: OpenAI API key
 
     Returns:
         List of suggested model names
@@ -148,9 +148,9 @@ def suggest_models_ai(
         return suggest_models_simple(q_data, i_data)
 
     try:
-        import anthropic
+        from openai import OpenAI
 
-        client = anthropic.Anthropic(api_key=api_key)
+        client = OpenAI(api_key=api_key)
 
         # Get all available models
         all_models = get_all_models()
@@ -159,33 +159,51 @@ def suggest_models_ai(
         data_description = analyze_data_for_ai_suggestion(q_data, i_data)
 
         # Create prompt
+#         prompt = f"""You are a SANS (Small Angle Neutron Scattering) data analysis expert.
+# Analyze the following SANS data characteristics and suggest 3 most appropriate models
+# from the sasmodels library.
+
+# {data_description}
+
+# Available models include: {', '.join(all_models[:50])}... (and more)
+
+# Common model types:
+# - Spherical: sphere, core_shell_sphere, fuzzy_sphere
+# - Cylindrical: cylinder, core_shell_cylinder, flexible_cylinder
+# - Ellipsoidal: ellipsoid, core_shell_ellipsoid
+# - Lamellar: lamellar, core_shell_lamellar
+# - Complex: parallelepiped, pringle, fractal
+
+# Based on the data characteristics (slope, Q range, intensity decay), suggest 3 models
+# that would fit the provided data. Return ONLY the model names, one per line, no explanations."""
+
         prompt = f"""You are a SANS (Small Angle Neutron Scattering) data analysis expert.
-Analyze the following SANS data characteristics and suggest 3-5 most appropriate models
+Analyze the following SANS data and suggest 3 most appropriate models
 from the sasmodels library.
+
+The data:
+Q (Å⁻¹), I(Q) (cm⁻¹)
+
+{chr(10).join([f"{q_data[i]:.6f}, {i_data[i]:.6f}" for i in range(len(q_data))])}
+
+Data description:
 
 {data_description}
 
-Available models include: {', '.join(all_models[:50])}... (and more)
+Available models include all models in the sasmodels library.
 
-Common model types:
-- Spherical: sphere, core_shell_sphere, fuzzy_sphere
-- Cylindrical: cylinder, core_shell_cylinder, flexible_cylinder
-- Ellipsoidal: ellipsoid, core_shell_ellipsoid
-- Lamellar: lamellar, core_shell_lamellar
-- Complex: parallelepiped, pringle, fractal
+Based on the data characteristics (slope, Q range, intensity decay), suggest 3 models
+that would fit the provided data. Return ONLY the model names, one per line, no explanations."""
 
-Based on the data characteristics (slope, Q range, intensity decay), suggest 3-5 models
-that would be most appropriate. Return ONLY the model names, one per line, no explanations."""
-
-        message = client.messages.create(
-            model='claude-3-5-sonnet-20241022',
+        response = client.chat.completions.create(
+            model='gpt-4o',
             max_tokens=500,
             messages=[{'role': 'user', 'content': prompt}],
         )
 
         # Parse response
         suggestions = []
-        response_text = message.content[0].text
+        response_text = response.choices[0].message.content
         for line in response_text.strip().split('\n'):
             model_name = line.strip().lower()
             # Remove numbering, bullets, etc.
@@ -394,9 +412,9 @@ def main():
 
         # API key input (optional)
         api_key = st.sidebar.text_input(
-            'Anthropic API Key (optional)',
+            'OpenAI API Key (optional)',
             type='password',
-            help='Enter your Anthropic API key for AI-powered suggestions. Leave empty for heuristic-based suggestions.',
+            help='Enter your OpenAI API key for AI-powered suggestions. Leave empty for heuristic-based suggestions.',
         )
 
         if st.sidebar.button('Get AI Suggestions'):
@@ -435,6 +453,22 @@ def main():
 
         fitter = st.session_state.fitter
         params = fitter.params
+
+        # Apply pending preset action before widgets are rendered
+        if 'pending_preset' in st.session_state:
+            preset = st.session_state.pending_preset
+            del st.session_state.pending_preset
+            
+            for param_name in params.keys():
+                if preset == 'scale_background':
+                    vary = param_name in ('scale', 'background')
+                elif preset == 'fit_all':
+                    vary = True
+                elif preset == 'fix_all':
+                    vary = False
+                else:
+                    vary = False
+                fitter.set_param(param_name, vary=vary)
 
         st.markdown(
             """
@@ -528,20 +562,17 @@ def main():
 
         with preset_cols[0]:
             if st.button('Fit Scale & Background'):
-                fitter.set_param('scale', vary=True)
-                fitter.set_param('background', vary=True)
+                st.session_state.pending_preset = 'scale_background'
                 st.rerun()
 
         with preset_cols[1]:
             if st.button('Fit All Parameters'):
-                for param_name in params.keys():
-                    fitter.set_param(param_name, vary=True)
+                st.session_state.pending_preset = 'fit_all'
                 st.rerun()
 
         with preset_cols[2]:
             if st.button('Fix All Parameters'):
-                for param_name in params.keys():
-                    fitter.set_param(param_name, vary=False)
+                st.session_state.pending_preset = 'fix_all'
                 st.rerun()
 
         # Fitting Section
@@ -565,6 +596,16 @@ def main():
             )
 
         if st.sidebar.button('🚀 Run Fit', type='primary'):
+            # Apply current parameter settings before fitting
+            for param_name, updates in param_updates.items():
+                fitter.set_param(
+                    param_name,
+                    value=updates['value'],
+                    min=updates['min'],
+                    max=updates['max'],
+                    vary=updates['vary'],
+                )
+            
             with st.spinner(f'Fitting with {engine}/{method}...'):
                 try:
                     # Check if any parameters are set to vary
