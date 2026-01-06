@@ -4,7 +4,7 @@
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/rozyczko/SANS-fitter.git
+git clone https://github.com/ai4se1dk/SANS-fitter.git
 cd SANS-fitter
 ```
 
@@ -166,7 +166,7 @@ For enhanced AI model suggestions, get an API key from [OpenAI](https://platform
 ## Support
 
 - **Documentation**: See [README.md](README.md) and [WEBAPP_README.md](WEBAPP_README.md)
-- **Issues**: [GitHub Issues](https://github.com/rozyczko/SANS-fitter/issues)
+- **Issues**: [GitHub Issues](https://github.com/ai4se1dk/SANS-fitter/issues)
 - **Examples**: Check `examples/` directory
 
 ## License

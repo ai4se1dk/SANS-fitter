@@ -12,7 +12,7 @@ You can install SANS Fitter directly from the repository using pip:
 
 ```bash
 # Clone the repository
-git clone https://github.com/rozyczko/SANS-fitter.git
+git clone https://github.com/ai4se1dk/SANS-fitter.git
 cd SANS-fitter
 
 # Install the package
@@ -31,7 +31,7 @@ If you use [Pixi](https://prefix.dev/) for package management:
 
 ```bash
 # Clone the repository
-git clone https://github.com/rozyczko/SANS-fitter.git
+git clone https://github.com/ai4se1dk/SANS-fitter.git
 cd SANS-fitter
 
 # Install dependencies

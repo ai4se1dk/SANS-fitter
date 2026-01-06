@@ -4,7 +4,7 @@
 
 1.  Clone the repository:
     ```bash
-    git clone https://github.com/rozyczko/SANS-fitter.git
+    git clone https://github.com/ai4se1dk/SANS-fitter.git
     cd SANS-fitter
     ```
 

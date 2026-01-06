@@ -59,4 +59,4 @@ jobs:
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
         files: ./coverage.xml
-        slug: rozyczko/SANS-fitter
+        slug: ai4se1dk/SANS-fitter

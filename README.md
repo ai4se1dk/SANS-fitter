@@ -1,8 +1,8 @@
 # SANS Model Fitter
 
-[![Tests](https://github.com/rozyczko/SANS-fitter/actions/workflows/tests.yml/badge.svg)](https://github.com/rozyczko/SANS-fitter/actions/workflows/tests.yml)
-[![Docs](https://github.com/rozyczko/SANS-fitter/actions/workflows/docs.yml/badge.svg)](https://rozyczko.github.io/SANS-fitter/)
-[![codecov](https://codecov.io/gh/rozyczko/SANS-fitter/graph/badge.svg)](https://codecov.io/gh/rozyczko/SANS-fitter)
+[![Tests](https://github.com/ai4se1dk/SANS-fitter/actions/workflows/tests.yml/badge.svg)](https://github.com/ai4se1dk/SANS-fitter/actions/workflows/tests.yml)
+[![Docs](https://github.com/ai4se1dk/SANS-fitter/actions/workflows/docs.yml/badge.svg)](https://ai4se1dk.github.io/SANS-fitter/)
+[![codecov](https://codecov.io/gh/ai4se1dk/SANS-fitter/graph/badge.svg)](https://codecov.io/gh/ai4se1dk/SANS-fitter)
 
 A flexible, model-agnostic Python template for fitting Small-Angle Neutron Scattering (SANS) data using the SasModels library.
 
@@ -21,7 +21,7 @@ A flexible, model-agnostic Python template for fitting Small-Angle Neutron Scatt
 
 ```bash
 # Clone the repository
-git clone https://github.com/rozyczko/SANS-fitter.git
+git clone https://github.com/ai4se1dk/SANS-fitter.git
 cd SANS-fitter
 
 # Install the package
@@ -35,7 +35,7 @@ pip install -e ".[dev]"
 
 ```bash
 # Clone the repository
-git clone https://github.com/rozyczko/SANS-fitter.git
+git clone https://github.com/ai4se1dk/SANS-fitter.git
 cd SANS-fitter
 
 # Install dependencies with Pixi
