@@ -1,8 +1,8 @@
 site_name: SANS Fitter Documentation
 site_description: A flexible template for fitting SANS data with SasModels
 site_author: SANS-fitter contributors
-repo_url: https://github.com/rozyczko/SANS-fitter
-repo_name: rozyczko/SANS-fitter
+repo_url: https://github.com/ai4se1dk/SANS-fitter
+repo_name: ai4se1dk/SANS-fitter
 edit_uri: edit/main/docs/
 
 theme:

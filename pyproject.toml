@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sans-fitter"
-version = "0.1.0"
+version = "0.0.1"
 description = "A flexible template for fitting SANS data with SasModels"
 requires-python = ">=3.10"
 license = {text = "BSD-3-Clause"}
@@ -28,6 +28,7 @@ where = ["src"]
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
+    "pandas>=2.0.0",
 ]
 docs = [
     "mkdocs>=1.5",
