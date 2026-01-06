@@ -3,13 +3,14 @@
 Test script to validate the Streamlit app functionality without running the full UI.
 """
 
-import numpy as np
 import sys
+
+import numpy as np
 
 sys.path.insert(0, '.')
 
-from sans_fitter import SANSFitter
 import app
+from sans_fitter import SANSFitter
 
 
 def test_get_all_models():
