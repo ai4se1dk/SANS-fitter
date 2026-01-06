@@ -12,12 +12,12 @@ This document describes all files added for the Streamlit web application.
 - **Key Features**:
   - Data upload (CSV, .dat files)
   - Manual model selection from 79+ SasModels
-  - AI-assisted model suggestion (with Anthropic API or heuristics)
+  - AI-assisted model suggestion (with OpenAI API or heuristics)
   - Interactive parameter configuration with Streamlit UI
   - Real-time fitting with BUMPS and LMFit engines
   - Interactive Plotly visualization
   - CSV export of results
-- **Dependencies**: streamlit, plotly, pandas, numpy, anthropic, sasmodels, sans_fitter
+- **Dependencies**: streamlit, plotly, pandas, numpy, openai, sasmodels, sans_fitter
 - **Run**: `streamlit run app.py`
 
 #### `requirements.txt`
@@ -26,7 +26,7 @@ This document describes all files added for the Streamlit web application.
   - `streamlit>=1.28.0` - Web framework
   - `plotly>=5.17.0` - Interactive plots
   - `pandas>=2.0.0` - Data handling
-  - `anthropic>=0.7.0` - AI model suggestions (optional)
+  - `openai>=1.0.0` - AI model suggestions (optional)
   - Core SANS packages: sasmodels, bumps, scipy, numpy
 
 ### Testing & Demo Files
@@ -207,7 +207,7 @@ SANS-fitter/
 ### 2. Model Selection ✓
 - Manual: 79+ models from SasModels
 - AI-Assisted: Heuristic-based suggestions
-- AI-Assisted: Anthropic API integration (optional)
+- AI-Assisted: OpenAI API integration (optional)
 - Dynamic model loading
 
 ### 3. Parameter Configuration ✓
@@ -281,9 +281,9 @@ streamlit run app.py           # Launch application
 
 ## API Integration
 
-### Anthropic Claude API (Optional)
+### OpenAI API (Optional)
 - **Purpose**: Enhanced AI model suggestions
-- **Cost**: Free tier available
+- **Cost**: Pay-per-use pricing
 - **Fallback**: Built-in heuristic suggestions work without API key
 - **Privacy**: API key not stored, session-only
 

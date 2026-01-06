@@ -194,7 +194,7 @@ A Streamlit-based web application is now available for interactive SANS data ana
 
 ```bash
 # Install web application dependencies
-pip install -r requirements.txt
+pip install -e ".[web]"
 
 # Run the Streamlit app
 streamlit run app.py
@@ -207,7 +207,7 @@ The app will open in your browser at `http://localhost:8501`.
 1. **Upload Data**: Use the sidebar to upload your SANS data file (CSV or .dat format with Q, I, dI columns) or load the example dataset
 2. **Select Model**: 
    - **Manual**: Choose from dropdown of all SasModels models
-   - **AI-Assisted**: Optionally provide an Anthropic API key for AI-powered suggestions, or use built-in heuristics
+   - **AI-Assisted**: Optionally provide an OpenAI API key for AI-powered suggestions, or use built-in heuristics
 3. **Configure Parameters**: Set initial values, bounds, and which parameters to fit
 4. **Run Fit**: Choose optimization engine (BUMPS or LMFit) and method, then click "Run Fit"
 5. **View Results**: Interactive plots show data with error bars and fitted curve
@@ -245,11 +245,11 @@ docker run -p 8501:8501 sans-fitter-app
 
 ### API Integration
 
-The web app supports optional AI-powered model suggestions via the Anthropic API:
+The web app supports optional AI-powered model suggestions via the OpenAI API:
 
-1. Get an API key from [console.anthropic.com](https://console.anthropic.com)
+1. Get an API key from [platform.openai.com](https://platform.openai.com)
 2. Enter the key in the sidebar when using AI-Assisted mode
-3. Or set as environment variable: `export ANTHROPIC_API_KEY=your-key-here`
+3. Or set as environment variable: `export OPENAI_API_KEY=your-key-here`
 
 **Note**: The app also works without an API key using built-in heuristic suggestions.
 

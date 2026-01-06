@@ -10,9 +10,8 @@ cd SANS-fitter
 
 ### 2. Install Dependencies
 ```bash
-# Install the SANS-fitter package and web app dependencies
-pip install -e .
-pip install -r requirements.txt
+# Install the SANS-fitter package with web app dependencies
+pip install -e ".[web]"
 ```
 
 ### 3. Run the Application
@@ -50,7 +49,7 @@ python test_app.py
 
 ```
 ├── app.py                      # Main Streamlit application
-├── requirements.txt            # Web app dependencies
+├── pyproject.toml             # Package config with [web] optional deps
 ├── demo_app.py                # Command-line demo
 ├── test_app.py                # Test suite
 ├── simulated_sans_data.csv    # Example dataset (200 points)
@@ -79,7 +78,7 @@ python test_app.py
 
 **AI-Assisted Mode:**
 - Click "Get AI Suggestions"
-- Optional: Enter Anthropic API key for enhanced suggestions
+- Optional: Enter OpenAI API key for enhanced suggestions
 - Select from suggested models
 - Click "Load Model"
 
@@ -138,9 +137,9 @@ git push heroku main
 
 ## API Key (Optional)
 
-For enhanced AI model suggestions, get a free API key from [Anthropic](https://console.anthropic.com):
+For enhanced AI model suggestions, get an API key from [OpenAI](https://platform.openai.com):
 
-1. Create account at console.anthropic.com
+1. Create account at platform.openai.com
 2. Generate API key
 3. Enter in sidebar when using AI-Assisted mode
 
