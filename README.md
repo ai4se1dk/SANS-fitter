@@ -12,7 +12,7 @@ A flexible, model-agnostic Python template for fitting Small-Angle Neutron Scatt
 - **Multiple Fitting Engines**: Supports both BUMPS (default) and LMFit optimization engines
 - **Flexible Data Loading**: Reads CSV, XML, and HDF5 formats via sasdata
 - **User-Friendly Parameter Management**: Easy-to-use interface for setting parameter values, bounds, and fitting flags
-- **Comprehensive Visualization**: Automatic plotting of data, fitted model, and residuals
+- **Interactive Visualization**: Automatic plotting of data, fitted model, and residuals with Plotly
 - **Result Export**: Save fitted parameters and curves to CSV files
 
 ## Installation

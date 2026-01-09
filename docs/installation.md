@@ -43,7 +43,7 @@ pixi install
 SANS Fitter relies on the following libraries:
 
 - **numpy**: Numerical computing
-- **matplotlib**: Plotting and visualization
+- **plotly**: Interactive plotting and visualization
 - **scipy**: Scientific computing and optimization
 - **sasmodels**: SANS model calculations
 - **sasdata**: SANS data loading

@@ -8,8 +8,9 @@ optimization engines (BUMPS, LMFit) with any model from the SasModels library.
 import warnings
 from typing import Any, Literal, Optional
 
-import matplotlib.pyplot as plt
 import numpy as np
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from bumps.fitters import fit as bumps_fit
 from bumps.formatnum import format_uncertainty
 
@@ -616,34 +617,43 @@ class SANSFitter:
 
         return self.fit_result
 
-    def plot_results(self, show_residuals: bool = True, log_scale: bool = True) -> None:
+    def plot_results(self, show_residuals: bool = True, log_scale: bool = True) -> go.Figure:
         """
         Plot experimental data and fitted model.
 
         Args:
             show_residuals: If True, show residuals in a separate panel
             log_scale: If True, use log scale for both axes
+
+        Returns:
+            Plotly Figure object
         """
         if self.data is None:
             raise ValueError('No data to plot. Use load_data() first.')
 
         if self.fit_result is None:
             print('No fit results available. Plotting data only.')
-            plt.figure(figsize=(10, 6))
-            plt.errorbar(
-                self.data.x, self.data.y, yerr=self.data.dy, fmt='o', label='Data', alpha=0.6
+            fig = go.Figure()
+            fig.add_trace(
+                go.Scatter(
+                    x=self.data.x,
+                    y=self.data.y,
+                    error_y=dict(type='data', array=self.data.dy, visible=True),
+                    mode='markers',
+                    name='Data',
+                    opacity=0.6,
+                )
             )
-            plt.xlabel('Q (Å⁻¹)')
-            plt.ylabel('I(Q)')
-            plt.title('SANS Data')
-            if log_scale:
-                plt.xscale('log')
-                plt.yscale('log')
-            plt.legend()
-            plt.grid(True, alpha=0.3)
-            plt.tight_layout()
-            plt.show()
-            return
+            fig.update_layout(
+                title='SANS Data',
+                xaxis_title='Q (Å⁻¹)',
+                yaxis_title='I(Q)',
+                xaxis_type='log' if log_scale else 'linear',
+                yaxis_type='log' if log_scale else 'linear',
+                template='plotly_white',
+            )
+            fig.show()
+            return fig
 
         # Calculate fitted curve
         if self.fit_result['engine'] == 'bumps':
@@ -660,47 +670,94 @@ class SANSFitter:
 
         # Create plot
         if show_residuals:
-            fig, (ax1, ax2) = plt.subplots(
-                2, 1, figsize=(10, 10), gridspec_kw={'height_ratios': [3, 1]}
+            fig = make_subplots(
+                rows=2,
+                cols=1,
+                row_heights=[0.75, 0.25],
+                shared_xaxes=True,
+                vertical_spacing=0.05,
             )
         else:
-            fig, ax1 = plt.subplots(1, 1, figsize=(10, 6))
+            fig = go.Figure()
 
-        # Main plot
-        ax1.errorbar(
-            self.data.x,
-            self.data.y,
-            yerr=self.data.dy,
-            fmt='o',
-            label='Experimental Data',
-            alpha=0.6,
-            markersize=4,
+        # Main plot - experimental data with error bars
+        data_trace = go.Scatter(
+            x=self.data.x,
+            y=self.data.y,
+            error_y=dict(type='data', array=self.data.dy, visible=True),
+            mode='markers',
+            name='Experimental Data',
+            opacity=0.6,
+            marker=dict(size=6),
         )
-        ax1.plot(q, I_fit, 'r-', label='Fitted Model', linewidth=2)
-        ax1.set_xlabel('Q (Å⁻¹)', fontsize=12)
-        ax1.set_ylabel('I(Q)', fontsize=12)
-        ax1.set_title(
-            f'SANS Fit: {self.model_name} (χ² = {self.fit_result["chisq"]:.4f})', fontsize=14
+
+        # Fitted model line
+        fit_trace = go.Scatter(
+            x=q,
+            y=I_fit,
+            mode='lines',
+            name='Fitted Model',
+            line=dict(color='red', width=2),
         )
-        ax1.legend()
-        ax1.grid(True, alpha=0.3)
 
-        if log_scale:
-            ax1.set_xscale('log')
-            ax1.set_yscale('log')
-
-        # Residuals plot
         if show_residuals:
-            ax2.axhline(0, color='gray', linestyle='--', linewidth=1)
-            ax2.plot(self.data.x, residuals, 'o', markersize=4, alpha=0.6)
-            ax2.set_xlabel('Q (Å⁻¹)', fontsize=12)
-            ax2.set_ylabel('Residuals (σ)', fontsize=12)
-            ax2.grid(True, alpha=0.3)
-            if log_scale:
-                ax2.set_xscale('log')
+            fig.add_trace(data_trace, row=1, col=1)
+            fig.add_trace(fit_trace, row=1, col=1)
 
-        plt.tight_layout()
-        plt.show()
+            # Residuals plot
+            fig.add_trace(
+                go.Scatter(
+                    x=self.data.x,
+                    y=residuals,
+                    mode='markers',
+                    name='Residuals',
+                    marker=dict(size=6),
+                    opacity=0.6,
+                    showlegend=False,
+                ),
+                row=2,
+                col=1,
+            )
+
+            # Add zero line for residuals
+            fig.add_hline(y=0, line_dash='dash', line_color='gray', row=2, col=1)
+
+            # Update axes
+            fig.update_xaxes(
+                title_text='Q (Å⁻¹)',
+                type='log' if log_scale else 'linear',
+                row=2,
+                col=1,
+            )
+            fig.update_yaxes(
+                title_text='I(Q)',
+                type='log' if log_scale else 'linear',
+                row=1,
+                col=1,
+            )
+            fig.update_yaxes(title_text='Residuals (σ)', row=2, col=1)
+            fig.update_xaxes(type='log' if log_scale else 'linear', row=1, col=1)
+        else:
+            fig.add_trace(data_trace)
+            fig.add_trace(fit_trace)
+            fig.update_xaxes(
+                title_text='Q (Å⁻¹)',
+                type='log' if log_scale else 'linear',
+            )
+            fig.update_yaxes(
+                title_text='I(Q)',
+                type='log' if log_scale else 'linear',
+            )
+
+        fig.update_layout(
+            title=f'SANS Fit: {self.model_name} (χ² = {self.fit_result["chisq"]:.4f})',
+            template='plotly_white',
+            height=800 if show_residuals else 500,
+            width=900,
+        )
+
+        fig.show()
+        return fig
 
     def save_results(self, filename: str) -> None:
         """
