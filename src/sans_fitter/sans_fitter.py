@@ -10,12 +10,12 @@ from typing import Any, Literal, Optional
 
 import numpy as np
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 from bumps.fitters import fit as bumps_fit
 from bumps.formatnum import format_uncertainty
 
 # Fitting engine imports
 from bumps.names import FitProblem
+from plotly.subplots import make_subplots
 from sasdata.dataloader.loader import Loader
 from sasmodels.bumps_model import Experiment
 from sasmodels.bumps_model import Model as BumpsModel
@@ -638,7 +638,7 @@ class SANSFitter:
                 go.Scatter(
                     x=self.data.x,
                     y=self.data.y,
-                    error_y=dict(type='data', array=self.data.dy, visible=True),
+                    error_y={'type': 'data', 'array': self.data.dy, 'visible': True},
                     mode='markers',
                     name='Data',
                     opacity=0.6,
@@ -684,11 +684,11 @@ class SANSFitter:
         data_trace = go.Scatter(
             x=self.data.x,
             y=self.data.y,
-            error_y=dict(type='data', array=self.data.dy, visible=True),
+            error_y={'type': 'data', 'array': self.data.dy, 'visible': True},
             mode='markers',
             name='Experimental Data',
             opacity=0.6,
-            marker=dict(size=6),
+            marker={'size': 6},
         )
 
         # Fitted model line
@@ -697,7 +697,7 @@ class SANSFitter:
             y=I_fit,
             mode='lines',
             name='Fitted Model',
-            line=dict(color='red', width=2),
+            line={'color': 'red', 'width': 2},
         )
 
         if show_residuals:
@@ -711,7 +711,7 @@ class SANSFitter:
                     y=residuals,
                     mode='markers',
                     name='Residuals',
-                    marker=dict(size=6),
+                    marker={'size': 6},
                     opacity=0.6,
                     showlegend=False,
                 ),
