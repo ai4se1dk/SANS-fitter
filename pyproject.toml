@@ -19,6 +19,10 @@ dependencies = [
     "sasmodels>=1.0",
     "sasdata>=0.8",
     "bumps>=0.9",
+    "jupyter>=1.0",
+    "notebook>=7.0",
+    "ipykernel>=6.0",
+    "ipywidgets>=8.0",
 ]
 
 [tool.setuptools.packages.find]
