@@ -389,7 +389,7 @@ class TestVisualization(unittest.TestCase):
 
     def test_plot_data_only(self):
         """Test plotting without fit results."""
-        with patch('matplotlib.pyplot.show'):
+        with patch('plotly.graph_objects.Figure.show'):
             # Should not raise error
             self.fitter.plot_results()
 
@@ -399,7 +399,7 @@ class TestVisualization(unittest.TestCase):
         with self.assertRaises(ValueError):
             fitter.plot_results()
 
-    @patch('matplotlib.pyplot.show')
+    @patch('plotly.graph_objects.Figure.show')
     def test_plot_with_fit_results(self, mock_show):
         """Test plotting with fit results."""
         self.fitter.set_model('sphere')
