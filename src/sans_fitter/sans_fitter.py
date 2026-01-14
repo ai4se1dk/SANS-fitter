@@ -10,24 +10,24 @@ from typing import Any, Literal, Optional
 
 import numpy as np
 import plotly.graph_objects as go
-from bumps.fitters import fit as bumps_fit
-from bumps.formatnum import format_uncertainty
-
-# Fitting engine imports
-from bumps.names import FitProblem
 from plotly.subplots import make_subplots
 from sasdata.dataloader.loader import Loader
-from sasmodels.bumps_model import Experiment
-from sasmodels.bumps_model import Model as BumpsModel
-
-# SasModels and SasData imports
 from sasmodels.core import load_model
 from sasmodels.direct_model import DirectModel
 
+from .bumps_engine import BumpsFittingEngine
 from .parameter_manager import ParameterManager
 
 try:
-    from scipy.optimize import differential_evolution, least_squares, leastsq
+    from .scipy_engine import ScipyFittingEngine
+
+    SCIPY_AVAILABLE = True
+except ImportError:
+    SCIPY_AVAILABLE = False
+
+# Keep scipy.optimize for backwards compatibility (even though not directly used)
+try:
+    from scipy.optimize import differential_evolution, least_squares, leastsq  # noqa: F401
 
     LMFIT_AVAILABLE = True
 except ImportError:
@@ -63,6 +63,12 @@ class SANSFitter:
         self.param_manager = ParameterManager()
         self.fit_result = None
         self._fitted_model = None
+
+        # Initialize fitting engines
+        self._fitting_engines = {'bumps': BumpsFittingEngine()}
+        if SCIPY_AVAILABLE:
+            self._fitting_engines['scipy'] = ScipyFittingEngine()
+            self._fitting_engines['lmfit'] = self._fitting_engines['scipy']  # Alias
 
     @property
     def params(self) -> dict[str, dict[str, Any]]:
@@ -263,7 +269,7 @@ class SANSFitter:
             engine: Fitting engine ('bumps' or 'lmfit')
             method: Optimization method (engine-specific)
                    - BUMPS: 'amoeba', 'lm', 'newton', 'de' (default: 'amoeba')
-                   - LMFit: 'leastsq', 'least_squares', 'differential_evolution', etc.
+                   - LMFit/Scipy: 'leastsq', 'least_squares', 'differential_evolution', etc.
             **kwargs: Additional arguments passed to the fitting engine
 
         Returns:
@@ -277,211 +283,42 @@ class SANSFitter:
         if self.kernel is None:
             raise ValueError('No model loaded. Use set_model() first.')
 
-        if engine == 'bumps':
-            return self._fit_bumps(method or 'amoeba', **kwargs)
-        elif engine == 'lmfit':
-            if not LMFIT_AVAILABLE:
-                raise ValueError("scipy is not installed. Use 'bumps' engine or install scipy.")
-            return self._fit_lmfit(method or 'leastsq', **kwargs)
+        # Get the appropriate fitting engine
+        if engine not in self._fitting_engines:
+            available = ', '.join(self._fitting_engines.keys())
+            raise ValueError(f"Unknown engine '{engine}'. Available engines: {available}")
+
+        fitting_engine = self._fitting_engines[engine]
+
+        # Set default method if not specified
+        if method is None:
+            method = 'amoeba' if engine == 'bumps' else 'leastsq'
+
+        # Perform fit using the strategy
+        # Pass engine_name for scipy to maintain backward compatibility
+        if engine in ['scipy', 'lmfit']:
+            self.fit_result = fitting_engine.fit(
+                data=self.data,
+                kernel=self.kernel,
+                param_manager=self.param_manager,
+                method=method,
+                engine_name=engine,  # Pass the original engine name for compatibility
+                **kwargs,
+            )
         else:
-            raise ValueError(f"Unknown engine '{engine}'. Use 'bumps' or 'lmfit'.")
-
-    def _fit_bumps(self, method: str = 'amoeba', **kwargs: Any) -> dict[str, Any]:
-        """Fit using BUMPS engine."""
-        # Prepare parameter dictionary for BumpsModel
-        pars = self.param_manager.get_param_values()
-
-        # Create BUMPS model
-        model = BumpsModel(self.kernel, **pars)
-
-        # Set parameter ranges for fitting
-        for name, info in self.param_manager.params.items():
-            if info['vary']:
-                param_obj = getattr(model, name)
-                param_obj.range(info['min'], info['max'])
-
-        # Handle radius_effective linking in link_radius mode
-        if (
-            self.param_manager.get_radius_effective_mode() == 'link_radius'
-            and hasattr(model, 'radius_effective')
-            and hasattr(model, 'radius')
-        ):
-            # Constrain radius_effective to equal radius
-            model.radius_effective = model.radius
-
-        # Create experiment and fit problem
-        experiment = Experiment(data=self.data, model=model)
-        problem = FitProblem(experiment)
-
-        print(f'\nInitial χ² = {problem.chisq():.4f}')
-        print(f'Fitting with BUMPS (method: {method})...')
-
-        # Perform fit
-        result = bumps_fit(problem, method=method, **kwargs)
-
-        # Store results
-        self.fit_result = {
-            'engine': 'bumps',
-            'method': method,
-            'chisq': problem.chisq(),
-            'parameters': {},
-            'problem': problem,
-            'result': result,
-        }
-
-        # Extract fitted parameters
-        for k, v, dv in zip(problem.labels(), result.x, result.dx):
-            self.fit_result['parameters'][k] = {
-                'value': v,
-                'stderr': dv,
-                'formatted': format_uncertainty(v, dv),
-            }
-            # Update internal parameter values
-            if self.param_manager.validate_param(k):
-                self.param_manager.update_param_value(k, v)
-
-        self._fitted_model = problem
-
-        # Print results
-        print('\n✓ Fit completed!')
-        print(f'Final χ² = {self.fit_result["chisq"]:.4f}')
-        print('\nFitted parameters:')
-        for name, info in self.fit_result['parameters'].items():
-            print(f'  {name}: {info["formatted"]}')
-
-        return self.fit_result
-
-    def _fit_lmfit(self, method: str = 'leastsq', **kwargs: Any) -> dict[str, Any]:
-        """Fit using scipy.optimize (leastsq/least_squares) engine."""
-        # Get initial parameter values and build bounds
-        param_names = self.param_manager.get_varying_params()
-        params_dict = self.param_manager.get_param_dict()
-        x0 = np.array([params_dict[name]['value'] for name in param_names])
-        bounds_lower = np.array([params_dict[name]['min'] for name in param_names])
-        bounds_upper = np.array([params_dict[name]['max'] for name in param_names])
-
-        # Create direct model calculator (kernel already set to CPU in set_model)
-        calculator = DirectModel(self.data, self.kernel)
-
-        # Capture instance attributes for use in residual closure
-        radius_effective_mode = self.param_manager.get_radius_effective_mode()
-
-        # Define residual function
-        def residual(x):
-            # Build full parameter dictionary
-            par_dict = self.param_manager.get_param_values()
-            # Update with fitted parameters
-            for i, name in enumerate(param_names):
-                par_dict[name] = x[i]
-
-            # Handle radius_effective linking in link_radius mode
-            if (
-                radius_effective_mode == 'link_radius'
-                and 'radius' in par_dict
-                and 'radius_effective' in par_dict
-            ):
-                par_dict['radius_effective'] = par_dict['radius']
-
-            # Calculate model
-            I_calc = calculator(**par_dict)
-            # Return weighted residuals
-            return (self.data.y - I_calc) / self.data.dy
-
-        print(f'\nFitting with scipy.optimize (method: {method})...')
-
-        # Perform fit based on method
-        if method == 'leastsq':
-            # Levenberg-Marquardt (no bounds support)
-            result = leastsq(residual, x0, full_output=True, **kwargs)
-            fitted_params = result[0]
-            cov_matrix = result[1]
-            result[2]
-
-            # Calculate parameter errors from covariance matrix
-            if cov_matrix is not None:
-                param_errors = np.sqrt(np.diag(cov_matrix))
-            else:
-                param_errors = np.zeros_like(fitted_params)
-
-            # Calculate chi-squared
-            final_residuals = residual(fitted_params)
-            chisq = np.sum(final_residuals**2)
-
-        elif method == 'least_squares':
-            # Trust Region Reflective (supports bounds)
-            bounds = (bounds_lower, bounds_upper)
-            result = least_squares(residual, x0, bounds=bounds, **kwargs)
-            fitted_params = result.x
-
-            # Estimate parameter errors from Jacobian
-            try:
-                # Compute covariance from Jacobian
-                J = result.jac
-                cov_matrix = np.linalg.inv(J.T @ J)
-                param_errors = np.sqrt(np.diag(cov_matrix))
-            except Exception as e:
-                # If Jacobian-based covariance estimation fails, fall back to zeros
-                # and emit a warning so users can investigate the cause.
-                warnings.warn(f'Failed to compute covariance from Jacobian: {e}', stacklevel=2)
-                param_errors = np.zeros_like(fitted_params)
-
-            chisq = np.sum(result.fun**2)
-
-        elif method == 'differential_evolution':
-            # Global optimizer (supports bounds)
-            bounds_list = list(zip(bounds_lower, bounds_upper))
-
-            def objective(x):
-                return np.sum(residual(x) ** 2)
-
-            result = differential_evolution(objective, bounds_list, **kwargs)
-            fitted_params = result.x
-            param_errors = np.zeros_like(fitted_params)  # DE doesn't provide errors
-            chisq = result.fun
-
-        else:
-            raise ValueError(
-                f"Unknown method '{method}'. Use 'leastsq', 'least_squares', or 'differential_evolution'."
+            self.fit_result = fitting_engine.fit(
+                data=self.data,
+                kernel=self.kernel,
+                param_manager=self.param_manager,
+                method=method,
+                **kwargs,
             )
 
-        # Store results
-        self.fit_result = {
-            'engine': 'lmfit',
-            'method': method,
-            'chisq': chisq,
-            'parameters': {},
-            'result': result,
-        }
-
-        # Extract fitted parameters
-        for i, name in enumerate(param_names):
-            self.fit_result['parameters'][name] = {
-                'value': fitted_params[i],
-                'stderr': param_errors[i],
-                'formatted': f'{fitted_params[i]:.6g} ± {param_errors[i]:.6g}'
-                if param_errors[i] > 0
-                else f'{fitted_params[i]:.6g}',
-            }
-            # Update internal parameter values
-            self.param_manager.update_param_value(name, fitted_params[i])
-
-        # Add fixed parameters to results
-        for name, info in params_dict.items():
-            if name not in param_names:
-                self.fit_result['parameters'][name] = {
-                    'value': info['value'],
-                    'stderr': 0.0,
-                    'formatted': f'{info["value"]:.6g} (fixed)',
-                }
-
-        self._fitted_model = result
-
-        # Print results
-        print('\n✓ Fit completed!')
-        print(f'Final χ² = {self.fit_result["chisq"]:.4f}')
-        print('\nFitted parameters:')
-        for name, info in self.fit_result['parameters'].items():
-            print(f'  {name}: {info["formatted"]}')
+        # Store fitted model for later use
+        if 'problem' in self.fit_result:
+            self._fitted_model = self.fit_result['problem']
+        elif 'result' in self.fit_result:
+            self._fitted_model = self.fit_result['result']
 
         return self.fit_result
 
@@ -523,12 +360,16 @@ class SANSFitter:
             fig.show()
             return fig
 
-        # Calculate fitted curve
-        if self.fit_result['engine'] == 'bumps':
-            problem = self._fitted_model
-            q = self.data.x
-            I_fit = problem.fitness.theory()
-        else:  # lmfit
+        # Calculate fitted curve using the appropriate engine
+        engine_name = self.fit_result['engine']
+        if engine_name == 'lmfit':
+            engine_name = 'scipy'  # Map lmfit to scipy
+
+        fitting_engine = self._fitting_engines.get(engine_name)
+        if fitting_engine:
+            q, I_fit = fitting_engine.get_fitted_curve(self.fit_result, self.data, self.kernel)
+        else:
+            # Fallback for backward compatibility
             calculator = DirectModel(self.data, self.kernel)
             par_dict = {name: info['value'] for name, info in self.fit_result['parameters'].items()}
             I_fit = calculator(**par_dict)
@@ -651,10 +492,16 @@ class SANSFitter:
             f.write('#\n')
             f.write('Q,I_exp,dI_exp,I_fit,Residuals\n')
 
-            # Get fitted curve
-            if self.fit_result['engine'] == 'bumps':
-                I_fit = self._fitted_model.fitness.theory()
+            # Get fitted curve using the appropriate engine
+            engine_name = self.fit_result['engine']
+            if engine_name == 'lmfit':
+                engine_name = 'scipy'  # Map lmfit to scipy
+
+            fitting_engine = self._fitting_engines.get(engine_name)
+            if fitting_engine:
+                _, I_fit = fitting_engine.get_fitted_curve(self.fit_result, self.data, self.kernel)
             else:
+                # Fallback for backward compatibility
                 calculator = DirectModel(self.data, self.kernel)
                 par_dict = {
                     name: info['value'] for name, info in self.fit_result['parameters'].items()

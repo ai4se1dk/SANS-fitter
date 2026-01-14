@@ -72,9 +72,12 @@ The SANS-fitter package is organized into modular components for maintainability
 
 ```
 src/sans_fitter/
-├── __init__.py           # Package exports
-├── sans_fitter.py        # Main SANSFitter class
-└── parameter_manager.py  # Parameter management
+├── __init__.py            # Package exports
+├── sans_fitter.py         # Main SANSFitter class
+├── parameter_manager.py   # Parameter management
+├── fitting_engine.py      # Abstract fitting engine interface
+├── bumps_engine.py        # BUMPS fitting implementation
+└── scipy_engine.py        # Scipy fitting implementation
 ```
 
 ### Key Components
@@ -84,7 +87,7 @@ src/sans_fitter/
 The main interface for SANS data fitting. Responsibilities:
 - Data loading and management
 - Model selection and kernel management
-- Orchestrating fitting operations
+- Orchestrating fitting operations via strategy pattern
 - Result visualization and export
 
 #### ParameterManager Class
@@ -95,11 +98,18 @@ Encapsulates all parameter-related operations. Responsibilities:
 - Structure factor parameter linking
 - Parameter state management (backup/restore)
 
-This separation improves code organization by:
-- **Single Responsibility**: Each class has a clear, focused purpose
-- **Testability**: Parameter logic can be tested independently
-- **Maintainability**: Parameter management changes don't affect core fitting logic
-- **Extensibility**: Easy to add new parameter features without modifying SANSFitter
+#### FittingEngine Strategy Pattern
+
+Abstract base class defining the interface for optimization engines:
+- **FittingEngine**: Abstract interface
+- **BumpsFittingEngine**: BUMPS optimization implementation
+- **ScipyFittingEngine**: scipy.optimize implementation
+
+Benefits:
+- **Easy Extensibility**: Add new engines without modifying SANSFitter
+- **Independent Testing**: Each engine can be tested in isolation
+- **Swappable Backends**: Users can switch engines without code changes
+- **Clean Separation**: Fitting logic separated from orchestration
 
 ### Design Decisions
 
@@ -110,3 +120,5 @@ This separation improves code organization by:
 - Parameter state management (ParameterManager)
 
 This allows clean separation while maintaining consistency.
+
+**Fitting Engine Selection**: Engines are registered in `SANSFitter.__init__` and selected dynamically based on user's engine choice, enabling runtime flexibility.
