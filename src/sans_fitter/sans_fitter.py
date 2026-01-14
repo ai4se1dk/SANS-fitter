@@ -210,7 +210,10 @@ class SANSFitter:
             )
 
             if radius_effective_mode == 'link_radius':
-                if 'radius' in self.param_manager.params and 'radius_effective' in self.param_manager.params:
+                if (
+                    'radius' in self.param_manager.params
+                    and 'radius_effective' in self.param_manager.params
+                ):
                     print("  Note: 'radius_effective' linked to 'radius' value")
 
             print(f"✓ Structure factor '{structure_factor_name}' applied to '{self.model_name}'")
