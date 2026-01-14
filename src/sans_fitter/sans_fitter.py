@@ -24,6 +24,8 @@ from sasmodels.bumps_model import Model as BumpsModel
 from sasmodels.core import load_model
 from sasmodels.direct_model import DirectModel
 
+from .parameter_manager import ParameterManager
+
 try:
     from scipy.optimize import differential_evolution, least_squares, leastsq
 
@@ -58,14 +60,19 @@ class SANSFitter:
         self.data = None
         self.kernel = None
         self.model_name = None
-        self.params = {}
+        self.param_manager = ParameterManager()
         self.fit_result = None
         self._fitted_model = None
 
-        # Structure factor support
-        self._structure_factor_name = None
-        self._radius_effective_mode = 'unconstrained'
-        self._form_factor_params = {}  # Store form factor params separately
+    @property
+    def params(self) -> dict[str, dict[str, Any]]:
+        """
+        Get parameter dictionary (for backward compatibility).
+
+        Returns:
+            Dictionary of parameter configurations
+        """
+        return self.param_manager.params
 
     def load_data(self, filename: str) -> None:
         """
@@ -114,77 +121,23 @@ class SANSFitter:
             ValueError: If the model name is not valid
         """
         try:
-            # Reset structure factor when changing form factor
-            self._structure_factor_name = None
-            self._radius_effective_mode = 'unconstrained'
-            self._form_factor_params = {}
-
             # Force CPU platform to avoid OpenCL issues
             self.kernel = load_model(model_name, dtype='single', platform='dll')
             self.model_name = model_name
 
-            # Initialize parameters with default values from the model
-            self.params = {}
-            for param in self.kernel.info.parameters.kernel_parameters:
-                self.params[param.name] = {
-                    'value': param.default,
-                    'min': param.limits[0] if param.limits[0] > -np.inf else 0,
-                    'max': param.limits[1] if param.limits[1] < np.inf else param.default * 10,
-                    'vary': False,  # By default, parameters are fixed
-                    'description': param.description,
-                }
-
-            # Add implicit scale and background parameters (present in all models)
-            # These are not in kernel_parameters but are always available
-            if 'scale' not in self.params:
-                self.params['scale'] = {
-                    'value': 1.0,
-                    'min': 0.0,
-                    'max': np.inf,
-                    'vary': False,
-                    'description': 'Scale factor for the model intensity',
-                }
-
-            if 'background' not in self.params:
-                self.params['background'] = {
-                    'value': 0.0,
-                    'min': 0.0,
-                    'max': np.inf,
-                    'vary': False,
-                    'description': 'Constant background level',
-                }
+            # Initialize parameters using ParameterManager (this also resets structure factor)
+            self.param_manager.clear()
+            self.param_manager.initialize_from_kernel(self.kernel, model_name)
 
             print(f"✓ Model '{model_name}' loaded successfully")
-            print(f'  Available parameters: {len(self.params)}')
+            print(f'  Available parameters: {len(self.param_manager.params)}')
 
         except Exception as e:
             raise ValueError(f"Failed to load model '{model_name}': {str(e)}") from e
 
     def get_params(self) -> None:
         """Display current parameter values and settings in a readable format."""
-        if not self.params:
-            print('No model loaded. Use set_model() first.')
-            return
-
-        print(f'\n{"=" * 80}')
-        print(f'Model: {self.model_name}')
-        if self._structure_factor_name:
-            print(f'Structure Factor: {self._structure_factor_name}')
-            print(f'Radius Effective Mode: {self._radius_effective_mode}')
-        print(f'{"=" * 80}')
-        print(f'{"Parameter":<20} {"Value":<12} {"Min":<12} {"Max":<12} {"Vary":<8}')
-        print(f'{"-" * 80}')
-
-        for name, info in self.params.items():
-            vary_str = '✓' if info['vary'] else '✗'
-            # Show linked indicator for radius_effective in link_radius mode
-            if name == 'radius_effective' and self._radius_effective_mode == 'link_radius':
-                vary_str = '→radius'
-            print(
-                f'{name:<20} {info["value"]:<12.4g} {info["min"]:<12.4g} '
-                f'{info["max"]:<12.4g} {vary_str:<8}'
-            )
-        print(f'{"=" * 80}\n')
+        self.param_manager.display_params()
 
     def set_param(
         self,
@@ -207,25 +160,7 @@ class SANSFitter:
         Raises:
             KeyError: If parameter name doesn't exist for the current model
         """
-        if name not in self.params:
-            available = ', '.join(self.params.keys())
-            raise KeyError(f"Parameter '{name}' not found. Available: {available}")
-
-        if value is not None:
-            self.params[name]['value'] = value
-            # Sync radius_effective when radius is updated in link_radius mode
-            if (
-                name == 'radius'
-                and self._radius_effective_mode == 'link_radius'
-                and 'radius_effective' in self.params
-            ):
-                self.params['radius_effective']['value'] = value
-        if min is not None:
-            self.params[name]['min'] = min
-        if max is not None:
-            self.params[name]['max'] = max
-        if vary is not None:
-            self.params[name]['vary'] = vary
+        self.param_manager.set_param(name, value=value, min=min, max=max, vary=vary)
 
     def set_structure_factor(
         self, structure_factor_name: str, radius_effective_mode: str = 'unconstrained'
@@ -262,86 +197,25 @@ class SANSFitter:
                 f'Supported: {", ".join(supported_sf)}'
             )
 
-        # Validate radius_effective_mode
-        if radius_effective_mode not in ['unconstrained', 'link_radius']:
-            raise ValueError(
-                f"Invalid radius_effective_mode '{radius_effective_mode}'. "
-                "Use 'unconstrained' or 'link_radius'."
-            )
-
-        # Store form factor parameters before switching to product model
-        if not self._form_factor_params:
-            self._form_factor_params = {k: dict(v) for k, v in self.params.items()}
-
         # Create product model name
         full_model_name = f'{self.model_name}@{structure_factor_name}'
 
         try:
             # Load the product model
             self.kernel = load_model(full_model_name, dtype='single', platform='dll')
-            self._structure_factor_name = structure_factor_name
-            self._radius_effective_mode = radius_effective_mode
 
-            # Rebuild parameters from product model
-            new_params = {}
-            for param in self.kernel.info.parameters.kernel_parameters:
-                # Preserve existing values if parameter already exists
-                if param.name in self._form_factor_params:
-                    new_params[param.name] = dict(self._form_factor_params[param.name])
-                else:
-                    new_params[param.name] = {
-                        'value': param.default,
-                        'min': param.limits[0] if param.limits[0] > -np.inf else 0,
-                        'max': param.limits[1] if param.limits[1] < np.inf else param.default * 10,
-                        'vary': False,
-                        'description': param.description,
-                    }
+            # Update parameters using ParameterManager
+            self.param_manager.update_for_product_model(
+                self.kernel, structure_factor_name, radius_effective_mode
+            )
 
-            # Ensure scale and background are present
-            if 'scale' not in new_params:
-                if 'scale' in self._form_factor_params:
-                    new_params['scale'] = dict(self._form_factor_params['scale'])
-                else:
-                    new_params['scale'] = {
-                        'value': 1.0,
-                        'min': 0.0,
-                        'max': np.inf,
-                        'vary': False,
-                        'description': 'Scale factor for the model intensity',
-                    }
-
-            if 'background' not in new_params:
-                if 'background' in self._form_factor_params:
-                    new_params['background'] = dict(self._form_factor_params['background'])
-                else:
-                    new_params['background'] = {
-                        'value': 0.0,
-                        'min': 0.0,
-                        'max': np.inf,
-                        'vary': False,
-                        'description': 'Constant background level',
-                    }
-
-            self.params = new_params
-
-            # Handle radius_effective linking
             if radius_effective_mode == 'link_radius':
-                if 'radius' in self.params and 'radius_effective' in self.params:
-                    # Link radius_effective to radius
-                    self.params['radius_effective']['value'] = self.params['radius']['value']
-                    self.params['radius_effective']['vary'] = False
+                if 'radius' in self.param_manager.params and 'radius_effective' in self.param_manager.params:
                     print("  Note: 'radius_effective' linked to 'radius' value")
-                else:
-                    warnings.warn(
-                        'Cannot link radius_effective to radius: one or both parameters not found. '
-                        'Using unconstrained mode.',
-                        stacklevel=2,
-                    )
-                    self._radius_effective_mode = 'unconstrained'
 
             print(f"✓ Structure factor '{structure_factor_name}' applied to '{self.model_name}'")
             print(f'  Product model: {full_model_name}')
-            print(f'  Total parameters: {len(self.params)}')
+            print(f'  Total parameters: {len(self.param_manager.params)}')
 
         except Exception as e:
             raise ValueError(f"Failed to load model '{full_model_name}': {str(e)}") from e
@@ -353,20 +227,10 @@ class SANSFitter:
         Raises:
             ValueError: If no structure factor is currently set
         """
-        if self._structure_factor_name is None:
-            raise ValueError('No structure factor is currently set.')
-
         # Reload the original form factor model
         try:
+            sf_name = self.param_manager.remove_structure_factor()
             self.kernel = load_model(self.model_name, dtype='single', platform='dll')
-
-            # Restore form factor parameters
-            self.params = {k: dict(v) for k, v in self._form_factor_params.items()}
-
-            sf_name = self._structure_factor_name
-            self._structure_factor_name = None
-            self._radius_effective_mode = 'unconstrained'
-            self._form_factor_params = {}
 
             print(f"✓ Structure factor '{sf_name}' removed")
             print(f'  Reverted to form factor: {self.model_name}')
@@ -381,7 +245,7 @@ class SANSFitter:
         Returns:
             Name of the structure factor, or None if no structure factor is set
         """
-        return self._structure_factor_name
+        return self.param_manager.get_structure_factor()
 
     def fit(
         self,
@@ -422,20 +286,20 @@ class SANSFitter:
     def _fit_bumps(self, method: str = 'amoeba', **kwargs: Any) -> dict[str, Any]:
         """Fit using BUMPS engine."""
         # Prepare parameter dictionary for BumpsModel
-        pars = {name: info['value'] for name, info in self.params.items()}
+        pars = self.param_manager.get_param_values()
 
         # Create BUMPS model
         model = BumpsModel(self.kernel, **pars)
 
         # Set parameter ranges for fitting
-        for name, info in self.params.items():
+        for name, info in self.param_manager.params.items():
             if info['vary']:
                 param_obj = getattr(model, name)
                 param_obj.range(info['min'], info['max'])
 
         # Handle radius_effective linking in link_radius mode
         if (
-            self._radius_effective_mode == 'link_radius'
+            self.param_manager.get_radius_effective_mode() == 'link_radius'
             and hasattr(model, 'radius_effective')
             and hasattr(model, 'radius')
         ):
@@ -470,8 +334,8 @@ class SANSFitter:
                 'formatted': format_uncertainty(v, dv),
             }
             # Update internal parameter values
-            if k in self.params:
-                self.params[k]['value'] = v
+            if self.param_manager.validate_param(k):
+                self.param_manager.update_param_value(k, v)
 
         self._fitted_model = problem
 
@@ -487,21 +351,22 @@ class SANSFitter:
     def _fit_lmfit(self, method: str = 'leastsq', **kwargs: Any) -> dict[str, Any]:
         """Fit using scipy.optimize (leastsq/least_squares) engine."""
         # Get initial parameter values and build bounds
-        param_names = [name for name, info in self.params.items() if info['vary']]
-        x0 = np.array([self.params[name]['value'] for name in param_names])
-        bounds_lower = np.array([self.params[name]['min'] for name in param_names])
-        bounds_upper = np.array([self.params[name]['max'] for name in param_names])
+        param_names = self.param_manager.get_varying_params()
+        params_dict = self.param_manager.get_param_dict()
+        x0 = np.array([params_dict[name]['value'] for name in param_names])
+        bounds_lower = np.array([params_dict[name]['min'] for name in param_names])
+        bounds_upper = np.array([params_dict[name]['max'] for name in param_names])
 
         # Create direct model calculator (kernel already set to CPU in set_model)
         calculator = DirectModel(self.data, self.kernel)
 
         # Capture instance attributes for use in residual closure
-        radius_effective_mode = self._radius_effective_mode
+        radius_effective_mode = self.param_manager.get_radius_effective_mode()
 
         # Define residual function
         def residual(x):
             # Build full parameter dictionary
-            par_dict = {name: info['value'] for name, info in self.params.items()}
+            par_dict = self.param_manager.get_param_values()
             # Update with fitted parameters
             for i, name in enumerate(param_names):
                 par_dict[name] = x[i]
@@ -595,10 +460,10 @@ class SANSFitter:
                 else f'{fitted_params[i]:.6g}',
             }
             # Update internal parameter values
-            self.params[name]['value'] = fitted_params[i]
+            self.param_manager.update_param_value(name, fitted_params[i])
 
         # Add fixed parameters to results
-        for name, info in self.params.items():
+        for name, info in params_dict.items():
             if name not in param_names:
                 self.fit_result['parameters'][name] = {
                     'value': info['value'],
