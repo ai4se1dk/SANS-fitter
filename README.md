@@ -1,5 +1,6 @@
 # SANS Model Fitter
 
+[![Codacy Badge](https://api.codacy.com/project/badge/Grade/ce3a8dd1bcf940348aadde3c9ea6fe4e)](https://app.codacy.com/gh/ai4se1dk/SANS-fitter?utm_source=github.com&utm_medium=referral&utm_content=ai4se1dk/SANS-fitter&utm_campaign=Badge_Grade)
 [![Tests](https://github.com/ai4se1dk/SANS-fitter/actions/workflows/ci.yml/badge.svg)](https://github.com/ai4se1dk/SANS-fitter/actions/workflows/ci.yml)
 [![Docs](https://github.com/ai4se1dk/SANS-fitter/actions/workflows/docs.yml/badge.svg)](https://ai4se1dk.github.io/SANS-fitter/)
 [![PyPI badge](https://img.shields.io/pypi/v/sans-fitter.svg)](https://pypi.python.org/pypi/sans-fitter)
