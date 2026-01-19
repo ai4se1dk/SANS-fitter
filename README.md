@@ -4,7 +4,8 @@
 [![Docs](https://github.com/ai4se1dk/SANS-fitter/actions/workflows/docs.yml/badge.svg)](https://ai4se1dk.github.io/SANS-fitter/)
 [![PyPI badge](https://img.shields.io/pypi/v/sans-fitter.svg)](https://pypi.python.org/pypi/sans-fitter)
 [![Docs badge](https://img.shields.io/badge/docs-built-blue)](https://ai4se1dk.github.io/SANS-fitter/)
-[![codecov](https://codecov.io/gh/ai4se1dk/SANS-fitter/graph/badge.svg)](https://codecov.io/gh/ai4se1dk/SANS-fitter)
+[![Codacy Badge](https://app.codacy.com/project/badge/Grade/2ac22dd161034cdebb7478c395aff59c)](https://app.codacy.com/gh/ai4se1dk/SANS-fitter/dashboard?utm_source=gh&utm_medium=referral&utm_content=&utm_campaign=Badge_grade)
+
 
 A flexible, model-agnostic Python template for fitting Small-Angle Neutron Scattering (SANS) data using the SasModels library.
 
