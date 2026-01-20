@@ -8,7 +8,7 @@ from .parameter_manager import ParameterManager
 from .sans_fitter import SANSFitter
 
 try:
-    from .scipy_engine import ScipyFittingEngine
+    from .scipy_engine import ScipyFittingEngine  # noqa: F401
 
     __all__ = [
         'SANSFitter',

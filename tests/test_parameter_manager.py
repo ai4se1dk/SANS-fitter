@@ -13,8 +13,6 @@ import sys
 import unittest
 from unittest.mock import Mock
 
-import numpy as np
-
 # Add parent directory to path to import sans_fitter
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
