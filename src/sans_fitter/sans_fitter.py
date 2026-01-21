@@ -466,9 +466,7 @@ class SANSFitter:
             )
 
         if pd_type is not None and pd_type not in PD_DISTRIBUTION_TYPES:
-            raise ValueError(
-                f"Invalid pd_type '{pd_type}'. " f'Valid types: {PD_DISTRIBUTION_TYPES}'
-            )
+            raise ValueError(f"Invalid pd_type '{pd_type}'. Valid types: {PD_DISTRIBUTION_TYPES}")
 
         pd_config = self._polydisperse_params[param_name]
 
@@ -536,7 +534,7 @@ class SANSFitter:
         print('\nPolydispersity Parameters:')
         print('-' * 60)
         print(
-            f"{'Parameter':<15} {'PD Width':<10} {'N':<6} {'Nsigma':<8} {'Type':<12} {'Active':<8}"
+            f'{"Parameter":<15} {"PD Width":<10} {"N":<6} {"Nsigma":<8} {"Type":<12} {"Active":<8}'
         )
         print('-' * 60)
 
@@ -544,15 +542,15 @@ class SANSFitter:
             pd_config = self._polydisperse_params[param_name]
             is_active = self._pd_param_states.get(param_name, False)
             print(
-                f"{param_name:<15} "
-                f"{pd_config['pd']:<10.3f} "
-                f"{pd_config['pd_n']:<6} "
-                f"{pd_config['pd_nsigma']:<8.1f} "
-                f"{pd_config['pd_type']:<12} "
-                f"{'Yes' if is_active else 'No':<8}"
+                f'{param_name:<15} '
+                f'{pd_config["pd"]:<10.3f} '
+                f'{pd_config["pd_n"]:<6} '
+                f'{pd_config["pd_nsigma"]:<8.1f} '
+                f'{pd_config["pd_type"]:<12} '
+                f'{"Yes" if is_active else "No":<8}'
             )
         print('-' * 60)
-        print(f"Global PD Enabled: {'Yes' if self._pd_enabled else 'No'}")
+        print(f'Global PD Enabled: {"Yes" if self._pd_enabled else "No"}')
 
     def get_varying_pd_params(self) -> list[str]:
         """

@@ -449,7 +449,7 @@ class ParameterManager:
 
         if pd_type is not None and pd_type not in PD_DISTRIBUTION_TYPES:
             raise ValueError(
-                f"Invalid pd_type '{pd_type}'. " f"Valid types: {', '.join(PD_DISTRIBUTION_TYPES)}"
+                f"Invalid pd_type '{pd_type}'. Valid types: {', '.join(PD_DISTRIBUTION_TYPES)}"
             )
 
         if pd_width is not None:
