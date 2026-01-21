@@ -383,6 +383,98 @@ class SANSFitter:
         """
         return self._structure_factor_name
 
+    # =========================================================================
+    # Polydispersity Methods
+    # =========================================================================
+
+    def supports_polydispersity(self) -> bool:
+        """
+        Check if current model has polydisperse parameters.
+
+        Returns:
+            True if model supports polydispersity, False otherwise
+        """
+        return self.param_manager.has_polydisperse_parameters()
+
+    def get_polydisperse_parameters(self) -> list[str]:
+        """
+        Get list of polydisperse parameter names.
+
+        Returns:
+            List of parameter names that support polydispersity
+        """
+        return self.param_manager.get_polydisperse_parameters()
+
+    def set_pd_param(
+        self,
+        param_name: str,
+        pd_width: Optional[float] = None,
+        pd_n: Optional[int] = None,
+        pd_nsigma: Optional[float] = None,
+        pd_type: Optional[str] = None,
+        vary: Optional[bool] = None,
+    ) -> None:
+        """
+        Configure polydispersity for a parameter.
+
+        Args:
+            param_name: Name of the base parameter (e.g., 'radius')
+            pd_width: Polydispersity width (relative, 0.0 = monodisperse)
+            pd_n: Number of Gaussian quadrature points (default: 35)
+            pd_nsigma: Number of sigmas to include (default: 3.0)
+            pd_type: Distribution type ('gaussian', 'rectangle', 'lognormal', 'schulz', 'boltzmann')
+            vary: Whether to vary the pd_width during fitting
+
+        Raises:
+            KeyError: If param_name is not a polydisperse parameter
+            ValueError: If pd_type is not a valid distribution type
+        """
+        self.param_manager.set_pd_param(
+            param_name,
+            pd_width=pd_width,
+            pd_n=pd_n,
+            pd_nsigma=pd_nsigma,
+            pd_type=pd_type,
+            vary=vary,
+        )
+
+    def get_pd_param(self, param_name: str) -> dict[str, Any]:
+        """
+        Get polydispersity configuration for a parameter.
+
+        Args:
+            param_name: Name of the base parameter (e.g., 'radius')
+
+        Returns:
+            Dictionary with pd, pd_n, pd_nsigma, pd_type, and vary values
+        """
+        return self.param_manager.get_pd_param(param_name)
+
+    def enable_polydispersity(self, enabled: bool = True) -> None:
+        """
+        Enable or disable polydispersity globally.
+
+        When disabled, polydispersity parameters are excluded from fitting
+        but their values are preserved for when PD is re-enabled.
+
+        Args:
+            enabled: Whether to enable polydispersity (default: True)
+        """
+        self.param_manager.toggle_pd_visibility(enabled)
+
+    def is_polydispersity_enabled(self) -> bool:
+        """
+        Check if polydispersity is enabled.
+
+        Returns:
+            True if polydispersity is globally enabled, False otherwise
+        """
+        return self.param_manager.is_pd_enabled()
+
+    def get_pd_params(self) -> None:
+        """Display polydispersity parameter values and settings."""
+        self.param_manager.display_pd_params()
+
     def fit(
         self,
         engine: Literal['bumps', 'lmfit'] = 'bumps',
