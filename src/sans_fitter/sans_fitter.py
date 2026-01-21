@@ -67,6 +67,12 @@ class SANSFitter:
         self._radius_effective_mode = 'unconstrained'
         self._form_factor_params = {}  # Store form factor params separately
 
+        # Polydispersity support
+        self._polydisperse_param_names: list[str] = []
+        self._polydisperse_params: dict[str, dict[str, Any]] = {}
+        self._pd_enabled: bool = False
+        self._pd_param_states: dict[str, bool] = {}
+
     def load_data(self, filename: str) -> None:
         """
         Load SANS data from a file.
@@ -119,6 +125,12 @@ class SANSFitter:
             self._radius_effective_mode = 'unconstrained'
             self._form_factor_params = {}
 
+            # Reset polydispersity state
+            self._polydisperse_param_names = []
+            self._polydisperse_params = {}
+            self._pd_enabled = False
+            self._pd_param_states = {}
+
             # Force CPU platform to avoid OpenCL issues
             self.kernel = load_model(model_name, dtype='single', platform='dll')
             self.model_name = model_name
@@ -133,6 +145,22 @@ class SANSFitter:
                     'vary': False,  # By default, parameters are fixed
                     'description': param.description,
                 }
+
+                # Track polydisperse parameters
+                if getattr(param, 'polydisperse', False):
+                    self._polydisperse_param_names.append(param.name)
+
+            # Initialize polydispersity parameters with defaults
+            from .parameter_manager import PD_DEFAULTS
+
+            for param_name in self._polydisperse_param_names:
+                self._polydisperse_params[param_name] = {
+                    'pd': PD_DEFAULTS['pd'],
+                    'pd_n': PD_DEFAULTS['pd_n'],
+                    'pd_nsigma': PD_DEFAULTS['pd_nsigma'],
+                    'pd_type': PD_DEFAULTS['pd_type'],
+                }
+                self._pd_param_states[param_name] = False
 
             # Add implicit scale and background parameters (present in all models)
             # These are not in kernel_parameters but are always available
@@ -394,7 +422,7 @@ class SANSFitter:
         Returns:
             True if model supports polydispersity, False otherwise
         """
-        return self.param_manager.has_polydisperse_parameters()
+        return len(self._polydisperse_param_names) > 0
 
     def get_polydisperse_parameters(self) -> list[str]:
         """
@@ -403,7 +431,7 @@ class SANSFitter:
         Returns:
             List of parameter names that support polydispersity
         """
-        return self.param_manager.get_polydisperse_parameters()
+        return list(self._polydisperse_param_names)
 
     def set_pd_param(
         self,
@@ -429,14 +457,33 @@ class SANSFitter:
             KeyError: If param_name is not a polydisperse parameter
             ValueError: If pd_type is not a valid distribution type
         """
-        self.param_manager.set_pd_param(
-            param_name,
-            pd_width=pd_width,
-            pd_n=pd_n,
-            pd_nsigma=pd_nsigma,
-            pd_type=pd_type,
-            vary=vary,
-        )
+        from .parameter_manager import PD_DISTRIBUTION_TYPES
+
+        if param_name not in self._polydisperse_param_names:
+            raise KeyError(
+                f"Parameter '{param_name}' is not polydisperse. "
+                f'Polydisperse parameters: {self._polydisperse_param_names}'
+            )
+
+        if pd_type is not None and pd_type not in PD_DISTRIBUTION_TYPES:
+            raise ValueError(
+                f"Invalid pd_type '{pd_type}'. " f'Valid types: {PD_DISTRIBUTION_TYPES}'
+            )
+
+        pd_config = self._polydisperse_params[param_name]
+
+        if pd_width is not None:
+            pd_config['pd'] = pd_width
+            # Enable this parameter's polydispersity if pd_width > 0
+            self._pd_param_states[param_name] = pd_width > 0
+        if pd_n is not None:
+            pd_config['pd_n'] = pd_n
+        if pd_nsigma is not None:
+            pd_config['pd_nsigma'] = pd_nsigma
+        if pd_type is not None:
+            pd_config['pd_type'] = pd_type
+        if vary is not None:
+            pd_config['vary'] = vary
 
     def get_pd_param(self, param_name: str) -> dict[str, Any]:
         """
@@ -447,8 +494,17 @@ class SANSFitter:
 
         Returns:
             Dictionary with pd, pd_n, pd_nsigma, pd_type, and vary values
+
+        Raises:
+            KeyError: If param_name is not a polydisperse parameter
         """
-        return self.param_manager.get_pd_param(param_name)
+        if param_name not in self._polydisperse_param_names:
+            raise KeyError(
+                f"Parameter '{param_name}' is not polydisperse. "
+                f'Polydisperse parameters: {self._polydisperse_param_names}'
+            )
+
+        return dict(self._polydisperse_params[param_name])
 
     def enable_polydispersity(self, enabled: bool = True) -> None:
         """
@@ -460,7 +516,7 @@ class SANSFitter:
         Args:
             enabled: Whether to enable polydispersity (default: True)
         """
-        self.param_manager.toggle_pd_visibility(enabled)
+        self._pd_enabled = enabled
 
     def is_polydispersity_enabled(self) -> bool:
         """
@@ -469,11 +525,51 @@ class SANSFitter:
         Returns:
             True if polydispersity is globally enabled, False otherwise
         """
-        return self.param_manager.is_pd_enabled()
+        return self._pd_enabled
 
     def get_pd_params(self) -> None:
         """Display polydispersity parameter values and settings."""
-        self.param_manager.display_pd_params()
+        if not self._polydisperse_param_names:
+            print('No polydisperse parameters available for this model.')
+            return
+
+        print('\nPolydispersity Parameters:')
+        print('-' * 60)
+        print(
+            f"{'Parameter':<15} {'PD Width':<10} {'N':<6} {'Nsigma':<8} {'Type':<12} {'Active':<8}"
+        )
+        print('-' * 60)
+
+        for param_name in self._polydisperse_param_names:
+            pd_config = self._polydisperse_params[param_name]
+            is_active = self._pd_param_states.get(param_name, False)
+            print(
+                f"{param_name:<15} "
+                f"{pd_config['pd']:<10.3f} "
+                f"{pd_config['pd_n']:<6} "
+                f"{pd_config['pd_nsigma']:<8.1f} "
+                f"{pd_config['pd_type']:<12} "
+                f"{'Yes' if is_active else 'No':<8}"
+            )
+        print('-' * 60)
+        print(f"Global PD Enabled: {'Yes' if self._pd_enabled else 'No'}")
+
+    def get_varying_pd_params(self) -> list[str]:
+        """
+        Get list of polydispersity parameters that are set to vary.
+
+        Returns:
+            List of parameter names (e.g., ['radius_pd']) that will vary during fitting
+        """
+        if not self._pd_enabled:
+            return []
+
+        varying = []
+        for param_name in self._polydisperse_param_names:
+            pd_config = self._polydisperse_params[param_name]
+            if pd_config.get('vary', False) and pd_config['pd'] > 0:
+                varying.append(f'{param_name}_pd')
+        return varying
 
     def fit(
         self,

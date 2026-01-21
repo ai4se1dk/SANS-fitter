@@ -213,7 +213,7 @@ print("Fitting with varying polydispersity width...")
 print("(Note: This adds an extra fitting parameter)")
 
 # Get list of parameters that will vary (including PD)
-varying_pd = fitter_vary_pd.param_manager.get_varying_pd_params()
+varying_pd = fitter_vary_pd.get_varying_pd_params()
 print(f"Polydispersity parameters that will vary: {varying_pd}")
 
 # ============================================================================
