@@ -2,12 +2,24 @@
 Parameter Manager - Handles model parameter management for SANS fitting.
 
 This module encapsulates all parameter-related operations including initialization,
-validation, bounds management, and structure factor parameter linking.
+validation, bounds management, structure factor parameter linking, and polydispersity.
 """
 
 from typing import Any, Optional
 
 import numpy as np
+
+# Default values for polydispersity parameters
+PD_DEFAULTS = {
+    'pd': 0.0,  # No polydispersity by default
+    'pd_n': 35,  # Number of Gaussian quadrature points
+    'pd_nsigma': 3.0,  # Number of sigmas to include
+    'pd_type': 'gaussian',  # Distribution type
+    'vary': False,  # Whether to vary pd_width during fitting
+}
+
+# Available polydispersity distribution types
+PD_DISTRIBUTION_TYPES = ['gaussian', 'rectangle', 'lognormal', 'schulz', 'boltzmann']
 
 
 class ParameterManager:
@@ -15,13 +27,15 @@ class ParameterManager:
     Manages model parameters for SANS fitting.
 
     Handles parameter initialization, validation, bounds management,
-    and special logic for structure factor parameter linking.
+    special logic for structure factor parameter linking, and polydispersity support.
 
     Attributes:
         params: Dictionary of parameter configurations
         model_name: Name of the current model
         structure_factor_name: Name of applied structure factor (if any)
         radius_effective_mode: Mode for handling radius_effective ('unconstrained' or 'link_radius')
+        polydisperse_params: Dictionary of polydispersity parameters
+        pd_enabled: Whether polydispersity is globally enabled
     """
 
     def __init__(self):
@@ -31,6 +45,14 @@ class ParameterManager:
         self._structure_factor_name: Optional[str] = None
         self._radius_effective_mode: str = 'unconstrained'
         self._form_factor_params: dict[str, dict[str, Any]] = {}
+
+        # Polydispersity support
+        self._polydisperse_param_names: list[str] = []  # List of params that support PD
+        self.polydisperse_params: dict[str, dict[str, Any]] = {}  # PD parameter values
+        self._pd_enabled: bool = False  # Global PD visibility toggle
+
+        # Backup storage for polydispersity state (used with structure factors)
+        self._backed_up_pd_state: Optional[dict[str, Any]] = None
 
     def initialize_from_kernel(self, kernel: Any, model_name: str) -> None:
         """
@@ -46,8 +68,10 @@ class ParameterManager:
         if kernel is None:
             raise ValueError('Kernel cannot be None')
 
+        # Clear all state first to ensure clean initialization
+        self.clear()
+
         self.model_name = model_name
-        self.params = {}
 
         # Extract parameters from kernel
         for param in kernel.info.parameters.kernel_parameters:
@@ -58,6 +82,10 @@ class ParameterManager:
                 'vary': False,  # By default, parameters are fixed
                 'description': param.description,
             }
+
+            # Track polydisperse parameters
+            if getattr(param, 'polydisperse', False):
+                self._polydisperse_param_names.append(param.name)
 
         # Add implicit scale and background parameters (present in all models)
         if 'scale' not in self.params:
@@ -77,6 +105,9 @@ class ParameterManager:
                 'vary': False,
                 'description': 'Constant background level',
             }
+
+        # Initialize polydispersity parameters
+        self._initialize_polydispersity_params()
 
     def get_param_dict(self) -> dict[str, dict[str, Any]]:
         """
@@ -229,6 +260,10 @@ class ParameterManager:
         if not self._form_factor_params:
             self.backup_params()
 
+        # Backup polydispersity state if not already done
+        if not self._backed_up_pd_state:
+            self.backup_pd_state()
+
         self._structure_factor_name = structure_factor_name
         self._radius_effective_mode = radius_effective_mode
 
@@ -305,6 +340,7 @@ class ParameterManager:
 
         sf_name = self._structure_factor_name
         self.restore_params()
+        self.restore_pd_state()
         self._structure_factor_name = None
         self._radius_effective_mode = 'unconstrained'
 
@@ -352,6 +388,230 @@ class ParameterManager:
         """
         return [name for name, info in self.params.items() if info['vary']]
 
+    # =========================================================================
+    # Polydispersity Methods
+    # =========================================================================
+
+    def _initialize_polydispersity_params(self) -> None:
+        """Initialize polydispersity parameters for all polydisperse parameters."""
+        self.polydisperse_params = {}
+
+        for param_name in self._polydisperse_param_names:
+            self.polydisperse_params[param_name] = {
+                'pd': PD_DEFAULTS['pd'],
+                'pd_n': PD_DEFAULTS['pd_n'],
+                'pd_nsigma': PD_DEFAULTS['pd_nsigma'],
+                'pd_type': PD_DEFAULTS['pd_type'],
+                'vary': PD_DEFAULTS['vary'],
+            }
+
+    def get_polydisperse_parameters(self) -> list[str]:
+        """
+        Return list of parameter names that support polydispersity.
+
+        Returns:
+            List of parameter names that can have polydispersity applied
+        """
+        return list(self._polydisperse_param_names)
+
+    def has_polydisperse_parameters(self) -> bool:
+        """
+        Check if the current model has any polydisperse parameters.
+
+        Returns:
+            True if model has polydisperse parameters, False otherwise
+        """
+        return len(self._polydisperse_param_names) > 0
+
+    def set_pd_param(
+        self,
+        base_param: str,
+        pd_width: Optional[float] = None,
+        pd_n: Optional[int] = None,
+        pd_nsigma: Optional[float] = None,
+        pd_type: Optional[str] = None,
+        vary: Optional[bool] = None,
+    ) -> None:
+        """
+        Configure polydispersity for a specific parameter.
+
+        Args:
+            base_param: Name of the base parameter (e.g., 'radius')
+            pd_width: Polydispersity width (relative, 0.0 = monodisperse)
+            pd_n: Number of Gaussian quadrature points (default: 35)
+            pd_nsigma: Number of sigmas to include (default: 3.0)
+            pd_type: Distribution type ('gaussian', 'rectangle', 'lognormal', 'schulz', 'boltzmann')
+            vary: Whether to vary the pd_width during fitting
+
+        Raises:
+            KeyError: If base_param is not a polydisperse parameter
+            ValueError: If pd_type is not a valid distribution type
+        """
+        if base_param not in self._polydisperse_param_names:
+            available = ', '.join(self._polydisperse_param_names)
+            raise KeyError(
+                f"Parameter '{base_param}' does not support polydispersity. "
+                f'Available polydisperse parameters: {available}'
+            )
+
+        if pd_type is not None and pd_type not in PD_DISTRIBUTION_TYPES:
+            raise ValueError(
+                f"Invalid pd_type '{pd_type}'. Valid types: {', '.join(PD_DISTRIBUTION_TYPES)}"
+            )
+
+        if pd_width is not None:
+            self.polydisperse_params[base_param]['pd'] = pd_width
+        if pd_n is not None:
+            self.polydisperse_params[base_param]['pd_n'] = pd_n
+        if pd_nsigma is not None:
+            self.polydisperse_params[base_param]['pd_nsigma'] = pd_nsigma
+        if pd_type is not None:
+            self.polydisperse_params[base_param]['pd_type'] = pd_type
+        if vary is not None:
+            self.polydisperse_params[base_param]['vary'] = vary
+
+    def get_pd_param(self, base_param: str) -> dict[str, Any]:
+        """
+        Get polydispersity configuration for a specific parameter.
+
+        Args:
+            base_param: Name of the base parameter (e.g., 'radius')
+
+        Returns:
+            Dictionary with pd, pd_n, pd_nsigma, pd_type, vary, and active values.
+            'active' indicates whether polydispersity is active for this parameter (pd > 0).
+
+        Raises:
+            KeyError: If base_param is not a polydisperse parameter
+        """
+        if base_param not in self._polydisperse_param_names:
+            available = ', '.join(self._polydisperse_param_names)
+            raise KeyError(
+                f"Parameter '{base_param}' does not support polydispersity. "
+                f'Available polydisperse parameters: {available}'
+            )
+
+        pd_config = self.polydisperse_params[base_param].copy()
+        pd_config['active'] = pd_config['pd'] > 0
+        return pd_config
+
+    def toggle_pd_visibility(self, enabled: bool) -> None:
+        """
+        Enable/disable polydispersity globally.
+
+        When disabled, polydispersity parameters are excluded from fitting
+        but their values are preserved for when PD is re-enabled.
+
+        Args:
+            enabled: Whether polydispersity should be enabled
+        """
+        self._pd_enabled = enabled
+
+    def is_pd_enabled(self) -> bool:
+        """
+        Check if polydispersity is globally enabled.
+
+        Returns:
+            True if polydispersity is enabled, False otherwise
+        """
+        return self._pd_enabled
+
+    def get_pd_params_for_fitting(self) -> dict[str, Any]:
+        """
+        Return polydispersity parameters to include in fitting.
+
+        Only returns PD parameters when pd_enabled is True.
+        Returns parameters in the format expected by SasModels:
+        - {param}_pd: polydispersity width
+        - {param}_pd_n: number of quadrature points
+        - {param}_pd_nsigma: number of sigmas
+        - {param}_pd_type: distribution type
+
+        Returns:
+            Dictionary of PD parameters ready for fitting
+        """
+        if not self._pd_enabled:
+            return {}
+
+        pd_params = {}
+        for param_name in self._polydisperse_param_names:
+            pd_config = self.polydisperse_params[param_name]
+            pd_params[f'{param_name}_pd'] = pd_config['pd']
+            pd_params[f'{param_name}_pd_n'] = pd_config['pd_n']
+            pd_params[f'{param_name}_pd_nsigma'] = pd_config['pd_nsigma']
+            pd_params[f'{param_name}_pd_type'] = pd_config['pd_type']
+
+        return pd_params
+
+    def get_varying_pd_params(self) -> list[str]:
+        """
+        Get list of polydispersity parameter names set to vary.
+
+        Only returns parameters when pd_enabled is True.
+
+        Returns:
+            List of base parameter names whose PD width should vary
+        """
+        if not self._pd_enabled:
+            return []
+
+        return [
+            param_name
+            for param_name, pd_config in self.polydisperse_params.items()
+            if pd_config.get('vary', False)
+        ]
+
+    def display_pd_params(self) -> None:
+        """Display polydispersity parameter values and settings."""
+        if not self._polydisperse_param_names:
+            print('No polydisperse parameters available for this model.')
+            return
+
+        status = 'ENABLED' if self._pd_enabled else 'DISABLED'
+        print(f'\n{"=" * 90}')
+        print(f'Polydispersity Status: {status}')
+        print(f'{"=" * 90}')
+        print(
+            f'{"Parameter":<15} {"Width":<10} {"N Points":<10} {"N Sigma":<10} {"Type":<12} {"Vary":<8}'
+        )
+        print(f'{"-" * 90}')
+
+        for param_name in self._polydisperse_param_names:
+            pd_config = self.polydisperse_params[param_name]
+            vary_str = '✓' if pd_config.get('vary', False) else '✗'
+            print(
+                f'{param_name:<15} {pd_config["pd"]:<10.4g} {pd_config["pd_n"]:<10} '
+                f'{pd_config["pd_nsigma"]:<10.4g} {pd_config["pd_type"]:<12} {vary_str:<8}'
+            )
+        print(f'{"=" * 90}\n')
+
+    def backup_pd_state(self) -> None:
+        """Backup current polydispersity state (used before applying structure factor)."""
+        self._backed_up_pd_state = {
+            'polydisperse_param_names': list(self._polydisperse_param_names),
+            'polydisperse_params': {k: dict(v) for k, v in self.polydisperse_params.items()},
+            'pd_enabled': self._pd_enabled,
+        }
+
+    def restore_pd_state(self) -> None:
+        """Restore backed up polydispersity state (used when removing structure factor)."""
+        if self._backed_up_pd_state:
+            self._polydisperse_param_names = self._backed_up_pd_state['polydisperse_param_names']
+            self.polydisperse_params = {
+                k: dict(v) for k, v in self._backed_up_pd_state['polydisperse_params'].items()
+            }
+            self._pd_enabled = self._backed_up_pd_state['pd_enabled']
+            self._backed_up_pd_state = None
+
+    def has_backed_up_pd_state(self) -> bool:
+        """
+        Check if there is backed up polydispersity state.
+
+        Returns:
+            True if polydispersity state has been backed up, False otherwise
+        """
+        return self._backed_up_pd_state is not None
+
     def clear(self) -> None:
         """Clear all parameters and reset state."""
         self.params = {}
@@ -359,3 +619,9 @@ class ParameterManager:
         self._structure_factor_name = None
         self._radius_effective_mode = 'unconstrained'
         self._form_factor_params = {}
+
+        # Reset polydispersity state
+        self._polydisperse_param_names = []
+        self.polydisperse_params = {}
+        self._pd_enabled = False
+        self._backed_up_pd_state = None

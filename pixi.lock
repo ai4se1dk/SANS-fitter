@@ -7138,8 +7138,8 @@ packages:
   timestamp: 1766095035171
 - pypi: ./
   name: sans-fitter
-  version: 0.0.2
-  sha256: 37738d8f3d47d7f330d09e35d4c4e3b99420a0d25a9ab8754c744af77fd721a2
+  version: 0.0.3
+  sha256: 66a41378918e83d3c5505735088000aa1e3d05611853e2e59822ea50ac1a3d60
   requires_dist:
   - numpy>=1.20
   - plotly>=5.0

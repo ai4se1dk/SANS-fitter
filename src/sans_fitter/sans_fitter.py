@@ -15,7 +15,6 @@ from sasdata.dataloader.loader import Loader
 from sasmodels.core import load_model
 from sasmodels.direct_model import DirectModel
 
-from .bumps_engine import BumpsFittingEngine
 from .parameter_manager import ParameterManager
 
 try:
@@ -59,26 +58,11 @@ class SANSFitter:
         """Initialize the SANS fitter."""
         self.data = None
         self.kernel = None
-        self.model_name = None
-        self.param_manager = ParameterManager()
         self.fit_result = None
         self._fitted_model = None
 
-        # Initialize fitting engines
-        self._fitting_engines = {'bumps': BumpsFittingEngine()}
-        if SCIPY_AVAILABLE:
-            self._fitting_engines['scipy'] = ScipyFittingEngine()
-            self._fitting_engines['lmfit'] = self._fitting_engines['scipy']  # Alias
-
-    @property
-    def params(self) -> dict[str, dict[str, Any]]:
-        """
-        Get parameter dictionary (for backward compatibility).
-
-        Returns:
-            Dictionary of parameter configurations
-        """
-        return self.param_manager.params
+        # Parameter management delegated to ParameterManager
+        self._param_manager = ParameterManager()
 
     def load_data(self, filename: str) -> None:
         """
@@ -129,21 +113,53 @@ class SANSFitter:
         try:
             # Force CPU platform to avoid OpenCL issues
             self.kernel = load_model(model_name, dtype='single', platform='dll')
-            self.model_name = model_name
 
-            # Initialize parameters using ParameterManager (this also resets structure factor)
-            self.param_manager.clear()
-            self.param_manager.initialize_from_kernel(self.kernel, model_name)
+            # Initialize parameters via ParameterManager
+            self._param_manager.initialize_from_kernel(self.kernel, model_name)
 
             print(f"✓ Model '{model_name}' loaded successfully")
-            print(f'  Available parameters: {len(self.param_manager.params)}')
+            print(f'  Available parameters: {len(self._param_manager.params)}')
 
         except Exception as e:
             raise ValueError(f"Failed to load model '{model_name}': {str(e)}") from e
 
+    # =========================================================================
+    # Property accessors for backward compatibility
+    # =========================================================================
+
+    @property
+    def model_name(self) -> Optional[str]:
+        """Get the current model name."""
+        return self._param_manager.model_name
+
+    @model_name.setter
+    def model_name(self, value: Optional[str]) -> None:
+        """Set the model name (used internally)."""
+        self._param_manager.model_name = value
+
+    @property
+    def params(self) -> dict[str, dict[str, Any]]:
+        """Get the parameter dictionary."""
+        return self._param_manager.params
+
+    @params.setter
+    def params(self, value: dict[str, dict[str, Any]]) -> None:
+        """Set the parameter dictionary (used internally)."""
+        self._param_manager.params = value
+
+    @property
+    def _structure_factor_name(self) -> Optional[str]:
+        """Get the structure factor name."""
+        return self._param_manager.get_structure_factor()
+
+    @property
+    def _radius_effective_mode(self) -> str:
+        """Get the radius effective mode."""
+        return self._param_manager.get_radius_effective_mode()
+
     def get_params(self) -> None:
         """Display current parameter values and settings in a readable format."""
-        self.param_manager.display_params()
+        self._param_manager.display_params()
 
     def set_param(
         self,
@@ -166,7 +182,7 @@ class SANSFitter:
         Raises:
             KeyError: If parameter name doesn't exist for the current model
         """
-        self.param_manager.set_param(name, value=value, min=min, max=max, vary=vary)
+        self._param_manager.set_param(name, value=value, min=min, max=max, vary=vary)
 
     def set_structure_factor(
         self, structure_factor_name: str, radius_effective_mode: str = 'unconstrained'
@@ -210,17 +226,13 @@ class SANSFitter:
             # Load the product model
             self.kernel = load_model(full_model_name, dtype='single', platform='dll')
 
-            # Update parameters using ParameterManager
-            self.param_manager.update_for_product_model(
+            # Delegate parameter management to ParameterManager
+            self._param_manager.update_for_product_model(
                 self.kernel, structure_factor_name, radius_effective_mode
             )
 
             if radius_effective_mode == 'link_radius':
-                if (
-                    'radius' in self.param_manager.params
-                    and 'radius_effective' in self.param_manager.params
-                ):
-                    print("  Note: 'radius_effective' linked to 'radius' value")
+                print("  Note: 'radius_effective' linked to 'radius' value")
 
             print(f"✓ Structure factor '{structure_factor_name}' applied to '{self.model_name}'")
             print(f'  Product model: {full_model_name}')
@@ -241,6 +253,9 @@ class SANSFitter:
             sf_name = self.param_manager.remove_structure_factor()
             self.kernel = load_model(self.model_name, dtype='single', platform='dll')
 
+            # Delegate to ParameterManager - this restores params and PD state
+            sf_name = self._param_manager.remove_structure_factor()
+
             print(f"✓ Structure factor '{sf_name}' removed")
             print(f'  Reverted to form factor: {self.model_name}')
 
@@ -255,6 +270,113 @@ class SANSFitter:
             Name of the structure factor, or None if no structure factor is set
         """
         return self.param_manager.get_structure_factor()
+
+    # =========================================================================
+    # Polydispersity Methods
+    # =========================================================================
+
+    def supports_polydispersity(self) -> bool:
+        """
+        Check if current model has polydisperse parameters.
+
+        Returns:
+            True if model supports polydispersity, False otherwise
+        """
+        return self._param_manager.has_polydisperse_parameters()
+
+    def get_polydisperse_parameters(self) -> list[str]:
+        """
+        Get list of polydisperse parameter names.
+
+        Returns:
+            List of parameter names that support polydispersity
+        """
+        return self._param_manager.get_polydisperse_parameters()
+
+    def set_pd_param(
+        self,
+        param_name: str,
+        pd_width: Optional[float] = None,
+        pd_n: Optional[int] = None,
+        pd_nsigma: Optional[float] = None,
+        pd_type: Optional[str] = None,
+        vary: Optional[bool] = None,
+    ) -> None:
+        """
+        Configure polydispersity for a parameter.
+
+        Args:
+            param_name: Name of the base parameter (e.g., 'radius')
+            pd_width: Polydispersity width (relative, 0.0 = monodisperse)
+            pd_n: Number of Gaussian quadrature points (default: 35)
+            pd_nsigma: Number of sigmas to include (default: 3.0)
+            pd_type: Distribution type ('gaussian', 'rectangle', 'lognormal', 'schulz', 'boltzmann')
+            vary: Whether to vary the pd_width during fitting
+
+        Raises:
+            KeyError: If param_name is not a polydisperse parameter
+            ValueError: If pd_type is not a valid distribution type
+        """
+        self._param_manager.set_pd_param(
+            param_name,
+            pd_width=pd_width,
+            pd_n=pd_n,
+            pd_nsigma=pd_nsigma,
+            pd_type=pd_type,
+            vary=vary,
+        )
+
+    def get_pd_param(self, param_name: str) -> dict[str, Any]:
+        """
+        Get polydispersity configuration for a parameter.
+
+        Args:
+            param_name: Name of the base parameter (e.g., 'radius')
+
+        Returns:
+            Dictionary with pd, pd_n, pd_nsigma, pd_type, vary, and active values.
+            'active' indicates whether polydispersity is active for this parameter (pd > 0).
+
+        Raises:
+            KeyError: If param_name is not a polydisperse parameter
+        """
+        return self._param_manager.get_pd_param(param_name)
+
+    def enable_polydispersity(self, enabled: bool = True) -> None:
+        """
+        Enable or disable polydispersity globally.
+
+        When disabled, polydispersity parameters are excluded from fitting
+        but their values are preserved for when PD is re-enabled.
+
+        Args:
+            enabled: Whether to enable polydispersity (default: True)
+        """
+        self._param_manager.toggle_pd_visibility(enabled)
+
+    def is_polydispersity_enabled(self) -> bool:
+        """
+        Check if polydispersity is enabled.
+
+        Returns:
+            True if polydispersity is globally enabled, False otherwise
+        """
+        return self._param_manager.is_pd_enabled()
+
+    def get_pd_params(self) -> None:
+        """Display polydispersity parameter values and settings."""
+        self._param_manager.display_pd_params()
+
+    def get_varying_pd_params(self) -> list[str]:
+        """
+        Get list of polydispersity parameters that are set to vary.
+
+        Returns:
+            List of parameter names (e.g., ['radius_pd']) that will vary during fitting
+        """
+        # ParameterManager returns base param names, we need to add _pd suffix
+        varying_base = self._param_manager.get_varying_pd_params()
+        return [f'{param_name}_pd' for param_name in varying_base]
 
     def fit(
         self,
@@ -306,19 +428,271 @@ class SANSFitter:
                 **kwargs,
             )
         else:
-            self.fit_result = fitting_engine.fit(
-                data=self.data,
-                kernel=self.kernel,
-                param_manager=self.param_manager,
-                method=method,
-                **kwargs,
+            raise ValueError(f"Unknown engine '{engine}'. Use 'bumps' or 'lmfit'.")
+
+    def _fit_bumps(self, method: str = 'amoeba', **kwargs: Any) -> dict[str, Any]:
+        """Fit using BUMPS engine."""
+        # Prepare parameter dictionary for BumpsModel
+        pars = {name: info['value'] for name, info in self.params.items()}
+
+        # Add polydispersity parameters if PD is enabled
+        if self._param_manager.is_pd_enabled():
+            for param_name in self._param_manager.get_polydisperse_parameters():
+                pd_config = self._param_manager.get_pd_param(param_name)
+                include_pd = pd_config['pd'] > 0 or pd_config.get('vary', False)
+                if include_pd:
+                    pars[f'{param_name}_pd'] = pd_config['pd']
+                    pars[f'{param_name}_pd_n'] = pd_config['pd_n']
+                    pars[f'{param_name}_pd_nsigma'] = pd_config['pd_nsigma']
+                    pars[f'{param_name}_pd_type'] = pd_config['pd_type']
+
+        # Create BUMPS model
+        model = BumpsModel(self.kernel, **pars)
+
+        # Set parameter ranges for fitting
+        for name, info in self.params.items():
+            if info['vary']:
+                param_obj = getattr(model, name)
+                param_obj.range(info['min'], info['max'])
+
+        # Set polydispersity parameter ranges if PD is enabled and vary=True
+        if self._param_manager.is_pd_enabled():
+            for param_name in self._param_manager.get_polydisperse_parameters():
+                pd_config = self._param_manager.get_pd_param(param_name)
+                include_pd = pd_config['pd'] > 0 or pd_config.get('vary', False)
+                if include_pd and pd_config.get('vary', False):
+                    # Allow pd_width to vary between 0 and 1 (0-100%)
+                    pd_param = getattr(model, f'{param_name}_pd')
+                    pd_param.range(0, 1)
+
+        # Handle radius_effective linking in link_radius mode
+        if (
+            self._radius_effective_mode == 'link_radius'
+            and hasattr(model, 'radius_effective')
+            and hasattr(model, 'radius')
+        ):
+            # Constrain radius_effective to equal radius
+            model.radius_effective = model.radius
+
+        # Create experiment and fit problem
+        experiment = Experiment(data=self.data, model=model)
+        problem = FitProblem(experiment)
+
+        print(f'\nInitial χ² = {problem.chisq():.4f}')
+        print(f'Fitting with BUMPS (method: {method})...')
+
+        # Perform fit
+        result = bumps_fit(problem, method=method, **kwargs)
+
+        # Store results
+        self.fit_result = {
+            'engine': 'bumps',
+            'method': method,
+            'chisq': problem.chisq(),
+            'parameters': {},
+            'problem': problem,
+            'result': result,
+        }
+
+        # Extract fitted parameters
+        for k, v, dv in zip(problem.labels(), result.x, result.dx):
+            self.fit_result['parameters'][k] = {
+                'value': v,
+                'stderr': dv,
+                'formatted': format_uncertainty(v, dv),
+            }
+            # Update internal parameter values
+            if k in self.params:
+                self.params[k]['value'] = v
+            elif k.endswith('_pd'):
+                # Update polydispersity parameter via ParameterManager
+                base_param = k[:-3]  # Remove '_pd' suffix
+                if base_param in self._param_manager.get_polydisperse_parameters():
+                    self._param_manager.set_pd_param(base_param, pd_width=v)
+
+        self._fitted_model = problem
+
+        # Print results
+        print('\n✓ Fit completed!')
+        print(f'Final χ² = {self.fit_result["chisq"]:.4f}')
+        print('\nFitted parameters:')
+        for name, info in self.fit_result['parameters'].items():
+            print(f'  {name}: {info["formatted"]}')
+
+        return self.fit_result
+
+    def _fit_lmfit(self, method: str = 'leastsq', **kwargs: Any) -> dict[str, Any]:
+        """Fit using scipy.optimize (leastsq/least_squares) engine."""
+        # Get initial parameter values and build bounds for regular parameters
+        param_names = [name for name, info in self.params.items() if info['vary']]
+        x0_list = [self.params[name]['value'] for name in param_names]
+        bounds_lower_list = [self.params[name]['min'] for name in param_names]
+        bounds_upper_list = [self.params[name]['max'] for name in param_names]
+
+        # Add polydispersity parameters if PD is enabled and vary=True
+        pd_param_names = []
+        if self._param_manager.is_pd_enabled():
+            for base_param in self._param_manager.get_polydisperse_parameters():
+                pd_config = self._param_manager.get_pd_param(base_param)
+                include_pd = pd_config['pd'] > 0 or pd_config.get('vary', False)
+                if include_pd and pd_config.get('vary', False):
+                    pd_name = f'{base_param}_pd'
+                    pd_param_names.append(pd_name)
+                    param_names.append(pd_name)
+                    x0_list.append(pd_config['pd'])
+                    bounds_lower_list.append(0.0)
+                    bounds_upper_list.append(1.0)
+
+        x0 = np.array(x0_list)
+        bounds_lower = np.array(bounds_lower_list)
+        bounds_upper = np.array(bounds_upper_list)
+
+        # Create direct model calculator (kernel already set to CPU in set_model)
+        calculator = DirectModel(self.data, self.kernel)
+
+        # Capture instance attributes for use in residual closure
+        radius_effective_mode = self._radius_effective_mode
+        param_manager = self._param_manager
+
+        # Define residual function
+        def residual(x):
+            # Build full parameter dictionary
+            par_dict = {name: info['value'] for name, info in self.params.items()}
+            # Update with fitted parameters
+            for i, name in enumerate(param_names):
+                if name in par_dict:
+                    par_dict[name] = x[i]
+                elif name.endswith('_pd'):
+                    # This is a PD parameter
+                    par_dict[name] = x[i]
+
+            # Add polydispersity parameters if PD is enabled
+            if param_manager.is_pd_enabled():
+                for base_param in param_manager.get_polydisperse_parameters():
+                    pd_config = param_manager.get_pd_param(base_param)
+                    include_pd = pd_config['pd'] > 0 or pd_config.get('vary', False)
+                    if include_pd:
+                        # pd value may have been updated above if varying
+                        if f'{base_param}_pd' not in par_dict:
+                            par_dict[f'{base_param}_pd'] = pd_config['pd']
+                        par_dict[f'{base_param}_pd_n'] = pd_config['pd_n']
+                        par_dict[f'{base_param}_pd_nsigma'] = pd_config['pd_nsigma']
+                        par_dict[f'{base_param}_pd_type'] = pd_config['pd_type']
+
+            # Handle radius_effective linking in link_radius mode
+            if (
+                radius_effective_mode == 'link_radius'
+                and 'radius' in par_dict
+                and 'radius_effective' in par_dict
+            ):
+                par_dict['radius_effective'] = par_dict['radius']
+
+            # Calculate model
+            I_calc = calculator(**par_dict)
+            # Return weighted residuals
+            return (self.data.y - I_calc) / self.data.dy
+
+        print(f'\nFitting with scipy.optimize (method: {method})...')
+
+        # Perform fit based on method
+        if method == 'leastsq':
+            # Levenberg-Marquardt (no bounds support)
+            result = leastsq(residual, x0, full_output=True, **kwargs)
+            fitted_params = result[0]
+            cov_matrix = result[1]
+            # result[2] contains infodict, not needed for basic fitting
+
+            # Calculate parameter errors from covariance matrix
+            if cov_matrix is not None:
+                param_errors = np.sqrt(np.diag(cov_matrix))
+            else:
+                param_errors = np.zeros_like(fitted_params)
+
+            # Calculate chi-squared
+            final_residuals = residual(fitted_params)
+            chisq = np.sum(final_residuals**2)
+
+        elif method == 'least_squares':
+            # Trust Region Reflective (supports bounds)
+            bounds = (bounds_lower, bounds_upper)
+            result = least_squares(residual, x0, bounds=bounds, **kwargs)
+            fitted_params = result.x
+
+            # Estimate parameter errors from Jacobian
+            try:
+                # Compute covariance from Jacobian
+                J = result.jac
+                cov_matrix = np.linalg.inv(J.T @ J)
+                param_errors = np.sqrt(np.diag(cov_matrix))
+            except Exception as e:
+                # If Jacobian-based covariance estimation fails, fall back to zeros
+                # and emit a warning so users can investigate the cause.
+                warnings.warn(f'Failed to compute covariance from Jacobian: {e}', stacklevel=2)
+                param_errors = np.zeros_like(fitted_params)
+
+            chisq = np.sum(result.fun**2)
+
+        elif method == 'differential_evolution':
+            # Global optimizer (supports bounds)
+            bounds_list = list(zip(bounds_lower, bounds_upper))
+
+            def objective(x):
+                return np.sum(residual(x) ** 2)
+
+            result = differential_evolution(objective, bounds_list, **kwargs)
+            fitted_params = result.x
+            param_errors = np.zeros_like(fitted_params)  # DE doesn't provide errors
+            chisq = result.fun
+
+        else:
+            raise ValueError(
+                f"Unknown method '{method}'. Use 'leastsq', 'least_squares', or 'differential_evolution'."
             )
 
-        # Store fitted model for later use
-        if 'problem' in self.fit_result:
-            self._fitted_model = self.fit_result['problem']
-        elif 'result' in self.fit_result:
-            self._fitted_model = self.fit_result['result']
+        # Store results
+        self.fit_result = {
+            'engine': 'lmfit',
+            'method': method,
+            'chisq': chisq,
+            'parameters': {},
+            'result': result,
+        }
+
+        # Extract fitted parameters
+        for i, name in enumerate(param_names):
+            self.fit_result['parameters'][name] = {
+                'value': fitted_params[i],
+                'stderr': param_errors[i],
+                'formatted': f'{fitted_params[i]:.6g} ± {param_errors[i]:.6g}'
+                if param_errors[i] > 0
+                else f'{fitted_params[i]:.6g}',
+            }
+            # Update internal parameter values
+            if name in self.params:
+                self.params[name]['value'] = fitted_params[i]
+            elif name.endswith('_pd'):
+                # Update polydispersity parameter via ParameterManager
+                base_param = name[:-3]  # Remove '_pd' suffix
+                if base_param in self._param_manager.get_polydisperse_parameters():
+                    self._param_manager.set_pd_param(base_param, pd_width=fitted_params[i])
+
+        # Add fixed parameters to results
+        for name, info in self.params.items():
+            if name not in param_names:
+                self.fit_result['parameters'][name] = {
+                    'value': info['value'],
+                    'stderr': 0.0,
+                    'formatted': f'{info["value"]:.6g} (fixed)',
+                }
+
+        self._fitted_model = result
+
+        # Print results
+        print('\n✓ Fit completed!')
+        print(f'Final χ² = {self.fit_result["chisq"]:.4f}')
+        print('\nFitted parameters:')
+        for name, info in self.fit_result['parameters'].items():
+            print(f'  {name}: {info["formatted"]}')
 
         return self.fit_result
 

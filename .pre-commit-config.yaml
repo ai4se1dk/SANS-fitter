@@ -9,8 +9,8 @@ repos:
       - id: ruff
         args: [--fix]
         types_or: [python, pyi, jupyter]
-        files: ^(src|tests|examples)/
+        files: ^(src|tests)/
       # Run the formatter
       - id: ruff-format
         types_or: [python, pyi, jupyter]
-        files: ^(src|tests|examples)/
+        files: ^(src|tests)/
