@@ -113,3 +113,97 @@ When using a structure factor, you often need to define an effective radius. You
 # Link effective radius to the sphere radius
 fitter.set_structure_factor('hardsphere', radius_effective_mode='link_radius')
 ```
+
+## Polydispersity
+
+SANS Fitter supports polydispersity, which models size distributions in your samples. Many real samples have a distribution of particle sizes rather than a single monodisperse size.
+
+### Checking Polydispersity Support
+
+Not all model parameters support polydispersity. Check which parameters are polydisperse:
+
+```python
+# Check if model supports polydispersity
+if fitter.supports_polydispersity():
+    # Get list of polydisperse parameters
+    pd_params = fitter.get_polydisperse_parameters()
+    print(f"Polydisperse parameters: {pd_params}")
+```
+
+### Configuring Polydispersity
+
+Configure polydispersity for a specific parameter:
+
+```python
+# Set polydispersity width (relative, 0.0 = monodisperse, 0.1 = 10% width)
+fitter.set_pd_param('radius', pd_width=0.1)
+
+# Configure all PD options
+fitter.set_pd_param(
+    'radius',
+    pd_width=0.15,      # 15% polydispersity
+    pd_n=50,            # Number of quadrature points (default: 35)
+    pd_nsigma=4.0,      # Number of sigmas to include (default: 3.0)
+    pd_type='gaussian', # Distribution type
+    vary=True           # Allow pd_width to vary during fitting
+)
+
+# Get current PD configuration
+pd_config = fitter.get_pd_param('radius')
+print(pd_config)  # {'pd': 0.15, 'pd_n': 50, 'pd_nsigma': 4.0, 'pd_type': 'gaussian', 'vary': True, 'active': True}
+```
+
+### Distribution Types
+
+SANS Fitter supports several polydispersity distribution types:
+
+- `gaussian` - Gaussian/normal distribution (default)
+- `rectangle` - Uniform/rectangular distribution
+- `lognormal` - Log-normal distribution
+- `schulz` - Schulz distribution (common for polymers)
+- `boltzmann` - Boltzmann distribution
+
+```python
+# Use Schulz distribution for polymer samples
+fitter.set_pd_param('radius', pd_width=0.2, pd_type='schulz')
+```
+
+### Enabling/Disabling Polydispersity
+
+You can globally enable or disable polydispersity:
+
+```python
+# Enable polydispersity globally
+fitter.enable_polydispersity(True)
+
+# Check if enabled
+if fitter.is_polydispersity_enabled():
+    print("Polydispersity is enabled")
+
+# Disable polydispersity (values are preserved)
+fitter.enable_polydispersity(False)
+```
+
+### Viewing Polydispersity Parameters
+
+Display all polydispersity parameter settings:
+
+```python
+# Print PD parameter table
+fitter.get_pd_params()
+```
+
+### Fitting with Polydispersity
+
+When fitting with polydispersity, you can choose to fix or vary the polydispersity width:
+
+```python
+# Set up model and polydispersity
+fitter.set_model('sphere')
+fitter.set_param('radius', value=50, min=10, max=200, vary=True)
+fitter.set_pd_param('radius', pd_width=0.1, vary=True)  # Fit the PD width
+fitter.enable_polydispersity(True)
+
+# Fit - will optimize both radius and radius_pd
+result = fitter.fit(engine='bumps')
+```
