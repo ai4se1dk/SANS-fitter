@@ -426,8 +426,8 @@ class SANSFitter:
         if self._param_manager.is_pd_enabled():
             for param_name in self._param_manager.get_polydisperse_parameters():
                 pd_config = self._param_manager.get_pd_param(param_name)
-                # Only include PD params if this parameter has PD active (pd > 0)
-                if pd_config['pd'] > 0:
+                include_pd = pd_config['pd'] > 0 or pd_config.get('vary', False)
+                if include_pd:
                     pars[f'{param_name}_pd'] = pd_config['pd']
                     pars[f'{param_name}_pd_n'] = pd_config['pd_n']
                     pars[f'{param_name}_pd_nsigma'] = pd_config['pd_nsigma']
@@ -446,7 +446,8 @@ class SANSFitter:
         if self._param_manager.is_pd_enabled():
             for param_name in self._param_manager.get_polydisperse_parameters():
                 pd_config = self._param_manager.get_pd_param(param_name)
-                if pd_config['pd'] > 0 and pd_config.get('vary', False):
+                include_pd = pd_config['pd'] > 0 or pd_config.get('vary', False)
+                if include_pd and pd_config.get('vary', False):
                     # Allow pd_width to vary between 0 and 1 (0-100%)
                     pd_param = getattr(model, f'{param_name}_pd')
                     pd_param.range(0, 1)
@@ -520,7 +521,8 @@ class SANSFitter:
         if self._param_manager.is_pd_enabled():
             for base_param in self._param_manager.get_polydisperse_parameters():
                 pd_config = self._param_manager.get_pd_param(base_param)
-                if pd_config['pd'] > 0 and pd_config.get('vary', False):
+                include_pd = pd_config['pd'] > 0 or pd_config.get('vary', False)
+                if include_pd and pd_config.get('vary', False):
                     pd_name = f'{base_param}_pd'
                     pd_param_names.append(pd_name)
                     param_names.append(pd_name)
@@ -555,7 +557,8 @@ class SANSFitter:
             if param_manager.is_pd_enabled():
                 for base_param in param_manager.get_polydisperse_parameters():
                     pd_config = param_manager.get_pd_param(base_param)
-                    if pd_config['pd'] > 0:
+                    include_pd = pd_config['pd'] > 0 or pd_config.get('vary', False)
+                    if include_pd:
                         # pd value may have been updated above if varying
                         if f'{base_param}_pd' not in par_dict:
                             par_dict[f'{base_param}_pd'] = pd_config['pd']

@@ -130,7 +130,7 @@ result_pd = fitter_pd.fit(engine='bumps', method='amoeba')
 print(f"Chi-squared (polydisperse): {result_pd['chisq']:.4f}")
 
 # Compare chi-squared values
-print(f"\n--- Comparison ---")
+print("\n--- Comparison ---")
 print(f"Monodisperse chi-squared: {result_mono['chisq']:.4f}")
 print(f"Polydisperse chi-squared: {result_pd['chisq']:.4f}")
 
