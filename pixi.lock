@@ -7139,7 +7139,7 @@ packages:
 - pypi: ./
   name: sans-fitter
   version: 0.0.3
-  sha256: 66a41378918e83d3c5505735088000aa1e3d05611853e2e59822ea50ac1a3d60
+  sha256: b59ddb06b7f00834a8e2ed213079464767e5b982bf989dc364a6779611287ecf
   requires_dist:
   - numpy>=1.20
   - plotly>=5.0
