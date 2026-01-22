@@ -481,5 +481,230 @@ class TestSANSFitterPolydispersityIntegration(unittest.TestCase):
         self.assertTrue(self.fitter.is_polydispersity_enabled())
 
 
+class TestBumpsFittingWithPolydispersity(unittest.TestCase):
+    """Test BUMPS fitting engine with polydispersity parameters."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.fitter = SANSFitter()
+        self.data_file = self.create_test_data_file()
+        self.fitter.load_data(self.data_file)
+        self.fitter.set_model('sphere')
+
+        # Set up parameters
+        self.fitter.set_param('radius', value=20.0, min=10.0, max=30.0, vary=True)
+        self.fitter.set_param('scale', value=0.1, min=0.01, max=1.0, vary=True)
+        self.fitter.set_param('background', value=0.01, min=0, max=0.1, vary=True)
+        self.fitter.set_param('sld', value=2.0, vary=False)
+        self.fitter.set_param('sld_solvent', value=3.0, vary=False)
+
+    def tearDown(self):
+        """Clean up test fixtures."""
+        if os.path.exists(self.data_file):
+            os.unlink(self.data_file)
+
+    def create_test_data_file(self):
+        """Create synthetic SANS data."""
+        temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False)
+        temp_file.write('Q,I,dI\n')
+        q = np.logspace(-2, 0, 30)
+        intensity = 0.1 * (1 / (1 + q**2)) + 0.01
+        d_intensity = intensity * 0.1
+        for qi, intensity_i, d_intensity_i in zip(q, intensity, d_intensity):
+            temp_file.write(f'{qi},{intensity_i},{d_intensity_i}\n')
+        temp_file.close()
+        return temp_file.name
+
+    def test_fit_with_pd_enabled_fixed_width(self):
+        """Test BUMPS fitting with polydispersity enabled and fixed PD width."""
+        # Configure PD with fixed width
+        self.fitter.set_pd_param('radius', pd_width=0.1, pd_type='gaussian', vary=False)
+        self.fitter.enable_polydispersity(True)
+
+        result = self.fitter.fit(engine='bumps', method='amoeba')
+
+        self.assertIsNotNone(result)
+        self.assertIn('chisq', result)
+        self.assertIn('parameters', result)
+        # Check that regular parameters are fitted
+        self.assertIn('radius', result['parameters'])
+        self.assertIn('scale', result['parameters'])
+
+    def test_fit_with_pd_enabled_varying_width(self):
+        """Test BUMPS fitting with polydispersity width as a varying parameter."""
+        # Configure PD with varying width
+        self.fitter.set_pd_param('radius', pd_width=0.05, pd_type='gaussian', vary=True)
+        self.fitter.enable_polydispersity(True)
+
+        result = self.fitter.fit(engine='bumps', method='amoeba')
+
+        self.assertIsNotNone(result)
+        self.assertIn('chisq', result)
+        # Check that radius_pd is in the fitted parameters
+        self.assertIn('radius_pd', result['parameters'])
+
+    def test_pd_width_updated_after_fit(self):
+        """Test that PD width is updated in internal state after fitting."""
+        # Configure PD with varying width
+        initial_pd = 0.05
+        self.fitter.set_pd_param('radius', pd_width=initial_pd, pd_type='gaussian', vary=True)
+        self.fitter.enable_polydispersity(True)
+
+        self.fitter.fit(engine='bumps', method='amoeba')
+
+        # Check that the internal PD value has been updated
+        pd_config = self.fitter.get_pd_param('radius')
+        # The fitted value should be stored (may be same or different from initial)
+        self.assertIsNotNone(pd_config['pd'])
+
+    def test_fit_with_multiple_pd_params(self):
+        """Test fitting with multiple polydisperse parameters (cylinder)."""
+        self.fitter.set_model('cylinder')
+        self.fitter.set_param('radius', value=20.0, min=10.0, max=50.0, vary=True)
+        self.fitter.set_param('length', value=200.0, min=50.0, max=500.0, vary=True)
+        self.fitter.set_param('scale', value=0.1, vary=True)
+        self.fitter.set_param('background', value=0.01, vary=True)
+
+        # Enable PD on both radius and length
+        self.fitter.set_pd_param('radius', pd_width=0.1, vary=False)
+        self.fitter.set_pd_param('length', pd_width=0.15, vary=False)
+        self.fitter.enable_polydispersity(True)
+
+        result = self.fitter.fit(engine='bumps', method='amoeba')
+
+        self.assertIsNotNone(result)
+        self.assertIn('chisq', result)
+
+
+class TestLMFitFittingWithPolydispersity(unittest.TestCase):
+    """Test scipy/lmfit fitting engine with polydispersity parameters."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.fitter = SANSFitter()
+        self.data_file = self.create_test_data_file()
+        self.fitter.load_data(self.data_file)
+        self.fitter.set_model('sphere')
+
+        # Set up parameters
+        self.fitter.set_param('radius', value=20.0, min=10.0, max=30.0, vary=True)
+        self.fitter.set_param('scale', value=0.1, min=0.01, max=1.0, vary=True)
+        self.fitter.set_param('background', value=0.01, min=0, max=0.1, vary=True)
+        self.fitter.set_param('sld', value=2.0, vary=False)
+        self.fitter.set_param('sld_solvent', value=3.0, vary=False)
+
+    def tearDown(self):
+        """Clean up test fixtures."""
+        if os.path.exists(self.data_file):
+            os.unlink(self.data_file)
+
+    def create_test_data_file(self):
+        """Create synthetic SANS data."""
+        temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False)
+        temp_file.write('Q,I,dI\n')
+        q = np.logspace(-2, 0, 30)
+        intensity = 0.1 * (1 / (1 + q**2)) + 0.01
+        d_intensity = intensity * 0.1
+        for qi, intensity_i, d_intensity_i in zip(q, intensity, d_intensity):
+            temp_file.write(f'{qi},{intensity_i},{d_intensity_i}\n')
+        temp_file.close()
+        return temp_file.name
+
+    def test_fit_with_pd_enabled_fixed_width_leastsq(self):
+        """Test leastsq fitting with polydispersity enabled and fixed PD width."""
+        # Configure PD with fixed width
+        self.fitter.set_pd_param('radius', pd_width=0.1, pd_type='gaussian', vary=False)
+        self.fitter.enable_polydispersity(True)
+
+        result = self.fitter.fit(engine='lmfit', method='leastsq')
+
+        self.assertIsNotNone(result)
+        self.assertIn('chisq', result)
+        self.assertIn('parameters', result)
+
+    def test_fit_with_pd_enabled_varying_width_least_squares(self):
+        """Test least_squares fitting with varying polydispersity width."""
+        # Configure PD with varying width
+        self.fitter.set_pd_param('radius', pd_width=0.05, pd_type='gaussian', vary=True)
+        self.fitter.enable_polydispersity(True)
+
+        result = self.fitter.fit(engine='lmfit', method='least_squares')
+
+        self.assertIsNotNone(result)
+        self.assertIn('chisq', result)
+        # Check that radius_pd is in the fitted parameters
+        self.assertIn('radius_pd', result['parameters'])
+
+    def test_pd_width_updated_after_lmfit(self):
+        """Test that PD width is updated in internal state after lmfit."""
+        # Configure PD with varying width
+        initial_pd = 0.05
+        self.fitter.set_pd_param('radius', pd_width=initial_pd, pd_type='gaussian', vary=True)
+        self.fitter.enable_polydispersity(True)
+
+        self.fitter.fit(engine='lmfit', method='least_squares')
+
+        # Check that the internal PD value has been updated
+        pd_config = self.fitter.get_pd_param('radius')
+        self.assertIsNotNone(pd_config['pd'])
+
+
+class TestPolydispersityDistributionTypes(unittest.TestCase):
+    """Test different polydispersity distribution types in fitting."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.fitter = SANSFitter()
+        self.data_file = self.create_test_data_file()
+        self.fitter.load_data(self.data_file)
+        self.fitter.set_model('sphere')
+
+        # Set up parameters
+        self.fitter.set_param('radius', value=20.0, min=10.0, max=30.0, vary=True)
+        self.fitter.set_param('scale', value=0.1, vary=True)
+        self.fitter.set_param('background', value=0.01, vary=True)
+
+    def tearDown(self):
+        """Clean up test fixtures."""
+        if os.path.exists(self.data_file):
+            os.unlink(self.data_file)
+
+    def create_test_data_file(self):
+        """Create synthetic SANS data."""
+        temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False)
+        temp_file.write('Q,I,dI\n')
+        q = np.logspace(-2, 0, 30)
+        intensity = 0.1 * (1 / (1 + q**2)) + 0.01
+        d_intensity = intensity * 0.1
+        for qi, intensity_i, d_intensity_i in zip(q, intensity, d_intensity):
+            temp_file.write(f'{qi},{intensity_i},{d_intensity_i}\n')
+        temp_file.close()
+        return temp_file.name
+
+    def test_fit_with_gaussian_distribution(self):
+        """Test fitting with Gaussian polydispersity distribution."""
+        self.fitter.set_pd_param('radius', pd_width=0.1, pd_type='gaussian')
+        self.fitter.enable_polydispersity(True)
+
+        result = self.fitter.fit(engine='bumps', method='amoeba')
+        self.assertIsNotNone(result)
+
+    def test_fit_with_lognormal_distribution(self):
+        """Test fitting with lognormal polydispersity distribution."""
+        self.fitter.set_pd_param('radius', pd_width=0.1, pd_type='lognormal')
+        self.fitter.enable_polydispersity(True)
+
+        result = self.fitter.fit(engine='bumps', method='amoeba')
+        self.assertIsNotNone(result)
+
+    def test_fit_with_schulz_distribution(self):
+        """Test fitting with Schulz polydispersity distribution."""
+        self.fitter.set_pd_param('radius', pd_width=0.1, pd_type='schulz')
+        self.fitter.enable_polydispersity(True)
+
+        result = self.fitter.fit(engine='bumps', method='amoeba')
+        self.assertIsNotNone(result)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

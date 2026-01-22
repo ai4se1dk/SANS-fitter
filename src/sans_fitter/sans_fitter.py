@@ -610,6 +610,17 @@ class SANSFitter:
         # Prepare parameter dictionary for BumpsModel
         pars = {name: info['value'] for name, info in self.params.items()}
 
+        # Add polydispersity parameters if PD is enabled
+        if self._pd_enabled:
+            for param_name in self._polydisperse_param_names:
+                pd_config = self._polydisperse_params[param_name]
+                # Only include PD params if this parameter has PD active (pd > 0)
+                if self._pd_param_states.get(param_name, False):
+                    pars[f'{param_name}_pd'] = pd_config['pd']
+                    pars[f'{param_name}_pd_n'] = pd_config['pd_n']
+                    pars[f'{param_name}_pd_nsigma'] = pd_config['pd_nsigma']
+                    pars[f'{param_name}_pd_type'] = pd_config['pd_type']
+
         # Create BUMPS model
         model = BumpsModel(self.kernel, **pars)
 
@@ -618,6 +629,15 @@ class SANSFitter:
             if info['vary']:
                 param_obj = getattr(model, name)
                 param_obj.range(info['min'], info['max'])
+
+        # Set polydispersity parameter ranges if PD is enabled and vary=True
+        if self._pd_enabled:
+            for param_name in self._polydisperse_param_names:
+                pd_config = self._polydisperse_params[param_name]
+                if self._pd_param_states.get(param_name, False) and pd_config.get('vary', False):
+                    # Allow pd_width to vary between 0 and 1 (0-100%)
+                    pd_param = getattr(model, f'{param_name}_pd')
+                    pd_param.range(0, 1)
 
         # Handle radius_effective linking in link_radius mode
         if (
@@ -658,6 +678,11 @@ class SANSFitter:
             # Update internal parameter values
             if k in self.params:
                 self.params[k]['value'] = v
+            elif k.endswith('_pd'):
+                # Update polydispersity parameter
+                base_param = k[:-3]  # Remove '_pd' suffix
+                if base_param in self._polydisperse_params:
+                    self._polydisperse_params[base_param]['pd'] = v
 
         self._fitted_model = problem
 
@@ -672,17 +697,38 @@ class SANSFitter:
 
     def _fit_lmfit(self, method: str = 'leastsq', **kwargs: Any) -> dict[str, Any]:
         """Fit using scipy.optimize (leastsq/least_squares) engine."""
-        # Get initial parameter values and build bounds
+        # Get initial parameter values and build bounds for regular parameters
         param_names = [name for name, info in self.params.items() if info['vary']]
-        x0 = np.array([self.params[name]['value'] for name in param_names])
-        bounds_lower = np.array([self.params[name]['min'] for name in param_names])
-        bounds_upper = np.array([self.params[name]['max'] for name in param_names])
+        x0_list = [self.params[name]['value'] for name in param_names]
+        bounds_lower_list = [self.params[name]['min'] for name in param_names]
+        bounds_upper_list = [self.params[name]['max'] for name in param_names]
+
+        # Add polydispersity parameters if PD is enabled and vary=True
+        pd_param_names = []
+        if self._pd_enabled:
+            for base_param in self._polydisperse_param_names:
+                pd_config = self._polydisperse_params[base_param]
+                if self._pd_param_states.get(base_param, False) and pd_config.get('vary', False):
+                    pd_name = f'{base_param}_pd'
+                    pd_param_names.append(pd_name)
+                    param_names.append(pd_name)
+                    x0_list.append(pd_config['pd'])
+                    bounds_lower_list.append(0.0)
+                    bounds_upper_list.append(1.0)
+
+        x0 = np.array(x0_list)
+        bounds_lower = np.array(bounds_lower_list)
+        bounds_upper = np.array(bounds_upper_list)
 
         # Create direct model calculator (kernel already set to CPU in set_model)
         calculator = DirectModel(self.data, self.kernel)
 
         # Capture instance attributes for use in residual closure
         radius_effective_mode = self._radius_effective_mode
+        pd_enabled = self._pd_enabled
+        polydisperse_param_names = self._polydisperse_param_names
+        polydisperse_params = self._polydisperse_params
+        pd_param_states = self._pd_param_states
 
         # Define residual function
         def residual(x):
@@ -690,7 +736,23 @@ class SANSFitter:
             par_dict = {name: info['value'] for name, info in self.params.items()}
             # Update with fitted parameters
             for i, name in enumerate(param_names):
-                par_dict[name] = x[i]
+                if name in par_dict:
+                    par_dict[name] = x[i]
+                elif name.endswith('_pd'):
+                    # This is a PD parameter
+                    par_dict[name] = x[i]
+
+            # Add polydispersity parameters if PD is enabled
+            if pd_enabled:
+                for base_param in polydisperse_param_names:
+                    pd_config = polydisperse_params[base_param]
+                    if pd_param_states.get(base_param, False):
+                        # pd value may have been updated above if varying
+                        if f'{base_param}_pd' not in par_dict:
+                            par_dict[f'{base_param}_pd'] = pd_config['pd']
+                        par_dict[f'{base_param}_pd_n'] = pd_config['pd_n']
+                        par_dict[f'{base_param}_pd_nsigma'] = pd_config['pd_nsigma']
+                        par_dict[f'{base_param}_pd_type'] = pd_config['pd_type']
 
             # Handle radius_effective linking in link_radius mode
             if (
@@ -781,7 +843,13 @@ class SANSFitter:
                 else f'{fitted_params[i]:.6g}',
             }
             # Update internal parameter values
-            self.params[name]['value'] = fitted_params[i]
+            if name in self.params:
+                self.params[name]['value'] = fitted_params[i]
+            elif name.endswith('_pd'):
+                # Update polydispersity parameter
+                base_param = name[:-3]  # Remove '_pd' suffix
+                if base_param in self._polydisperse_params:
+                    self._polydisperse_params[base_param]['pd'] = fitted_params[i]
 
         # Add fixed parameters to results
         for name, info in self.params.items():
