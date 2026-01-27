@@ -24,6 +24,34 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from sans_fitter import SANSFitter
 
 
+class TestGetAllModels(unittest.TestCase):
+    """Test get_all_models function."""
+
+    def test_get_all_models_returns_list(self):
+        """Test that get_all_models returns a non-empty list."""
+        from sans_fitter import get_all_models
+
+        models = get_all_models()
+        self.assertIsInstance(models, list)
+        self.assertGreater(len(models), 0)
+
+    def test_get_all_models_contains_common_models(self):
+        """Test that common models are in the list."""
+        from sans_fitter import get_all_models
+
+        models = get_all_models()
+        self.assertIn('sphere', models)
+        self.assertIn('cylinder', models)
+        self.assertIn('ellipsoid', models)
+
+    def test_get_all_models_is_sorted(self):
+        """Test that the model list is sorted."""
+        from sans_fitter import get_all_models
+
+        models = get_all_models()
+        self.assertEqual(models, sorted(models))
+
+
 class TestSANSFitterInitialization(unittest.TestCase):
     """Test SANSFitter initialization."""
 

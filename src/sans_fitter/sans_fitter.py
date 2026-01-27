@@ -17,14 +17,31 @@ from bumps.formatnum import format_uncertainty
 from bumps.names import FitProblem
 from plotly.subplots import make_subplots
 from sasdata.dataloader.loader import Loader
-from sasmodels.bumps_model import Experiment
-from sasmodels.bumps_model import Model as BumpsModel
 
 # SasModels and SasData imports
+from sasmodels import core
+from sasmodels.bumps_model import Experiment
+from sasmodels.bumps_model import Model as BumpsModel
 from sasmodels.core import load_model
 from sasmodels.direct_model import DirectModel
 
 from .parameter_manager import ParameterManager
+
+
+def get_all_models() -> list[str]:
+    """
+    Fetch all available models from sasmodels.
+
+    Returns:
+        List of model names
+    """
+    try:
+        all_models = core.list_models()
+        return sorted(all_models)
+    except Exception as e:
+        print(f'Error fetching models: {str(e)}')
+        return []
+
 
 try:
     from scipy.optimize import differential_evolution, least_squares, leastsq
