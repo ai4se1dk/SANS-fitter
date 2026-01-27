@@ -5,6 +5,8 @@ environments:
     - url: https://conda.anaconda.org/conda-forge/
     indexes:
     - https://pypi.org/simple
+    options:
+      pypi-prerelease-mode: if-necessary-or-explicit
     packages:
       linux-64:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/_libgcc_mutex-0.1-conda_forge.tar.bz2
@@ -7136,8 +7138,8 @@ packages:
   timestamp: 1766095035171
 - pypi: ./
   name: sans-fitter
-  version: 0.0.3
-  sha256: 66a41378918e83d3c5505735088000aa1e3d05611853e2e59822ea50ac1a3d60
+  version: 0.0.4
+  sha256: 264c8ceaa00d0989ad80269ebbdd6f004dee321646eefe3154bb9c24d5651ea4
   requires_dist:
   - numpy>=1.20
   - plotly>=5.0
@@ -7156,7 +7158,6 @@ packages:
   - mkdocs-material>=9.5 ; extra == 'docs'
   - mkdocstrings[python]>=0.25 ; extra == 'docs'
   requires_python: '>=3.10'
-  editable: true
 - pypi: https://files.pythonhosted.org/packages/cc/0b/8a98ee6196ccf99add9521ce9572092580d609c3b93a5464cc06825f62dd/sasdata-0.11.0-py3-none-any.whl
   name: sasdata
   version: 0.11.0
