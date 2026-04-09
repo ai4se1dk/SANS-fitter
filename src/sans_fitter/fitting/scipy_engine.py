@@ -1,0 +1,139 @@
+import warnings
+from typing import Any
+
+import numpy as np
+from sasmodels.direct_model import DirectModel
+
+from ..contracts import ParameterStateSnapshot
+from ..results import FitArtifacts, FitResultContract
+from .base import EngineFitOutput, link_radius_effective_dict, pd_is_active
+
+try:
+    from scipy.optimize import differential_evolution, least_squares, leastsq
+
+    SCIPY_AVAILABLE = True
+except ImportError:
+    SCIPY_AVAILABLE = False
+
+
+def fit_scipy(
+    data: Any,
+    kernel: Any,
+    fit_state: ParameterStateSnapshot,
+    method: str = 'leastsq',
+    **kwargs: Any,
+) -> EngineFitOutput:
+    """Fit using scipy.optimize based fitting methods."""
+    param_names = [name for name, info in fit_state.params.items() if info['vary']]
+    x0_list = [fit_state.params[name]['value'] for name in param_names]
+    bounds_lower_list = [fit_state.params[name]['min'] for name in param_names]
+    bounds_upper_list = [fit_state.params[name]['max'] for name in param_names]
+
+    if fit_state.pd_enabled:
+        for base_param in fit_state.polydisperse_param_names:
+            pd_config = fit_state.polydisperse_params[base_param]
+            if pd_is_active(pd_config) and pd_config.get('vary', False):
+                pd_name = f'{base_param}_pd'
+                param_names.append(pd_name)
+                x0_list.append(pd_config['pd'])
+                bounds_lower_list.append(0.0)
+                bounds_upper_list.append(1.0)
+
+    x0 = np.array(x0_list)
+    bounds_lower = np.array(bounds_lower_list)
+    bounds_upper = np.array(bounds_upper_list)
+    calculator = DirectModel(data, kernel)
+
+    def build_parameter_dict(x: np.ndarray) -> dict[str, Any]:
+        par_dict = {name: info['value'] for name, info in fit_state.params.items()}
+
+        for index, name in enumerate(param_names):
+            if name in par_dict or name.endswith('_pd'):
+                par_dict[name] = x[index]
+
+        if fit_state.pd_enabled:
+            for base_param in fit_state.polydisperse_param_names:
+                pd_config = fit_state.polydisperse_params[base_param]
+                if pd_is_active(pd_config):
+                    if f'{base_param}_pd' not in par_dict:
+                        par_dict[f'{base_param}_pd'] = pd_config['pd']
+                    par_dict[f'{base_param}_pd_n'] = pd_config['pd_n']
+                    par_dict[f'{base_param}_pd_nsigma'] = pd_config['pd_nsigma']
+                    par_dict[f'{base_param}_pd_type'] = pd_config['pd_type']
+
+        link_radius_effective_dict(par_dict, fit_state.radius_effective_mode)
+        return par_dict
+
+    def residual(x: np.ndarray) -> np.ndarray:
+        i_calc = calculator(**build_parameter_dict(x))
+        return (data.y - i_calc) / data.dy
+
+    print(f'\nFitting with scipy.optimize (method: {method})...')
+
+    if method == 'leastsq':
+        result = leastsq(residual, x0, full_output=True, **kwargs)
+        fitted_params = result[0]
+        cov_matrix = result[1]
+        if cov_matrix is not None:
+            param_errors = np.sqrt(np.diag(cov_matrix))
+        else:
+            param_errors = np.zeros_like(fitted_params)
+        chisq = np.sum(residual(fitted_params) ** 2)
+    elif method == 'least_squares':
+        result = least_squares(residual, x0, bounds=(bounds_lower, bounds_upper), **kwargs)
+        fitted_params = result.x
+        try:
+            cov_matrix = np.linalg.inv(result.jac.T @ result.jac)
+            param_errors = np.sqrt(np.diag(cov_matrix))
+        except Exception as e:
+            warnings.warn(f'Failed to compute covariance from Jacobian: {e}', stacklevel=2)
+            param_errors = np.zeros_like(fitted_params)
+        chisq = np.sum(result.fun**2)
+    elif method == 'differential_evolution':
+        bounds_list = list(zip(bounds_lower, bounds_upper))
+
+        def objective(x: np.ndarray) -> np.floating[Any]:
+            return np.sum(residual(x) ** 2)
+
+        result = differential_evolution(objective, bounds_list, **kwargs)
+        fitted_params = result.x
+        param_errors = np.zeros_like(fitted_params)
+        chisq = result.fun
+    else:
+        raise ValueError(
+            f"Unknown method '{method}'. Use 'leastsq', 'least_squares', or 'differential_evolution'."
+        )
+
+    result_parameters: dict[str, dict[str, Any]] = {}
+    fitted_values: dict[str, float] = {}
+
+    for index, name in enumerate(param_names):
+        result_parameters[name] = {
+            'value': fitted_params[index],
+            'stderr': param_errors[index],
+            'formatted': f'{fitted_params[index]:.6g} ± {param_errors[index]:.6g}'
+            if param_errors[index] > 0
+            else f'{fitted_params[index]:.6g}',
+        }
+        fitted_values[name] = fitted_params[index]
+
+    for name, info in fit_state.params.items():
+        if name not in param_names:
+            result_parameters[name] = {
+                'value': info['value'],
+                'stderr': 0.0,
+                'formatted': f'{info["value"]:.6g} (fixed)',
+            }
+
+    contract = FitResultContract(
+        engine='lmfit',
+        method=method,
+        chisq=chisq,
+        parameters=result_parameters,
+        artifacts=FitArtifacts(
+            fitted_curve=np.asarray(calculator(**build_parameter_dict(fitted_params))),
+            raw_result=result,
+        ),
+    )
+
+    return EngineFitOutput(contract=contract, fitted_values=fitted_values, runtime_model=result)
