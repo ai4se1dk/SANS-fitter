@@ -93,6 +93,13 @@ class PolydispersityManager:
                 f"Invalid pd_type '{pd_type}'. Valid types: {', '.join(PD_DISTRIBUTION_TYPES)}"
             )
 
+        if pd_width is not None and pd_width < 0:
+            raise ValueError('pd_width must be non-negative')
+        if pd_n is not None and pd_n <= 0:
+            raise ValueError('pd_n must be positive')
+        if pd_nsigma is not None and pd_nsigma <= 0:
+            raise ValueError('pd_nsigma must be positive')
+
         if pd_width is not None:
             self._params[base_param]['pd'] = pd_width
         if pd_n is not None:
