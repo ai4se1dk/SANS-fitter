@@ -14,9 +14,19 @@ def load_sans_data(filename: str) -> Any:
             raise ValueError(f'No data loaded from {filename}')
 
         data = data_list[0]
-        data.qmin = getattr(data, 'qmin', None) or data.x.min()
-        data.qmax = getattr(data, 'qmax', None) or data.x.max()
-        data.mask = np.isnan(data.y)
+        qmin = getattr(data, 'qmin', None)
+        qmax = getattr(data, 'qmax', None)
+        data.qmin = data.x.min() if qmin is None else qmin
+        data.qmax = data.x.max() if qmax is None else qmax
+
+        existing_mask = np.asarray(
+            getattr(data, 'mask', np.zeros_like(data.y, dtype=bool)),
+            dtype=bool,
+        )
+        nan_mask = np.isnan(data.x) | np.isnan(data.y)
+        if hasattr(data, 'dy'):
+            nan_mask |= np.isnan(data.dy)
+        data.mask = existing_mask | nan_mask
         return data
     except Exception as e:
         raise ValueError(f'Failed to load data from {filename}: {str(e)}') from e
