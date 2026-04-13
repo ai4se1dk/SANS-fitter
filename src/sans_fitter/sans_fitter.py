@@ -15,7 +15,7 @@ from sasmodels import core
 from sasmodels.core import load_model
 from sasmodels.direct_model import DirectModel
 
-from .data_loader import load_sans_data
+from .data_loader import _has_real_data, load_sans_data
 from .fitting import SCIPY_AVAILABLE, fit_bumps, fit_scipy
 from .parameter_manager import ParameterManager
 from .plotting import plot_fit
@@ -88,9 +88,14 @@ class SANSFitter:
         """
         self.data = load_sans_data(filename)
 
+        has_dy = _has_real_data(self.data.dy)
+        has_dx = _has_real_data(self.data.dx)
+
         print(f'✓ Loaded data from {filename}')
         print(f'  Q range: {self.data.qmin:.4f} to {self.data.qmax:.4f} Å⁻¹')
         print(f'  Data points: {len(self.data.x)}')
+        print(f'  Error (dI) column: {"yes" if has_dy else "no"}')
+        print(f'  Resolution (dQ) column: {"yes" if has_dx else "no"}')
 
     def set_model(self, model_name: str, platform: str = 'cpu') -> None:
         """

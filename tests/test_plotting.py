@@ -3,7 +3,7 @@ import unittest
 from unittest.mock import patch
 
 from sans_fitter import SANSFitter
-from tests.helpers import create_decay_data_file
+from tests.helpers import create_decay_data_file, create_loading_test_data_file_with_resolution
 
 
 class TestVisualization(unittest.TestCase):
@@ -40,6 +40,25 @@ class TestVisualization(unittest.TestCase):
 
         self.fitter.plot_results(show_residuals=True, log_scale=True)
         self.fitter.plot_results(show_residuals=False, log_scale=False)
+
+    @patch('plotly.graph_objects.Figure.show')
+    def test_plot_data_with_resolution_shows_error_x(self, _mock_show):
+        data_file = create_loading_test_data_file_with_resolution()
+        try:
+            fitter = SANSFitter()
+            fitter.load_data(data_file)
+            fig = fitter.plot_results()
+            data_trace = fig.data[0]
+            self.assertIsNotNone(data_trace.error_x)
+            self.assertTrue(data_trace.error_x.visible)
+        finally:
+            os.unlink(data_file)
+
+    @patch('plotly.graph_objects.Figure.show')
+    def test_plot_data_without_resolution_no_error_x(self, _mock_show):
+        fig = self.fitter.plot_results()
+        data_trace = fig.data[0]
+        self.assertIsNone(data_trace.error_x.array)
 
 
 if __name__ == '__main__':
