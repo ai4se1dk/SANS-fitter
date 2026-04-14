@@ -56,9 +56,15 @@ class TestDataLoading(unittest.TestCase):
         data_file = create_loading_test_data_file()
         try:
             self.fitter.load_data(data_file)
-            self.assertFalse(_has_real_data(self.fitter.data.dx))
+            self.assertTrue(_has_real_data(self.fitter.data.dx))
         finally:
             os.unlink(data_file)
+
+    def test_has_real_data_rejects_all_nan_arrays(self):
+        self.assertFalse(_has_real_data(np.array([np.nan, np.nan])))
+
+    def test_has_real_data_accepts_zero_filled_arrays(self):
+        self.assertTrue(_has_real_data(np.zeros(3)))
 
     def test_nan_masking_includes_dx(self):
         data_file = create_loading_test_data_file_with_resolution()

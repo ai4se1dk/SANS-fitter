@@ -2,6 +2,8 @@ import os
 import unittest
 from unittest.mock import patch
 
+import numpy as np
+
 from sans_fitter import SANSFitter
 from tests.helpers import create_decay_data_file, create_loading_test_data_file_with_resolution
 
@@ -58,7 +60,9 @@ class TestVisualization(unittest.TestCase):
     def test_plot_data_without_resolution_no_error_x(self, _mock_show):
         fig = self.fitter.plot_results()
         data_trace = fig.data[0]
-        self.assertIsNone(data_trace.error_x.array)
+        self.assertIsNotNone(data_trace.error_x)
+        np.testing.assert_array_equal(data_trace.error_x.array, self.fitter.data.dx)
+        self.assertTrue(np.all(data_trace.error_x.array == 0))
 
 
 if __name__ == '__main__':

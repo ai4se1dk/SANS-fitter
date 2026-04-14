@@ -6,6 +6,15 @@ import numpy as np
 from .data_loader import _has_real_data
 
 
+def _validate_export_lengths(**arrays: Any) -> None:
+    """Raise when export arrays do not all share the same length."""
+    lengths = {name: len(values) for name, values in arrays.items()}
+    unique_lengths = set(lengths.values())
+    if len(unique_lengths) > 1:
+        mismatch = ', '.join(f'{name}={length}' for name, length in lengths.items())
+        raise ValueError(f'Cannot export fit results with mismatched array lengths: {mismatch}')
+
+
 @dataclass(slots=True)
 class FitArtifacts:
     """Engine-specific runtime data needed after fitting."""
@@ -52,8 +61,20 @@ class FitResultContract:
     def save_csv(self, filename: str, model_name: str, data: Any) -> None:
         """Save fit results, fitted curve, and residuals to CSV."""
         fitted_curve = self.require_fitted_curve()
-        residuals = (data.y - fitted_curve) / data.dy
         has_dx = _has_real_data(data.dx)
+
+        arrays_to_validate = {
+            'x': data.x,
+            'y': data.y,
+            'dy': data.dy,
+            'fitted_curve': fitted_curve,
+        }
+        if has_dx:
+            arrays_to_validate['dx'] = data.dx
+        _validate_export_lengths(**arrays_to_validate)
+
+        residuals = (data.y - fitted_curve) / data.dy
+        _validate_export_lengths(residuals=residuals, **arrays_to_validate)
 
         with open(filename, 'w') as f:
             f.write('# SANS Fit Results\n')

@@ -2,6 +2,8 @@ import os
 import tempfile
 import unittest
 
+import numpy as np
+
 from sans_fitter import SANSFitter
 from tests.helpers import create_decay_data_file
 
@@ -48,6 +50,22 @@ class TestResultExport(unittest.TestCase):
         fitter = SANSFitter()
         with self.assertRaises(ValueError):
             fitter.save_results('output.csv')
+
+    def test_save_results_raises_on_mismatched_array_lengths(self):
+        output_file = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False)
+        output_file.close()
+        output_path = output_file.name
+
+        original_curve = self.fitter._fit_contract.artifacts.fitted_curve
+        self.fitter._fit_contract.artifacts.fitted_curve = np.asarray(original_curve[:-1])
+
+        try:
+            with self.assertRaisesRegex(ValueError, 'mismatched array lengths'):
+                self.fitter.save_results(output_path)
+        finally:
+            self.fitter._fit_contract.artifacts.fitted_curve = original_curve
+            if os.path.exists(output_path):
+                os.unlink(output_path)
 
 
 if __name__ == '__main__':
