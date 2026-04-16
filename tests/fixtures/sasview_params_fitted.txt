@@ -1,0 +1,10 @@
+sasview_parameter_values
+model_name,barbell
+scale,False,1.0,,0.0,inf,()
+background,False,0.001,,-inf,inf,()
+barbell,None,,,,,()
+sld,True,48.846,7.0655e+07,-inf,inf,()
+sld_solvent,True,45.854,7.0767e+07,-inf,inf,()
+radius_bell,True,22.94,8.3394,0.0,inf,()
+radius,True,19.89,0.61597,0.0,inf,()
+length,True,368.41,201.62,0.0,inf,()

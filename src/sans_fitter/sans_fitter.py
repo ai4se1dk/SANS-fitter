@@ -6,6 +6,7 @@ optimization engines (BUMPS, LMFit) with any model from the SasModels library.
 """
 
 import warnings
+from pathlib import Path
 from typing import Any, Literal, Optional
 
 import numpy as np
@@ -20,6 +21,7 @@ from .fitting import SCIPY_AVAILABLE, fit_bumps, fit_scipy
 from .parameter_manager import ParameterManager
 from .plotting import plot_fit
 from .results import FitArtifacts, FitResultContract, save_fit_result
+from .sasview_params import SasViewParamFile, parse_sasview_params
 
 
 def get_all_models() -> list[str]:
@@ -178,6 +180,70 @@ class SANSFitter:
             KeyError: If parameter name doesn't exist for the current model
         """
         self._param_manager.set_param(name, value=value, min=min, max=max, vary=vary)
+
+    def load_sasview_params(self, filepath: str | Path) -> SasViewParamFile:
+        """Load a plain form-factor SasView parameter file into the fitter.
+
+        Phase 1 supports only files whose ``model_name`` is a plain
+        form-factor model and whose parameter rows map directly to
+        :meth:`set_param`.  Product models, polydispersity parameters,
+        and constraint expressions are not applied.
+
+        Parameters
+        ----------
+        filepath : str | Path
+            Path to the SasView parameter export file.
+
+        Returns
+        -------
+        SasViewParamFile
+            The full parsed file content (including stderr and any
+            skipped parameters) for caller inspection.
+
+        Raises
+        ------
+        NotImplementedError
+            If the file contains a product model (``@`` in model name).
+        ValueError
+            If the file is malformed (delegated to the parser).
+        """
+        parsed = parse_sasview_params(filepath)
+
+        # Phase 1: reject product models
+        if '@' in parsed.model_name:
+            raise NotImplementedError(
+                f'Product-model import is not supported in Phase 1: {parsed.model_name!r}'
+            )
+
+        self.set_model(parsed.model_name)
+
+        pd_suffixes = ('_pd', '_pd_n', '_pd_nsigma', '_pd_type')
+        skipped: list[str] = []
+
+        for p in parsed.params:
+            # Skip polydispersity-related rows
+            if any(p.name.endswith(s) for s in pd_suffixes):
+                skipped.append(p.name)
+                continue
+
+            try:
+                self.set_param(
+                    p.name,
+                    value=p.value,
+                    min=p.min,
+                    max=p.max,
+                    vary=p.vary,
+                )
+            except KeyError:
+                skipped.append(p.name)
+
+        if skipped:
+            warnings.warn(
+                f'Skipped unrecognised or unsupported parameters: {skipped}',
+                stacklevel=2,
+            )
+
+        return parsed
 
     def set_structure_factor(
         self, structure_factor_name: str, radius_effective_mode: str = 'unconstrained'
