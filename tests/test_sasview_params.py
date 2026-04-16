@@ -14,9 +14,8 @@ from sans_fitter.sasview_params import (
     parse_sasview_params,
 )
 
-# Resolve paths relative to the repo root
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-_SASVIEW_PARAMS_TXT = _REPO_ROOT / 'sasview_params.txt'
+# Resolve paths relative to the tests directory
+_SASVIEW_PARAMS_TXT = Path(__file__).resolve().parent / 'fixtures' / 'sasview_params.txt'
 _FITTED_FIXTURE = Path(__file__).resolve().parent / 'fixtures' / 'sasview_params_fitted.txt'
 
 

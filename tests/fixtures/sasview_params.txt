@@ -1,0 +1,10 @@
+sasview_parameter_values
+model_name,capped_cylinder
+scale,False,1.0,None,0.0,inf,()
+background,False,0.001,None,-inf,inf,()
+capped_cylinder,None,,None,,,()
+sld,False,4,None,-inf,inf,()
+sld_solvent,False,1,None,-inf,inf,()
+radius,False,20,None,0.0,inf,()
+radius_cap,False,20,None,0.0,inf,()
+length,False,400,None,0.0,inf,()
