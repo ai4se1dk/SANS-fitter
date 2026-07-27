@@ -5,20 +5,51 @@ from .data_loader import _has_real_data
 from .results import FitResultContract
 
 
+def _running_in_notebook() -> bool:
+    """Return True when executing inside a Jupyter kernel.
+
+    In notebooks a returned Figure is rendered by the frontend, so calling
+    fig.show() as well would display the plot twice.
+    """
+    try:
+        from IPython.core.getipython import get_ipython
+    except ImportError:
+        return False
+    shell = get_ipython()
+    return shell is not None and 'ZMQInteractiveShell' in type(shell).__name__
+
+
+def _error_bars(arr) -> dict | None:
+    """Build a plotly error-bar spec, or None when the column carries no data."""
+    if not _has_real_data(arr):
+        return None
+    return {'type': 'data', 'array': arr, 'visible': True}
+
+
+def _resolve_show(show: bool | None) -> bool:
+    return not _running_in_notebook() if show is None else show
+
+
 def plot_fit(
     data,
     fit_result: FitResultContract | None,
     model_name: str | None,
     show_residuals: bool = True,
     log_scale: bool = True,
+    show: bool | None = None,
 ) -> go.Figure:
-    """Plot experimental data and, when available, the fitted model curve."""
+    """Plot experimental data and, when available, the fitted model curve.
+
+    Args:
+        show: If True, call fig.show(); if False, only return the figure.
+            Default (None) shows the figure except in Jupyter, where the
+            returned figure is rendered by the notebook itself.
+    """
     if data is None:
         raise ValueError('No data to plot. Use load_data() first.')
 
-    error_x = (
-        {'type': 'data', 'array': data.dx, 'visible': True} if _has_real_data(data.dx) else None
-    )
+    error_y = _error_bars(data.dy)
+    error_x = _error_bars(data.dx)
 
     if fit_result is None:
         print('No fit results available. Plotting data only.')
@@ -27,7 +58,7 @@ def plot_fit(
             go.Scatter(
                 x=data.x,
                 y=data.y,
-                error_y={'type': 'data', 'array': data.dy, 'visible': True},
+                error_y=error_y,
                 error_x=error_x,
                 mode='markers',
                 name='Data',
@@ -42,7 +73,8 @@ def plot_fit(
             yaxis_type='log' if log_scale else 'linear',
             template='plotly_white',
         )
-        fig.show()
+        if _resolve_show(show):
+            fig.show()
         return fig
 
     q = data.x
@@ -63,7 +95,7 @@ def plot_fit(
     data_trace = go.Scatter(
         x=data.x,
         y=data.y,
-        error_y={'type': 'data', 'array': data.dy, 'visible': True},
+        error_y=error_y,
         error_x=error_x,
         mode='markers',
         name='Experimental Data',
@@ -129,5 +161,6 @@ def plot_fit(
         width=900,
     )
 
-    fig.show()
+    if _resolve_show(show):
+        fig.show()
     return fig

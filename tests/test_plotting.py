@@ -60,9 +60,34 @@ class TestVisualization(unittest.TestCase):
     def test_plot_data_without_resolution_no_error_x(self, _mock_show):
         fig = self.fitter.plot_results()
         data_trace = fig.data[0]
-        self.assertIsNotNone(data_trace.error_x)
-        np.testing.assert_array_equal(data_trace.error_x.array, self.fitter.data.dx)
-        self.assertTrue(np.all(data_trace.error_x.array == 0))
+        self.assertIsNone(data_trace.error_x.array)
+
+    @patch('plotly.graph_objects.Figure.show')
+    def test_plot_data_shows_error_y(self, _mock_show):
+        fig = self.fitter.plot_results()
+        data_trace = fig.data[0]
+        self.assertTrue(data_trace.error_y.visible)
+        np.testing.assert_array_equal(data_trace.error_y.array, self.fitter.data.dy)
+
+    def test_plot_shows_figure_exactly_once_by_default(self):
+        with patch('plotly.graph_objects.Figure.show') as mock_show:
+            self.fitter.plot_results()
+        self.assertEqual(mock_show.call_count, 1)
+
+    def test_plot_show_false_does_not_display(self):
+        with patch('plotly.graph_objects.Figure.show') as mock_show:
+            fig = self.fitter.plot_results(show=False)
+        mock_show.assert_not_called()
+        self.assertIsNotNone(fig)
+
+    def test_plot_default_does_not_display_in_notebook(self):
+        with (
+            patch('plotly.graph_objects.Figure.show') as mock_show,
+            patch('sans_fitter.plotting._running_in_notebook', return_value=True),
+        ):
+            fig = self.fitter.plot_results()
+        mock_show.assert_not_called()
+        self.assertIsNotNone(fig)
 
 
 if __name__ == '__main__':
