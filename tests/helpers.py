@@ -21,6 +21,19 @@ def create_loading_test_data_file(num_points=10):
     return temp_file.name
 
 
+def create_loading_test_data_file_with_resolution(num_points=10):
+    temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False)
+    temp_file.write('Q,I,dI,dQ\n')
+    for index in range(num_points):
+        q_value = 0.01 * (index + 1)
+        intensity = 100 * np.exp(-q_value * 10) + 0.1
+        error = intensity * 0.1
+        resolution = q_value * 0.05
+        temp_file.write(f'{q_value},{intensity},{error},{resolution}\n')
+    temp_file.close()
+    return temp_file.name
+
+
 def create_decay_data_file(num_points=30):
     temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False)
     temp_file.write('Q,I,dI\n')

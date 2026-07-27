@@ -1,6 +1,7 @@
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+from .data_loader import _has_real_data
 from .results import FitResultContract
 
 
@@ -15,6 +16,10 @@ def plot_fit(
     if data is None:
         raise ValueError('No data to plot. Use load_data() first.')
 
+    error_x = (
+        {'type': 'data', 'array': data.dx, 'visible': True} if _has_real_data(data.dx) else None
+    )
+
     if fit_result is None:
         print('No fit results available. Plotting data only.')
         fig = go.Figure()
@@ -23,6 +28,7 @@ def plot_fit(
                 x=data.x,
                 y=data.y,
                 error_y={'type': 'data', 'array': data.dy, 'visible': True},
+                error_x=error_x,
                 mode='markers',
                 name='Data',
                 opacity=0.6,
@@ -58,6 +64,7 @@ def plot_fit(
         x=data.x,
         y=data.y,
         error_y={'type': 'data', 'array': data.dy, 'visible': True},
+        error_x=error_x,
         mode='markers',
         name='Experimental Data',
         opacity=0.6,

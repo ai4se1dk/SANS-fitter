@@ -4,6 +4,11 @@ import numpy as np
 from sasdata.dataloader.loader import Loader
 
 
+def _has_real_data(arr) -> bool:
+    """Return True when *arr* is a non-empty array containing at least one non-NaN value."""
+    return arr is not None and getattr(arr, 'size', 0) > 0 and not np.all(np.isnan(arr))
+
+
 def load_sans_data(filename: str) -> Any:
     """Load SANS data and normalize required fields for downstream fitting."""
     loader = Loader()
@@ -24,8 +29,10 @@ def load_sans_data(filename: str) -> Any:
             dtype=bool,
         )
         nan_mask = np.isnan(data.x) | np.isnan(data.y)
-        if hasattr(data, 'dy'):
+        if _has_real_data(data.dy):
             nan_mask |= np.isnan(data.dy)
+        if _has_real_data(data.dx):
+            nan_mask |= np.isnan(data.dx)
         data.mask = existing_mask | nan_mask
         return data
     except Exception as e:
