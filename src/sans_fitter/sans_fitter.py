@@ -77,7 +77,11 @@ class SANSFitter:
         """
         Load SANS data from a file.
 
-        Supports CSV, XML, and HDF5 formats through sasdata.
+        Supports CSV, XML, and HDF5 formats through sasdata. Columnar text/CSV
+        files are interpreted in the order Q, I, dI, dQ (per the sasdata ASCII
+        convention) — a file whose third column is dQ rather than dI will have
+        its uncertainties and resolution swapped. Check the column summary
+        printed after loading.
 
         Args:
             filename: Path to the data file
@@ -482,13 +486,22 @@ class SANSFitter:
         )
         return self._finalize_fit(engine_output)
 
-    def plot_results(self, show_residuals: bool = True, log_scale: bool = True):
+    def plot_results(
+        self,
+        show_residuals: bool = True,
+        log_scale: bool = True,
+        show: bool | None = None,
+    ):
         """
         Plot experimental data and fitted model.
 
         Args:
             show_residuals: If True, show residuals in a separate panel
             log_scale: If True, use log scale for both axes
+            show: If True, display the figure via fig.show(); if False, only
+                return it. The default (None) displays the figure except in
+                Jupyter notebooks, where the returned figure is rendered by
+                the notebook itself (avoids showing the plot twice).
 
         Returns:
             Plotly Figure object
@@ -499,6 +512,7 @@ class SANSFitter:
             model_name=self.model_name,
             show_residuals=show_residuals,
             log_scale=log_scale,
+            show=show,
         )
 
     def save_results(self, filename: str) -> None:

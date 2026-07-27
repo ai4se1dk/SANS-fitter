@@ -5,8 +5,14 @@ from sasdata.dataloader.loader import Loader
 
 
 def _has_real_data(arr) -> bool:
-    """Return True when *arr* is a non-empty array containing at least one non-NaN value."""
-    return arr is not None and getattr(arr, 'size', 0) > 0 and not np.all(np.isnan(arr))
+    """Return True when *arr* contains at least one finite, non-zero value.
+
+    sasdata zero-fills optional columns (dI, dQ) that are absent from the input
+    file, so an all-zero (or all-NaN) array means the column was not provided.
+    """
+    if arr is None or getattr(arr, 'size', 0) == 0:
+        return False
+    return bool(np.any(np.nan_to_num(np.asarray(arr, dtype=float)) != 0))
 
 
 def load_sans_data(filename: str) -> Any:

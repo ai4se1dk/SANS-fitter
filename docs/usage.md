@@ -88,6 +88,17 @@ fitter.plot_results(show_residuals=True, log_scale=True)
 fitter.save_results('fit_results.csv')
 ```
 
+`plot_results` returns the plotly figure. In scripts it opens the plot
+automatically; in Jupyter notebooks the returned figure is rendered by the
+notebook itself, so the plot appears exactly once. Pass `show=True` or
+`show=False` to override this behaviour.
+
+Error bars are drawn from the `dI` column (vertical) and, when present, the
+`dQ` resolution column (horizontal). Columnar text/CSV files are read in the
+order `Q, I, dI, dQ` — if your file stores `dQ` in the third column, it will
+be misinterpreted as `dI`. The summary printed by `load_data()` shows which
+columns were detected.
+
 ## Advanced Usage
 
 ### Structure Factors
