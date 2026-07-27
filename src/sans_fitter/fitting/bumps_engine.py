@@ -2,7 +2,11 @@ from typing import Any
 
 import numpy as np
 from bumps.fitters import fit as bumps_fit
-from bumps.formatnum import format_uncertainty
+
+try:  # bumps >= 1.0.4
+    from bumps.util import format_uncertainty
+except ImportError:  # bumps <= 1.0.3
+    from bumps.formatnum import format_uncertainty
 from bumps.names import FitProblem
 from sasmodels.bumps_model import Experiment
 from sasmodels.bumps_model import Model as BumpsModel
