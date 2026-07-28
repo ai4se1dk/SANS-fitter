@@ -10,6 +10,9 @@ The main class for SANS data fitting.
       show_source: true
       members:
         - load_data
+        - set_q_range
+        - reset_q_range
+        - get_q_range
         - set_model
         - set_structure_factor
         - get_params

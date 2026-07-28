@@ -101,6 +101,30 @@ columns were detected.
 
 ## Advanced Usage
 
+### Restricting the Q Range
+
+Real datasets often contain points you do not want to fit: beam-stop
+spillover at low Q or background-dominated points at high Q. Use
+`set_q_range` to restrict the fit without editing the data file.
+
+```python
+# Fit only points with 0.01 <= Q <= 0.3 Å⁻¹
+fitter.set_q_range(qmin=0.01, qmax=0.3)
+
+# Either bound may be given alone; the other resets to the full range
+fitter.set_q_range(qmax=0.3)
+
+# Inspect and restore
+fitter.get_q_range()    # -> (qmin, qmax)
+fitter.reset_q_range()  # back to the full data range
+```
+
+The restriction applies to both fitting engines. Excluded points still
+appear in plots (grayed out, labelled "Excluded Data"), but the fitted
+curve, residuals, χ², and the CSV export only cover the fitted range.
+The range can be changed freely between fits — each fit result remembers
+the range it was fitted with.
+
 ### Structure Factors
 
 You can combine a form factor with a structure factor to model interacting systems.

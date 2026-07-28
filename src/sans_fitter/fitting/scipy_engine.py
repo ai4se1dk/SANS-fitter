@@ -6,7 +6,7 @@ from sasmodels.direct_model import DirectModel
 
 from ..contracts import ParameterStateSnapshot
 from ..results import FitArtifacts, FitResultContract
-from .base import EngineFitOutput, link_radius_effective_dict, pd_is_active
+from .base import EngineFitOutput, extract_fit_index, link_radius_effective_dict, pd_is_active
 
 try:
     from scipy.optimize import differential_evolution, least_squares, leastsq
@@ -43,6 +43,10 @@ def fit_scipy(
     bounds_lower = np.array(bounds_lower_list)
     bounds_upper = np.array(bounds_upper_list)
     calculator = DirectModel(data, kernel)
+    # sasmodels evaluates the theory only at the fitted points (inside
+    # [qmin, qmax], unmasked); compare against the matching data subset.
+    y_fit = np.asarray(calculator.Iq)
+    dy_fit = np.asarray(calculator.dIq)
 
     def build_parameter_dict(x: np.ndarray) -> dict[str, Any]:
         par_dict = {name: info['value'] for name, info in fit_state.params.items()}
@@ -66,7 +70,7 @@ def fit_scipy(
 
     def residual(x: np.ndarray) -> np.ndarray:
         i_calc = calculator(**build_parameter_dict(x))
-        return (data.y - i_calc) / data.dy
+        return (y_fit - i_calc) / dy_fit
 
     print(f'\nFitting with scipy.optimize (method: {method})...')
 
@@ -132,6 +136,7 @@ def fit_scipy(
         parameters=result_parameters,
         artifacts=FitArtifacts(
             fitted_curve=np.asarray(calculator(**build_parameter_dict(fitted_params))),
+            fit_index=extract_fit_index(calculator),
             raw_result=result,
         ),
     )

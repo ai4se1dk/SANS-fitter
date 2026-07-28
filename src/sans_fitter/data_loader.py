@@ -15,6 +15,21 @@ def _has_real_data(arr) -> bool:
     return bool(np.any(np.nan_to_num(np.asarray(arr, dtype=float)) != 0))
 
 
+def get_fit_index(data: Any) -> np.ndarray:
+    """Return the boolean index of points included in the fit.
+
+    Mirrors how sasmodels interprets 1D data: a point is fitted when it lies
+    inside [qmin, qmax], is not masked, and has a finite intensity.
+    """
+    x = np.asarray(data.x)
+    index = (x >= data.qmin) & (x <= data.qmax)
+    mask = getattr(data, 'mask', None)
+    if mask is not None:
+        index &= ~np.asarray(mask, dtype=bool)
+    index &= ~np.isnan(np.asarray(data.y))
+    return index
+
+
 def load_sans_data(filename: str) -> Any:
     """Load SANS data and normalize required fields for downstream fitting."""
     loader = Loader()

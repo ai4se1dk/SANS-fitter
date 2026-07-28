@@ -1,5 +1,7 @@
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Optional, Protocol
+
+import numpy as np
 
 from ..contracts import ParameterStateSnapshot
 from ..results import FitResultContract
@@ -8,6 +10,19 @@ from ..results import FitResultContract
 def pd_is_active(pd_config: dict[str, Any]) -> bool:
     """Return whether a PD configuration should be included in model evaluation."""
     return pd_config['pd'] > 0 or pd_config.get('vary', False)
+
+
+def extract_fit_index(source: Any) -> Optional[np.ndarray]:
+    """Return the boolean fit index from a sasmodels calculator/experiment.
+
+    sasmodels stores the points it actually evaluates (inside [qmin, qmax],
+    unmasked, finite) as ``source.index``. Returns None when unavailable so
+    consumers fall back to treating the curve as full-length.
+    """
+    index = getattr(source, 'index', None)
+    if index is None or isinstance(index, slice):
+        return None
+    return np.asarray(index, dtype=bool)
 
 
 def link_radius_effective_model(model: Any, radius_effective_mode: str) -> None:

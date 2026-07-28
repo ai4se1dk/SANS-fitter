@@ -14,6 +14,7 @@ A flexible, model-agnostic Python template for fitting Small-Angle Neutron Scatt
 - **Model-Agnostic Design**: Works with any model from the SasModels library (cylinder, sphere, core_shell, etc.)
 - **Multiple Fitting Engines**: Supports both BUMPS (default) and LMFit optimization engines
 - **Flexible Data Loading**: Reads CSV, XML, and HDF5 formats via sasdata
+- **Q-Range Restriction**: Fit only a chosen [qmin, qmax] window (e.g. trim beam-stop or background-dominated points)
 - **User-Friendly Parameter Management**: Easy-to-use interface for setting parameter values, bounds, and fitting flags
 - **Interactive Visualization**: Automatic plotting of data, fitted model, and residuals with Plotly
 - **Result Export**: Save fitted parameters and curves to CSV files
@@ -64,6 +65,9 @@ fitter.load_data('my_sans_data.csv')
 
 # Set the model (any model from SasModels!)
 fitter.set_model('cylinder')
+
+# Optionally restrict the Q range used for fitting
+fitter.set_q_range(qmin=0.01, qmax=0.3)
 
 # View initial parameter values
 fitter.get_params()
