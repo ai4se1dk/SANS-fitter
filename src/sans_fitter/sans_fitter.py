@@ -22,6 +22,8 @@ from .parameter_manager import ParameterManager
 from .plotting import plot_fit
 from .results import FitArtifacts, FitResultContract, save_fit_result
 
+from plotly.graph_objects import Figure
+
 
 def get_all_models() -> list[str]:
     """
@@ -570,7 +572,7 @@ class SANSFitter:
         show_residuals: bool = True,
         log_scale: bool = True,
         show: bool | None = None,
-    ):
+    ) -> Figure:
         """
         Plot experimental data and fitted model.
 
