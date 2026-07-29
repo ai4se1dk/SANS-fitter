@@ -9,6 +9,7 @@ import warnings
 from typing import Any, Literal, Optional
 
 import numpy as np
+from plotly.graph_objects import Figure
 
 # SasModels and SasData imports
 from sasmodels import core
@@ -570,7 +571,7 @@ class SANSFitter:
         show_residuals: bool = True,
         log_scale: bool = True,
         show: bool | None = None,
-    ):
+    ) -> Figure:
         """
         Plot experimental data and fitted model.
 
