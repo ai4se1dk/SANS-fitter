@@ -108,7 +108,7 @@ class FitResultContract:
             f.write(f'# Engine: {self.engine}\n')
             f.write(f'# Method: {self.method}\n')
             f.write(f'# Chi-squared: {self.chisq:.6f}\n')
-            f.write(f'# Q range: {data.qmin:.6g} to {data.qmax:.6g}\n')
+            f.write(f'# Q range: {x.min():.6g} to {x.max():.6g}\n')
             f.write(f'# Points fitted: {len(x)} of {len(index)}\n')
             f.write('#\n')
             f.write('# Fitted Parameters:\n')

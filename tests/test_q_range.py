@@ -155,9 +155,36 @@ class TestQRangePostFit(QRangeTestCase):
             ]
             self.assertEqual(len(data_rows), self.expected_points)
             header = ''.join(lines)
-            self.assertIn('# Q range: 0.02 to 0.5', header)
+            q = np.asarray(self.fitter.data.x)
+            fitted_q = q[(q >= 0.02) & (q <= 0.5)]
+            self.assertIn(
+                f'# Q range: {fitted_q.min():.6g} to {fitted_q.max():.6g}', header
+            )
             self.assertIn(
                 f'# Points fitted: {self.expected_points} of {len(self.fitter.data.x)}',
+                header,
+            )
+        finally:
+            if os.path.exists(output_file):
+                os.unlink(output_file)
+
+    def test_save_results_header_unaffected_by_post_fit_range_change(self):
+        """The saved Q range reflects the fit, not a later set_q_range()."""
+        output_file = self.data_file + '.results.csv'
+        try:
+            self.fitter.set_q_range(qmin=0.1, qmax=0.3)
+            self.fitter.save_results(output_file)
+
+            with open(output_file) as f:
+                header = f.read()
+
+            q = np.asarray(self.fitter.data.x)
+            fitted_q = q[(q >= 0.02) & (q <= 0.5)]
+            self.assertIn(
+                f'# Q range: {fitted_q.min():.6g} to {fitted_q.max():.6g}', header
+            )
+            self.assertIn(
+                f'# Points fitted: {self.expected_points} of {len(q)}',
                 header,
             )
         finally:
