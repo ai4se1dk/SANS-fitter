@@ -157,9 +157,7 @@ class TestQRangePostFit(QRangeTestCase):
             header = ''.join(lines)
             q = np.asarray(self.fitter.data.x)
             fitted_q = q[(q >= 0.02) & (q <= 0.5)]
-            self.assertIn(
-                f'# Q range: {fitted_q.min():.6g} to {fitted_q.max():.6g}', header
-            )
+            self.assertIn(f'# Q range: {fitted_q.min():.6g} to {fitted_q.max():.6g}', header)
             self.assertIn(
                 f'# Points fitted: {self.expected_points} of {len(self.fitter.data.x)}',
                 header,
@@ -180,9 +178,7 @@ class TestQRangePostFit(QRangeTestCase):
 
             q = np.asarray(self.fitter.data.x)
             fitted_q = q[(q >= 0.02) & (q <= 0.5)]
-            self.assertIn(
-                f'# Q range: {fitted_q.min():.6g} to {fitted_q.max():.6g}', header
-            )
+            self.assertIn(f'# Q range: {fitted_q.min():.6g} to {fitted_q.max():.6g}', header)
             self.assertIn(
                 f'# Points fitted: {self.expected_points} of {len(q)}',
                 header,
