@@ -9,6 +9,7 @@ import warnings
 from typing import Any, Literal, Optional
 
 import numpy as np
+from plotly.graph_objects import Figure
 
 # SasModels and SasData imports
 from sasmodels import core
@@ -21,8 +22,6 @@ from .fitting.base import extract_fit_index
 from .parameter_manager import ParameterManager
 from .plotting import plot_fit
 from .results import FitArtifacts, FitResultContract, save_fit_result
-
-from plotly.graph_objects import Figure
 
 
 def get_all_models() -> list[str]:
