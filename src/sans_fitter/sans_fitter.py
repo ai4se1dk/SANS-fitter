@@ -15,8 +15,9 @@ from sasmodels import core
 from sasmodels.core import load_model
 from sasmodels.direct_model import DirectModel
 
-from .data_loader import _has_real_data, load_sans_data
+from .data_loader import _has_real_data, get_fit_index, load_sans_data
 from .fitting import SCIPY_AVAILABLE, fit_bumps, fit_scipy
+from .fitting.base import extract_fit_index
 from .parameter_manager import ParameterManager
 from .plotting import plot_fit
 from .results import FitArtifacts, FitResultContract, save_fit_result
@@ -69,6 +70,7 @@ class SANSFitter:
         self.fit_result = None
         self._fit_contract: Optional[FitResultContract] = None
         self._fitted_model = None
+        self._full_q_range: Optional[tuple[float, float]] = None
 
         # Parameter management delegated to ParameterManager
         self._param_manager = ParameterManager()
@@ -91,6 +93,7 @@ class SANSFitter:
             ValueError: If the data cannot be loaded or is invalid
         """
         self.data = load_sans_data(filename)
+        self._full_q_range = (self.data.qmin, self.data.qmax)
 
         has_dy = _has_real_data(self.data.dy)
         has_dx = _has_real_data(self.data.dx)
@@ -100,6 +103,78 @@ class SANSFitter:
         print(f'  Data points: {len(self.data.x)}')
         print(f'  Error (dI) column: {"yes" if has_dy else "no"}')
         print(f'  Resolution (dQ) column: {"yes" if has_dx else "no"}')
+
+    def set_q_range(self, qmin: Optional[float] = None, qmax: Optional[float] = None) -> None:
+        """
+        Restrict the Q range used for fitting.
+
+        Data points outside [qmin, qmax] are excluded from the fit (and from
+        the exported fit curve/residuals) but remain visible in plots. Typical
+        uses: trimming beam-stop spillover at low Q or background-dominated
+        high-Q points.
+
+        Args:
+            qmin: Lower Q limit in Å⁻¹. If omitted, the current lower limit
+                is reset to the full data range.
+            qmax: Upper Q limit in Å⁻¹. If omitted, the current upper limit
+                is reset to the full data range.
+
+        Raises:
+            ValueError: If no data is loaded, if qmin >= qmax, or if no data
+                points remain in the requested range (the previous range is
+                kept in that case).
+        """
+        if self.data is None:
+            raise ValueError('No data loaded. Use load_data() first.')
+        if qmin is None and qmax is None:
+            raise ValueError('Provide qmin, qmax, or both.')
+
+        full_min, full_max = self._full_q_range
+        new_qmin = full_min if qmin is None else float(qmin)
+        new_qmax = full_max if qmax is None else float(qmax)
+        if new_qmin >= new_qmax:
+            raise ValueError(f'qmin ({new_qmin:g}) must be smaller than qmax ({new_qmax:g}).')
+
+        previous = (self.data.qmin, self.data.qmax)
+        self.data.qmin = new_qmin
+        self.data.qmax = new_qmax
+
+        index = get_fit_index(self.data)
+        n_points = int(index.sum())
+        if n_points == 0:
+            self.data.qmin, self.data.qmax = previous
+            raise ValueError(
+                f'No data points in Q range [{new_qmin:g}, {new_qmax:g}]. Range unchanged.'
+            )
+
+        print(f'✓ Q range for fitting: {new_qmin:.6g} to {new_qmax:.6g} Å⁻¹')
+        print(f'  Points in fit: {n_points} of {len(index)}')
+
+    def reset_q_range(self) -> None:
+        """
+        Reset the fitting Q range to the full range of the loaded data.
+
+        Raises:
+            ValueError: If no data is loaded.
+        """
+        if self.data is None:
+            raise ValueError('No data loaded. Use load_data() first.')
+
+        self.data.qmin, self.data.qmax = self._full_q_range
+        n_points = int(get_fit_index(self.data).sum())
+        print(f'✓ Q range reset to {self.data.qmin:.6g} to {self.data.qmax:.6g} Å⁻¹')
+        print(f'  Points in fit: {n_points}')
+
+    def get_q_range(self) -> Optional[tuple[float, float]]:
+        """
+        Get the Q range currently used for fitting.
+
+        Returns:
+            Tuple (qmin, qmax) in Å⁻¹, or None if no data is loaded.
+        """
+        if self.data is None:
+            return None
+        return (self.data.qmin, self.data.qmax)
 
     def set_model(self, model_name: str, platform: str = 'cpu') -> None:
         """
@@ -414,7 +489,8 @@ class SANSFitter:
                 chisq=self.fit_result['chisq'],
                 parameters=self.fit_result['parameters'],
                 artifacts=FitArtifacts(
-                    fitted_curve=np.asarray(self._fitted_model.fitness.theory())
+                    fitted_curve=np.asarray(self._fitted_model.fitness.theory()),
+                    fit_index=extract_fit_index(self._fitted_model.fitness),
                 ),
             )
 
@@ -425,7 +501,10 @@ class SANSFitter:
             method=self.fit_result['method'],
             chisq=self.fit_result['chisq'],
             parameters=self.fit_result['parameters'],
-            artifacts=FitArtifacts(fitted_curve=np.asarray(calculator(**par_dict))),
+            artifacts=FitArtifacts(
+                fitted_curve=np.asarray(calculator(**par_dict)),
+                fit_index=extract_fit_index(calculator),
+            ),
         )
 
     def fit(

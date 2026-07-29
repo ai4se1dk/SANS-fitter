@@ -13,7 +13,7 @@ from sasmodels.bumps_model import Model as BumpsModel
 
 from ..contracts import ParameterStateSnapshot
 from ..results import FitArtifacts, FitResultContract
-from .base import EngineFitOutput, link_radius_effective_model, pd_is_active
+from .base import EngineFitOutput, extract_fit_index, link_radius_effective_model, pd_is_active
 
 
 def fit_bumps(
@@ -75,6 +75,7 @@ def fit_bumps(
         parameters=result_parameters,
         artifacts=FitArtifacts(
             fitted_curve=np.asarray(problem.fitness.theory()),
+            fit_index=extract_fit_index(experiment),
             raw_result=result,
             runtime_handle=problem,
             runtime_key='problem',

@@ -1,8 +1,9 @@
+import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from .data_loader import _has_real_data
-from .results import FitResultContract
+from .results import FitResultContract, resolve_fit_index
 
 
 def _running_in_notebook() -> bool:
@@ -24,6 +25,11 @@ def _error_bars(arr) -> dict | None:
     if not _has_real_data(arr):
         return None
     return {'type': 'data', 'array': arr, 'visible': True}
+
+
+def _subset(arr, index):
+    """Slice an optional data column by a boolean index."""
+    return None if arr is None else np.asarray(arr)[index]
 
 
 def _resolve_show(show: bool | None) -> bool:
@@ -77,9 +83,20 @@ def plot_fit(
             fig.show()
         return fig
 
-    q = data.x
     i_fit = fit_result.require_fitted_curve()
-    residuals = (data.y - i_fit) / data.dy
+    index = resolve_fit_index(fit_result.artifacts.fit_index, len(data.x))
+    if len(i_fit) != int(index.sum()):
+        raise ValueError(
+            f'Fitted curve length ({len(i_fit)}) does not match the number of '
+            f'fitted points ({int(index.sum())}).'
+        )
+
+    q = _subset(data.x, index)
+    y = _subset(data.y, index)
+    dy = _subset(data.dy, index)
+    dx = _subset(data.dx, index)
+    residuals = (y - i_fit) / dy
+    excluded = ~index
 
     if show_residuals:
         fig = make_subplots(
@@ -93,15 +110,28 @@ def plot_fit(
         fig = go.Figure()
 
     data_trace = go.Scatter(
-        x=data.x,
-        y=data.y,
-        error_y=error_y,
-        error_x=error_x,
+        x=q,
+        y=y,
+        error_y=_error_bars(dy),
+        error_x=_error_bars(dx),
         mode='markers',
         name='Experimental Data',
         opacity=0.6,
         marker={'size': 6},
     )
+
+    excluded_trace = None
+    if excluded.any():
+        excluded_trace = go.Scatter(
+            x=_subset(data.x, excluded),
+            y=_subset(data.y, excluded),
+            error_y=_error_bars(_subset(data.dy, excluded)),
+            error_x=_error_bars(_subset(data.dx, excluded)),
+            mode='markers',
+            name='Excluded Data',
+            opacity=0.4,
+            marker={'size': 6, 'color': 'lightgray'},
+        )
 
     fit_trace = go.Scatter(
         x=q,
@@ -113,10 +143,12 @@ def plot_fit(
 
     if show_residuals:
         fig.add_trace(data_trace, row=1, col=1)
+        if excluded_trace is not None:
+            fig.add_trace(excluded_trace, row=1, col=1)
         fig.add_trace(fit_trace, row=1, col=1)
         fig.add_trace(
             go.Scatter(
-                x=data.x,
+                x=q,
                 y=residuals,
                 mode='markers',
                 name='Residuals',
@@ -144,6 +176,8 @@ def plot_fit(
         fig.update_xaxes(type='log' if log_scale else 'linear', row=1, col=1)
     else:
         fig.add_trace(data_trace)
+        if excluded_trace is not None:
+            fig.add_trace(excluded_trace)
         fig.add_trace(fit_trace)
         fig.update_xaxes(
             title_text='Q (Å⁻¹)',
