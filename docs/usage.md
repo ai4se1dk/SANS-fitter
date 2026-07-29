@@ -242,3 +242,84 @@ fitter.enable_polydispersity(True)
 # Fit - will optimize both radius and radius_pd
 result = fitter.fit(engine='bumps')
 ```
+
+## Bayesian / Uncertainty Analysis
+
+Beyond point estimates, SANS-fitter can sample the full posterior
+distribution of the varying parameters with the DREAM Markov chain Monte
+Carlo sampler (via BUMPS, which is already a dependency — no extra
+installs needed).
+
+### Running a Bayesian Fit
+
+```python
+fitter.load_data('my_sans_data.csv')
+fitter.set_model('sphere')
+fitter.set_param('radius', value=50, min=10, max=200, vary=True)
+fitter.set_param('scale', value=0.1, min=0.01, max=1.0, vary=True)
+
+# Sample the posterior with DREAM
+result = fitter.fit_bayesian(samples=10000, burn=200)
+```
+
+`fit_bayesian()` prints the usual point-estimate summary plus a posterior
+table with the mean, median, standard deviation, 68%/95% credible
+intervals, and convergence diagnostics (R-hat, effective sample size) for
+each sampled parameter. The reported parameter values are the best
+(maximum-likelihood) posterior sample, and `stderr` is the posterior 68%
+credible half-width.
+
+Sampler controls:
+
+- `samples`: number of posterior samples to draw (default 10000)
+- `burn`: burn-in generations discarded before sampling (default 200)
+- `thin`: keep every nth sample (default 1)
+- `pop`: chain population scale per varying parameter (default 10)
+
+### Posterior Displays
+
+All five displays follow the same `show` convention as `plot_results()`
+and return Plotly figures:
+
+```python
+# Corner plot: marginal densities + pairwise sample clouds
+fitter.plot_posterior_pairs()
+fitter.plot_posterior_pairs(params=['radius', 'scale'])  # subset
+
+# Marginal posterior for a single parameter
+fitter.plot_param_distribution('radius')
+
+# Posterior predictive check: 95% credible band over the data
+fitter.plot_posterior_predictive()                    # band only
+fitter.plot_posterior_predictive(style='band+draws')  # band + sampled curves
+fitter.plot_posterior_predictive(n_draws=100)         # more model evaluations
+
+# Correlation heatmap of the sampled parameters
+fitter.plot_param_correlations()
+
+# MCMC chain traces (convergence check)
+fitter.plot_trace()
+```
+
+Note: `plot_posterior_predictive()` re-evaluates the model once per draw,
+so large `n_draws` values can be slow, especially with polydispersity
+enabled.
+
+### Accessing the Posterior Programmatically
+
+```python
+posterior = fitter.get_posterior()
+
+posterior.labels        # sampled parameter names (chain order)
+posterior.samples       # ndarray [n_samples, n_params]
+posterior.ci_95         # {name: (low, high)} 95% credible intervals
+posterior.diagnostics   # {name: {'r_hat': ..., 'ess': ...}}
+
+print(posterior.format_summary())
+
+# Export the raw chain for external analysis (e.g. corner, arviz, pandas)
+posterior.save_posterior_csv('posterior_chain.csv')
+```
+
+`save_results()` also includes the credible intervals in the CSV header
+after a Bayesian fit.

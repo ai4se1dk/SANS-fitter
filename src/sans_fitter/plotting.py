@@ -1,9 +1,33 @@
+from typing import Any, Callable, Optional
+
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from .data_loader import _has_real_data
-from .results import FitResultContract, resolve_fit_index
+from .results import (
+    MIN_POSTERIOR_PARAMETER_COUNT,
+    FitResultContract,
+    PosteriorSummary,
+    resolve_fit_index,
+)
+
+DEFAULT_POSTERIOR_PREDICTIVE_DRAWS = 50
+POSTERIOR_PAIR_SCATTER_MAX_POINTS = 750
+PAIR_PLOT_CELL_SIZE_PIXELS = 250
+TRACE_PLOT_ROW_HEIGHT_PIXELS = 200
+POSTERIOR_HISTOGRAM_COLOR = 'rgba(120, 120, 120, 0.5)'
+POSTERIOR_MEDIAN_LINE_COLOR = 'rgb(80, 80, 80)'
+POSTERIOR_POINT_ESTIMATE_LINE_COLOR = 'rgb(214, 39, 40)'
+POSTERIOR_INTERVAL_68_FILL_COLOR = 'rgba(99, 110, 250, 0.15)'
+POSTERIOR_INTERVAL_95_LINE_COLOR = 'rgba(214, 39, 40, 0.5)'
+POSTERIOR_BAND_FILL_COLOR = 'rgba(99, 110, 250, 0.25)'
+POSTERIOR_DRAW_LINE_COLOR = 'rgba(140, 140, 140, 0.25)'
+POSTERIOR_SCATTER_MARKER_COLOR = 'rgba(99, 110, 250, 0.25)'
+POSTERIOR_POINT_ESTIMATE_TRACE_NAME = 'Best posterior sample'
+POSTERIOR_PREDICTIVE_INTERVAL_TRACE_NAME = '95% credible interval'
+MARGINAL_DENSITY_TRACE_NAME = 'Marginal density'
+MEASURED_TRACE_NAME = 'Measured'
 
 
 def _running_in_notebook() -> bool:
@@ -192,6 +216,456 @@ def plot_fit(
         title=f'SANS Fit: {model_name} (χ² = {fit_result.chisq:.4f})',
         template='plotly_white',
         height=800 if show_residuals else 500,
+        width=900,
+    )
+
+    if _resolve_show(show):
+        fig.show()
+    return fig
+
+
+def _resolve_posterior_params(
+    posterior: PosteriorSummary, params: Optional[list[str]]
+) -> list[tuple[str, int]]:
+    """Return (label, chain column) pairs for a requested parameter subset."""
+    if params is None:
+        return [(name, i) for i, name in enumerate(posterior.labels)]
+    return [(name, posterior.index_of(name)) for name in params]
+
+
+def plot_posterior_pairs(
+    posterior: PosteriorSummary,
+    params: Optional[list[str]] = None,
+    show_contours: bool = True,
+    show: bool | None = None,
+) -> go.Figure:
+    """Corner plot: marginal densities on the diagonal, sample clouds below.
+
+    Args:
+        posterior: Posterior summary from a Bayesian fit.
+        params: Optional subset of parameter names to plot (default: all).
+        show_contours: Overlay density contours on the off-diagonal panels.
+        show: Same display convention as plot_fit.
+    """
+    selected = _resolve_posterior_params(posterior, params)
+    n = len(selected)
+    if n < MIN_POSTERIOR_PARAMETER_COUNT:
+        raise ValueError(
+            f'A pair plot needs at least {MIN_POSTERIOR_PARAMETER_COUNT} varying '
+            f'parameters (got {n}). Use plot_param_distribution() for a single '
+            'parameter.'
+        )
+
+    samples = posterior.samples
+    n_samples = samples.shape[0]
+    if n_samples > POSTERIOR_PAIR_SCATTER_MAX_POINTS:
+        rng = np.random.default_rng(0)
+        scatter_rows = rng.choice(n_samples, POSTERIOR_PAIR_SCATTER_MAX_POINTS, replace=False)
+    else:
+        scatter_rows = np.arange(n_samples)
+
+    fig = make_subplots(
+        rows=n,
+        cols=n,
+        horizontal_spacing=0.03,
+        vertical_spacing=0.03,
+    )
+
+    for row_pos, (row_name, row_index) in enumerate(selected, start=1):
+        for col_pos, (col_name, col_index) in enumerate(selected, start=1):
+            if col_pos > row_pos:
+                continue
+            if col_pos == row_pos:
+                fig.add_trace(
+                    go.Histogram(
+                        x=samples[:, row_index],
+                        histnorm='probability density',
+                        marker={'color': POSTERIOR_HISTOGRAM_COLOR},
+                        name=MARGINAL_DENSITY_TRACE_NAME,
+                        showlegend=False,
+                    ),
+                    row=row_pos,
+                    col=col_pos,
+                )
+                fig.add_vline(
+                    x=posterior.median[row_name],
+                    line_color=POSTERIOR_MEDIAN_LINE_COLOR,
+                    line_width=1,
+                    row=row_pos,
+                    col=col_pos,
+                )
+                for bound in posterior.ci_95[row_name]:
+                    fig.add_vline(
+                        x=bound,
+                        line_color=POSTERIOR_INTERVAL_95_LINE_COLOR,
+                        line_dash='dash',
+                        line_width=1,
+                        row=row_pos,
+                        col=col_pos,
+                    )
+            else:
+                fig.add_trace(
+                    go.Scatter(
+                        x=samples[scatter_rows, col_index],
+                        y=samples[scatter_rows, row_index],
+                        mode='markers',
+                        marker={'size': 3, 'color': POSTERIOR_SCATTER_MARKER_COLOR},
+                        showlegend=False,
+                    ),
+                    row=row_pos,
+                    col=col_pos,
+                )
+                if show_contours:
+                    fig.add_trace(
+                        go.Histogram2dContour(
+                            x=samples[:, col_index],
+                            y=samples[:, row_index],
+                            ncontours=6,
+                            contours={'coloring': 'lines'},
+                            colorscale='Blues',
+                            showscale=False,
+                            line={'width': 1},
+                            showlegend=False,
+                        ),
+                        row=row_pos,
+                        col=col_pos,
+                    )
+            if row_pos == n:
+                fig.update_xaxes(title_text=col_name, row=row_pos, col=col_pos)
+            if col_pos == 1 and row_pos > 1:
+                fig.update_yaxes(title_text=row_name, row=row_pos, col=col_pos)
+
+    size = max(PAIR_PLOT_CELL_SIZE_PIXELS * n, 500)
+    fig.update_layout(
+        title='Posterior pair plot',
+        template='plotly_white',
+        height=size,
+        width=size,
+        showlegend=False,
+    )
+
+    if _resolve_show(show):
+        fig.show()
+    return fig
+
+
+def plot_param_distribution(
+    posterior: PosteriorSummary,
+    param: str,
+    bins: int = 50,
+    show: bool | None = None,
+) -> go.Figure:
+    """Marginal posterior distribution for a single parameter.
+
+    Shows the sample histogram with the median, the best posterior sample,
+    the shaded 68% credible interval, and the 95% interval bounds.
+    """
+    index = posterior.index_of(param)
+    values = posterior.samples[:, index]
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Histogram(
+            x=values,
+            nbinsx=bins,
+            histnorm='probability density',
+            marker={'color': POSTERIOR_HISTOGRAM_COLOR},
+            name=MARGINAL_DENSITY_TRACE_NAME,
+        )
+    )
+
+    lo68, hi68 = posterior.ci_68[param]
+    fig.add_vrect(
+        x0=lo68,
+        x1=hi68,
+        fillcolor=POSTERIOR_INTERVAL_68_FILL_COLOR,
+        line_width=0,
+        annotation_text='68% CI',
+        annotation_position='top left',
+    )
+    for bound in posterior.ci_95[param]:
+        fig.add_vline(
+            x=bound,
+            line_color=POSTERIOR_INTERVAL_95_LINE_COLOR,
+            line_dash='dash',
+            line_width=1,
+        )
+    fig.add_vline(
+        x=posterior.median[param],
+        line_color=POSTERIOR_MEDIAN_LINE_COLOR,
+        line_width=1.5,
+        annotation_text='median',
+    )
+    fig.add_vline(
+        x=posterior.best[param],
+        line_color=POSTERIOR_POINT_ESTIMATE_LINE_COLOR,
+        line_dash='dot',
+        line_width=1.5,
+        annotation_text='best',
+    )
+
+    fig.update_layout(
+        title=f'Posterior distribution: {param}',
+        xaxis_title=param,
+        yaxis_title='Probability density',
+        template='plotly_white',
+        height=500,
+        width=700,
+        showlegend=False,
+    )
+
+    if _resolve_show(show):
+        fig.show()
+    return fig
+
+
+def plot_posterior_predictive(
+    data: Any,
+    posterior: PosteriorSummary,
+    model_eval: Callable[[dict[str, float]], np.ndarray],
+    style: str = 'band',
+    n_draws: int = DEFAULT_POSTERIOR_PREDICTIVE_DRAWS,
+    fit_index: Any = None,
+    log_scale: bool = True,
+    show: bool | None = None,
+) -> go.Figure:
+    """Posterior predictive check: credible band and/or draws over the data.
+
+    Args:
+        data: Loaded SANS data object (x, y, dy).
+        posterior: Posterior summary from a Bayesian fit.
+        model_eval: Callable mapping {param_name: value} to a model intensity
+            curve over the fitted Q points.
+        style: 'band' (95% credible interval), 'draws' (sampled curves), or
+            'band+draws'.
+        n_draws: Number of posterior samples to evaluate. The chain is
+            subsampled transparently; evaluation cost scales linearly.
+        fit_index: Optional boolean mask of fitted points (None = all points).
+        log_scale: Use log axes.
+        show: Same display convention as plot_fit.
+    """
+    if data is None:
+        raise ValueError('No data to plot. Use load_data() first.')
+    if style not in ('band', 'draws', 'band+draws'):
+        raise ValueError(f"style must be 'band', 'draws', or 'band+draws' (got '{style}').")
+
+    index = resolve_fit_index(fit_index, len(data.x))
+    q = np.asarray(data.x)[index]
+    y = np.asarray(data.y)[index]
+    dy = _subset(data.dy, index)
+
+    n_samples = posterior.n_samples
+    rng = np.random.default_rng(0)
+    n_eval = min(n_draws, n_samples)
+    chosen = rng.choice(n_samples, n_eval, replace=False)
+
+    curves = []
+    for row in posterior.samples[chosen]:
+        curve = np.asarray(model_eval(dict(zip(posterior.labels, row))))
+        if len(curve) != len(q):
+            raise ValueError(
+                f'model_eval returned a curve of length {len(curve)}, expected '
+                f'{len(q)} (the number of fitted points).'
+            )
+        curves.append(curve)
+    curves = np.asarray(curves)
+
+    fig = go.Figure()
+
+    if style in ('band', 'band+draws'):
+        band_lo, band_hi = np.percentile(curves, [2.5, 97.5], axis=0)
+        fig.add_trace(
+            go.Scatter(
+                x=q,
+                y=band_hi,
+                mode='lines',
+                line={'width': 0},
+                showlegend=False,
+                hoverinfo='skip',
+            )
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=q,
+                y=band_lo,
+                mode='lines',
+                line={'width': 0},
+                fill='tonexty',
+                fillcolor=POSTERIOR_BAND_FILL_COLOR,
+                name=POSTERIOR_PREDICTIVE_INTERVAL_TRACE_NAME,
+            )
+        )
+
+    if style in ('draws', 'band+draws'):
+        for draw_number, curve in enumerate(curves):
+            fig.add_trace(
+                go.Scatter(
+                    x=q,
+                    y=curve,
+                    mode='lines',
+                    line={'color': POSTERIOR_DRAW_LINE_COLOR, 'width': 1},
+                    name='Posterior draws',
+                    legendgroup='draws',
+                    showlegend=draw_number == 0,
+                    hoverinfo='skip',
+                )
+            )
+
+    best_curve = np.asarray(model_eval(dict(posterior.best)))
+    fig.add_trace(
+        go.Scatter(
+            x=q,
+            y=best_curve,
+            mode='lines',
+            name=POSTERIOR_POINT_ESTIMATE_TRACE_NAME,
+            line={'color': POSTERIOR_POINT_ESTIMATE_LINE_COLOR, 'width': 2},
+        )
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=q,
+            y=y,
+            error_y=_error_bars(dy),
+            mode='markers',
+            name=MEASURED_TRACE_NAME,
+            opacity=0.6,
+            marker={'size': 6, 'color': 'rgb(50, 50, 50)'},
+        )
+    )
+
+    fig.update_layout(
+        title='Posterior predictive check',
+        xaxis_title='Q (Å⁻¹)',
+        yaxis_title='I(Q)',
+        xaxis_type='log' if log_scale else 'linear',
+        yaxis_type='log' if log_scale else 'linear',
+        template='plotly_white',
+        height=600,
+        width=900,
+    )
+
+    if _resolve_show(show):
+        fig.show()
+    return fig
+
+
+def plot_param_correlations(
+    posterior: PosteriorSummary,
+    threshold: float = 0.0,
+    show: bool | None = None,
+) -> go.Figure:
+    """Heatmap of the posterior sample correlation matrix (lower triangle).
+
+    Args:
+        threshold: Hide cells with |correlation| below this value.
+    """
+    if posterior.n_params < MIN_POSTERIOR_PARAMETER_COUNT:
+        raise ValueError(
+            f'A correlation matrix needs at least {MIN_POSTERIOR_PARAMETER_COUNT} '
+            f'varying parameters (got {posterior.n_params}).'
+        )
+
+    corr = np.corrcoef(posterior.samples, rowvar=False)
+    display = corr.copy()
+    # Mask the diagonal (self-correlation = 1) and the upper triangle so the
+    # matrix reads as a single lower-triangular block.
+    display[np.triu_indices_from(display)] = np.nan
+    if threshold > 0:
+        display[np.abs(display) < threshold] = np.nan
+
+    text = np.where(np.isnan(display), '', np.round(display, 2).astype(str))
+
+    fig = go.Figure(
+        go.Heatmap(
+            z=display,
+            x=posterior.labels,
+            y=posterior.labels,
+            zmin=-1,
+            zmax=1,
+            colorscale='RdBu',
+            reversescale=True,
+            text=text,
+            texttemplate='%{text}',
+            colorbar={'title': 'ρ'},
+            hoverongaps=False,
+        )
+    )
+
+    fig.update_layout(
+        title='Posterior parameter correlations',
+        template='plotly_white',
+        height=max(120 * posterior.n_params, 450),
+        width=max(120 * posterior.n_params, 500),
+        yaxis={'autorange': 'reversed'},
+    )
+
+    if _resolve_show(show):
+        fig.show()
+    return fig
+
+
+def plot_trace(
+    posterior: PosteriorSummary,
+    params: Optional[list[str]] = None,
+    show: bool | None = None,
+) -> go.Figure:
+    """Trace plot of the MCMC chains for each parameter.
+
+    Shows one panel per parameter with every chain drawn against the
+    generation number. When per-chain data is unavailable from the sampler,
+    falls back to a single trace over the combined (flattened) chain.
+    """
+    selected = _resolve_posterior_params(posterior, params)
+    n = len(selected)
+
+    fig = make_subplots(
+        rows=n,
+        cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.4 / max(n, 4),
+    )
+
+    has_chains = posterior.chains is not None
+    for row_pos, (name, param_index) in enumerate(selected, start=1):
+        if has_chains:
+            n_generations, n_chains, _ = posterior.chains.shape
+            generations = np.arange(n_generations)
+            for chain_number in range(n_chains):
+                fig.add_trace(
+                    go.Scatter(
+                        x=generations,
+                        y=posterior.chains[:, chain_number, param_index],
+                        mode='lines',
+                        line={'width': 1},
+                        opacity=0.6,
+                        showlegend=False,
+                    ),
+                    row=row_pos,
+                    col=1,
+                )
+        else:
+            fig.add_trace(
+                go.Scatter(
+                    y=posterior.samples[:, param_index],
+                    mode='lines',
+                    line={'width': 1},
+                    showlegend=False,
+                ),
+                row=row_pos,
+                col=1,
+            )
+        fig.update_yaxes(title_text=name, row=row_pos, col=1)
+
+    fig.update_xaxes(
+        title_text='Generation' if has_chains else 'Sample',
+        row=n,
+        col=1,
+    )
+    fig.update_layout(
+        title='MCMC trace' + ('' if has_chains else ' (combined chain)'),
+        template='plotly_white',
+        height=max(TRACE_PLOT_ROW_HEIGHT_PIXELS * n, 400),
         width=900,
     )
 

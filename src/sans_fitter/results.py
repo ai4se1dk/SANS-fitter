@@ -5,6 +5,9 @@ import numpy as np
 
 from .data_loader import _has_real_data
 
+MIN_POSTERIOR_PARAMETER_COUNT = 2
+MIN_POSTERIOR_SAMPLE_COUNT = 2
+
 
 def _validate_export_lengths(**arrays: Any) -> None:
     """Raise when export arrays do not all share the same length."""
@@ -31,6 +34,86 @@ def resolve_fit_index(fit_index: Any, n_points: int) -> np.ndarray:
 
 
 @dataclass(slots=True)
+class PosteriorSummary:
+    """Posterior sample chain and per-parameter statistics from a Bayesian fit.
+
+    ``labels`` follows the sampler's chain order (``problem.labels()`` for
+    bumps DREAM) and indexes the columns of ``samples``.
+    """
+
+    labels: list[str]
+    samples: np.ndarray  # [n_samples, n_params]
+    logp: Optional[np.ndarray] = None  # [n_samples]
+    chains: Optional[np.ndarray] = None  # [n_generations, n_chains, n_params]
+    best: dict[str, float] = field(default_factory=dict)
+    mean: dict[str, float] = field(default_factory=dict)
+    median: dict[str, float] = field(default_factory=dict)
+    std: dict[str, float] = field(default_factory=dict)
+    ci_68: dict[str, tuple[float, float]] = field(default_factory=dict)
+    ci_95: dict[str, tuple[float, float]] = field(default_factory=dict)
+    diagnostics: Optional[dict[str, dict[str, float]]] = None
+
+    @property
+    def n_samples(self) -> int:
+        return int(self.samples.shape[0])
+
+    @property
+    def n_params(self) -> int:
+        return int(self.samples.shape[1])
+
+    def index_of(self, param: str) -> int:
+        """Return the chain column for a parameter name."""
+        try:
+            return self.labels.index(param)
+        except ValueError:
+            available = ', '.join(self.labels)
+            raise KeyError(
+                f"Parameter '{param}' is not part of the posterior sample. Available: {available}"
+            ) from None
+
+    def format_summary(self) -> str:
+        """Return a table of per-parameter posterior statistics."""
+        header = (
+            f'{"Parameter":<20} {"Best":>12} {"Mean":>12} {"Median":>12} '
+            f'{"Std":>12} {"68% CI":>26} {"95% CI":>26}'
+        )
+        lines = ['Posterior summary:', header, '-' * len(header)]
+        for name in self.labels:
+            lo68, hi68 = self.ci_68[name]
+            lo95, hi95 = self.ci_95[name]
+            lines.append(
+                f'{name:<20} {self.best[name]:>12.6g} {self.mean[name]:>12.6g} '
+                f'{self.median[name]:>12.6g} {self.std[name]:>12.6g} '
+                f'{f"[{lo68:.6g}, {hi68:.6g}]":>26} {f"[{lo95:.6g}, {hi95:.6g}]":>26}'
+            )
+        if self.diagnostics is not None:
+            lines.append('')
+            lines.append(f'{"Parameter":<20} {"R-hat":>10} {"ESS":>10}')
+            lines.append('-' * 42)
+            for name in self.labels:
+                stats = self.diagnostics.get(name, {})
+                r_hat = stats.get('r_hat')
+                ess = stats.get('ess')
+                r_hat_text = f'{r_hat:.4f}' if r_hat is not None else 'n/a'
+                ess_text = f'{ess:.0f}' if ess is not None else 'n/a'
+                lines.append(f'{name:<20} {r_hat_text:>10} {ess_text:>10}')
+        return '\n'.join(lines)
+
+    def save_posterior_csv(self, filename: str) -> None:
+        """Dump the raw posterior chain to CSV for external analysis."""
+        columns = list(self.labels)
+        data = [np.asarray(self.samples)]
+        if self.logp is not None:
+            columns.append('logp')
+            data.append(np.asarray(self.logp).reshape(-1, 1))
+        table = np.hstack(data)
+        with open(filename, 'w') as f:
+            f.write(','.join(columns) + '\n')
+            for row in table:
+                f.write(','.join(f'{value:.8e}' for value in row) + '\n')
+
+
+@dataclass(slots=True)
 class FitArtifacts:
     """Engine-specific runtime data needed after fitting."""
 
@@ -39,6 +122,7 @@ class FitArtifacts:
     raw_result: Any = None
     runtime_handle: Any = None
     runtime_key: Optional[str] = None
+    posterior: Optional[PosteriorSummary] = None
 
 
 @dataclass(slots=True)
@@ -73,6 +157,15 @@ class FitResultContract:
         if self.artifacts.fitted_curve is None:
             raise ValueError('Fit result does not include a fitted curve.')
         return self.artifacts.fitted_curve
+
+    def require_posterior(self) -> PosteriorSummary:
+        """Return the posterior summary or raise if the fit was not Bayesian."""
+        if self.artifacts.posterior is None:
+            raise ValueError(
+                'Fit result does not include a posterior sample. '
+                'Run fit_bayesian() to enable Bayesian displays.'
+            )
+        return self.artifacts.posterior
 
     def save_csv(self, filename: str, model_name: str, data: Any) -> None:
         """Save fit results, fitted curve, and residuals to CSV.
@@ -114,6 +207,17 @@ class FitResultContract:
             f.write('# Fitted Parameters:\n')
             for name, info in self.parameters.items():
                 f.write(f'# {name}: {info["formatted"]}\n')
+            posterior = self.artifacts.posterior
+            if posterior is not None:
+                f.write('#\n')
+                f.write('# Posterior credible intervals:\n')
+                for name in posterior.labels:
+                    lo68, hi68 = posterior.ci_68[name]
+                    lo95, hi95 = posterior.ci_95[name]
+                    f.write(
+                        f'# {name}: 68% CI [{lo68:.6g}, {hi68:.6g}], '
+                        f'95% CI [{lo95:.6g}, {hi95:.6g}]\n'
+                    )
             f.write('#\n')
 
             if has_dx:
