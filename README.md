@@ -180,9 +180,10 @@ See the [User Guide](https://ai4se1dk.github.io/SANS-fitter/usage/) for details.
 - `'differential_evolution'` - Global optimizer
 - `'powell'`, `'nelder'`, etc.
 
-## Demo Notebook
+## Demo Notebooks
 
-See [sans_fitter_demo.ipynb](sans_fitter_demo.ipynb) for a comprehensive demonstration with examples.
+- [notebooks/sans_fitter_demo.ipynb](notebooks/sans_fitter_demo.ipynb) — comprehensive demonstration of the fitting workflow with examples.
+- [notebooks/bayesian_sampling.ipynb](notebooks/bayesian_sampling.ipynb) — Bayesian posterior sampling API (`fit_bayesian()`) and the associated posterior plots.
 
 
 ## Design Philosophy
