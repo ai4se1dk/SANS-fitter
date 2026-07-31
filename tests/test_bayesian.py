@@ -89,16 +89,13 @@ class TestPosteriorSummary(unittest.TestCase):
         self.assertNotIn('R-hat', posterior.format_summary())
 
     def test_save_posterior_csv(self):
-        path = tempfile.mktemp(suffix='.csv')
-        try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, 'posterior.csv')
             self.posterior.save_posterior_csv(path)
             with open(path) as f:
                 lines = f.readlines()
             self.assertEqual(lines[0].strip(), 'radius,scale,logp')
             self.assertEqual(len(lines), 1 + self.posterior.n_samples)
-        finally:
-            if os.path.exists(path):
-                os.unlink(path)
 
     def test_require_posterior_raises_without_posterior(self):
         contract = FitResultContract(
@@ -283,16 +280,13 @@ class TestFitBayesian(unittest.TestCase):
         self.assertIsInstance(fig, go.Figure)
 
     def test_save_results_includes_credible_intervals(self):
-        path = tempfile.mktemp(suffix='.csv')
-        try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, 'results.csv')
             self.fitter.save_results(path)
             with open(path) as f:
                 content = f.read()
             self.assertIn('Posterior credible intervals', content)
             self.assertIn('95% CI', content)
-        finally:
-            if os.path.exists(path):
-                os.unlink(path)
 
 
 class TestFitBayesianErrors(unittest.TestCase):
