@@ -123,6 +123,8 @@ class FitArtifacts:
     runtime_handle: Any = None
     runtime_key: Optional[str] = None
     posterior: Optional[PosteriorSummary] = None
+    posterior_data: Any = None
+    posterior_model_eval: Any = None
 
 
 @dataclass(slots=True)

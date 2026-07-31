@@ -6,6 +6,7 @@ import numpy as np
 import plotly.graph_objects as go
 
 from sans_fitter import PosteriorSummary, SANSFitter
+from sans_fitter.fitting.bumps_engine import _compute_diagnostics
 from sans_fitter.plotting import (
     plot_param_correlations,
     plot_param_distribution,
@@ -65,6 +66,14 @@ class FakeData:
         self.dx = np.zeros(n)
 
 
+class FakeDreamState:
+    def __init__(self, r_hat):
+        self._r_hat = r_hat
+
+    def gelman(self):
+        return self._r_hat
+
+
 class TestPosteriorSummary(unittest.TestCase):
     def setUp(self):
         self.posterior = make_synthetic_posterior()
@@ -113,6 +122,19 @@ class TestPosteriorSummary(unittest.TestCase):
             artifacts=FitArtifacts(posterior=self.posterior),
         )
         self.assertIs(contract.require_posterior(), self.posterior)
+
+    def test_diagnostics_compute_ess_within_each_chain(self):
+        rng = np.random.default_rng(7)
+        chains = np.empty((400, 2, 1))
+        chains[0, :, 0] = rng.normal(size=2)
+        for chain_index in range(2):
+            noise = rng.normal(size=400)
+            for generation in range(1, 400):
+                chains[generation, chain_index, 0] = (
+                    0.98 * chains[generation - 1, chain_index, 0] + noise[generation]
+                )
+        diagnostics = _compute_diagnostics(FakeDreamState([1.01]), ['radius'], chains)
+        self.assertLess(diagnostics['radius']['ess'], 200)
 
 
 class TestPosteriorPlots(unittest.TestCase):
@@ -274,6 +296,17 @@ class TestFitBayesian(unittest.TestCase):
         )
         self.assertIsInstance(self.fitter.plot_param_correlations(show=False), go.Figure)
         self.assertIsInstance(self.fitter.plot_trace(show=False), go.Figure)
+
+    def test_posterior_predictive_uses_fit_time_fixed_parameters(self):
+        before = self.fitter.plot_posterior_predictive(n_draws=5, show=False)
+        best_before = np.asarray(before.data[-2].y)
+        original_background = self.fitter.params['background']['value']
+        try:
+            self.fitter.set_param('background', value=original_background + 1.0)
+            after = self.fitter.plot_posterior_predictive(n_draws=5, show=False)
+            np.testing.assert_allclose(after.data[-2].y, best_before)
+        finally:
+            self.fitter.set_param('background', value=original_background)
 
     def test_plot_results_after_bayesian_fit(self):
         fig = self.fitter.plot_results(show=False)

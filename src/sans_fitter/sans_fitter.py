@@ -28,7 +28,7 @@ from .fitting import (
     fit_bumps_dream,
     fit_scipy,
 )
-from .fitting.base import extract_fit_index, link_radius_effective_dict, pd_is_active
+from .fitting.base import extract_fit_index
 from .parameter_manager import ParameterManager
 from .plotting import DEFAULT_POSTERIOR_PREDICTIVE_DRAWS, plot_fit
 from .results import FitArtifacts, FitResultContract, PosteriorSummary, save_fit_result
@@ -649,34 +649,6 @@ class SANSFitter:
             raise ValueError('No fit results available. Run fit_bayesian() first.')
         return contract.require_posterior()
 
-    def _build_posterior_model_eval(self):
-        """Build the model_eval closure for posterior predictive plotting.
-
-        Folds the non-varying parameters and the polydispersity/structure
-        factor snapshot into a DirectModel call, so posterior samples only
-        need to supply the varying parameter values.
-        """
-        fit_state = self._param_manager.snapshot_fit_state()
-        calculator = DirectModel(self.data, self.kernel)
-
-        base_pars = {name: info['value'] for name, info in fit_state.params.items()}
-        if fit_state.pd_enabled:
-            for base_param in fit_state.polydisperse_param_names:
-                pd_config = fit_state.polydisperse_params[base_param]
-                if pd_is_active(pd_config):
-                    base_pars[f'{base_param}_pd'] = pd_config['pd']
-                    base_pars[f'{base_param}_pd_n'] = pd_config['pd_n']
-                    base_pars[f'{base_param}_pd_nsigma'] = pd_config['pd_nsigma']
-                    base_pars[f'{base_param}_pd_type'] = pd_config['pd_type']
-
-        def model_eval(sample: dict[str, float]) -> np.ndarray:
-            pars = dict(base_pars)
-            pars.update(sample)
-            link_radius_effective_dict(pars, fit_state.radius_effective_mode)
-            return np.asarray(calculator(**pars))
-
-        return model_eval
-
     def plot_posterior_pairs(
         self,
         params: Optional[list[str]] = None,
@@ -744,13 +716,15 @@ class SANSFitter:
         if contract is None:
             raise ValueError('No fit results available. Run fit_bayesian() first.')
         posterior = contract.require_posterior()
-        if self.data is None:
-            raise ValueError('No data loaded. Use load_data() first.')
+        posterior_data = contract.artifacts.posterior_data
+        model_eval = contract.artifacts.posterior_model_eval
+        if posterior_data is None or model_eval is None:
+            raise ValueError('Bayesian fit does not include posterior predictive artifacts.')
 
         return plotting.plot_posterior_predictive(
-            data=self.data,
+            data=posterior_data,
             posterior=posterior,
-            model_eval=self._build_posterior_model_eval(),
+            model_eval=model_eval,
             style=style,
             n_draws=n_draws,
             fit_index=contract.artifacts.fit_index,

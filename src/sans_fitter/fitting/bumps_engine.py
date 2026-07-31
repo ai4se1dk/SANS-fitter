@@ -1,4 +1,5 @@
-from typing import Any, Optional
+from copy import deepcopy
+from typing import Any, Callable, Optional
 
 import numpy as np
 from bumps.fitters import fit as bumps_fit
@@ -10,6 +11,7 @@ except ImportError:  # bumps <= 1.0.3
 from bumps.names import FitProblem
 from sasmodels.bumps_model import Experiment
 from sasmodels.bumps_model import Model as BumpsModel
+from sasmodels.direct_model import DirectModel
 
 from ..contracts import ParameterStateSnapshot
 from ..results import (
@@ -19,7 +21,13 @@ from ..results import (
     FitResultContract,
     PosteriorSummary,
 )
-from .base import EngineFitOutput, extract_fit_index, link_radius_effective_model, pd_is_active
+from .base import (
+    EngineFitOutput,
+    extract_fit_index,
+    link_radius_effective_dict,
+    link_radius_effective_model,
+    pd_is_active,
+)
 
 DEFAULT_DREAM_SAMPLES = 10000
 # bumps expresses burn and pop in DREAM's native units: burn counts
@@ -166,9 +174,11 @@ def _effective_sample_size(series: np.ndarray) -> float:
 
 
 def _compute_diagnostics(
-    state: Any, labels: list[str], samples: np.ndarray
+    state: Any, labels: list[str], chains: Optional[np.ndarray]
 ) -> Optional[dict[str, dict[str, float]]]:
     """Compute per-parameter r-hat/ESS, or None when unavailable."""
+    if chains is None:
+        return None
     try:
         r_hat = np.asarray(state.gelman(), dtype=float).ravel()
         if r_hat.size != len(labels):
@@ -176,7 +186,17 @@ def _compute_diagnostics(
         return {
             name: {
                 'r_hat': float(r_hat[i]),
-                'ess': _effective_sample_size(samples[:, i]),
+                # DREAM's flattened draws interleave chains. Estimate each
+                # chain in generation order, then combine independent ESS.
+                'ess': float(
+                    min(
+                        chains.shape[0] * chains.shape[1],
+                        sum(
+                            _effective_sample_size(chains[:, chain_index, i])
+                            for chain_index in range(chains.shape[1])
+                        ),
+                    )
+                ),
             }
             for i, name in enumerate(labels)
         }
@@ -214,6 +234,9 @@ def _extract_posterior(state: Any, labels: list[str], best_x: np.ndarray) -> Pos
     try:
         _, chains, _ = state.chains()
         chains = np.asarray(chains, dtype=float)
+        good_chains = getattr(state, '_good_chains', None)
+        if good_chains is not None:
+            chains = chains[:, good_chains, :]
         if chains.ndim != 3 or chains.shape[-1] != len(labels):
             chains = None
     except Exception:
@@ -240,8 +263,34 @@ def _extract_posterior(state: Any, labels: list[str], best_x: np.ndarray) -> Pos
             name: (float(percentiles[2, i]), float(percentiles[3, i]))
             for i, name in enumerate(labels)
         },
-        diagnostics=_compute_diagnostics(state, labels, samples),
+        diagnostics=_compute_diagnostics(state, labels, chains),
     )
+
+
+def _build_posterior_evaluator(
+    data: Any, kernel: Any, fit_state: ParameterStateSnapshot
+) -> tuple[Any, Callable[[dict[str, float]], np.ndarray]]:
+    """Freeze the data and fixed model state used for posterior predictions."""
+    posterior_data = deepcopy(data)
+    calculator = DirectModel(posterior_data, kernel)
+    base_pars = {name: info['value'] for name, info in fit_state.params.items()}
+
+    if fit_state.pd_enabled:
+        for base_param in fit_state.polydisperse_param_names:
+            pd_config = fit_state.polydisperse_params[base_param]
+            if pd_is_active(pd_config):
+                base_pars[f'{base_param}_pd'] = pd_config['pd']
+                base_pars[f'{base_param}_pd_n'] = pd_config['pd_n']
+                base_pars[f'{base_param}_pd_nsigma'] = pd_config['pd_nsigma']
+                base_pars[f'{base_param}_pd_type'] = pd_config['pd_type']
+
+    def model_eval(sample: dict[str, float]) -> np.ndarray:
+        pars = dict(base_pars)
+        pars.update(sample)
+        link_radius_effective_dict(pars, fit_state.radius_effective_mode)
+        return np.asarray(calculator(**pars))
+
+    return posterior_data, model_eval
 
 
 def fit_bumps_dream(
@@ -288,6 +337,7 @@ def fit_bumps_dream(
     chisq = problem.chisq()
 
     posterior = _extract_posterior(state, labels, point_estimate)
+    posterior_data, posterior_model_eval = _build_posterior_evaluator(data, kernel, fit_state)
 
     result_parameters: dict[str, dict[str, Any]] = {}
     fitted_values: dict[str, float] = {}
@@ -314,6 +364,8 @@ def fit_bumps_dream(
             runtime_handle=problem,
             runtime_key='problem',
             posterior=posterior,
+            posterior_data=posterior_data,
+            posterior_model_eval=posterior_model_eval,
         ),
     )
 
