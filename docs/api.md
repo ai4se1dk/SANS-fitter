@@ -19,7 +19,14 @@ The main class for SANS data fitting.
         - get_params
         - set_param
         - fit
+        - fit_bayesian
+        - get_posteriors
         - plot_results
+        - plot_posterior_pairs
+        - plot_param_distribution
+        - plot_posterior_predictive
+        - plot_param_correlations
+        - plot_trace
         - save_results
         - supports_polydispersity
         - get_polydisperse_parameters
@@ -29,6 +36,19 @@ The main class for SANS data fitting.
         - is_polydispersity_enabled
         - get_pd_params
         - get_varying_pd_params
+
+## PosteriorSummary
+
+Posterior sample chain and per-parameter statistics returned by `fit_bayesian()`.
+
+::: sans_fitter.results.PosteriorSummary
+    options:
+      show_root_heading: true
+      show_source: true
+      members:
+        - index_of
+        - format_summary
+        - save_posterior_csv
 
 ## data_ops
 
@@ -46,6 +66,7 @@ objects.
         - subtract
         - multiply
         - divide
+
 
 ## ParameterManager
 

@@ -16,12 +16,22 @@ from sasmodels import core
 from sasmodels.core import load_model
 from sasmodels.direct_model import DirectModel
 
+from . import plotting
 from .data_loader import _has_real_data, get_fit_index, load_sans_data, normalize_sans_data
-from .fitting import SCIPY_AVAILABLE, fit_bumps, fit_scipy
+from .fitting import (
+    DEFAULT_DREAM_BURN,
+    DEFAULT_DREAM_POP,
+    DEFAULT_DREAM_SAMPLES,
+    DEFAULT_DREAM_THIN,
+    SCIPY_AVAILABLE,
+    fit_bumps,
+    fit_bumps_dream,
+    fit_scipy,
+)
 from .fitting.base import extract_fit_index
 from .parameter_manager import ParameterManager
-from .plotting import plot_fit
-from .results import FitArtifacts, FitResultContract, save_fit_result
+from .plotting import DEFAULT_POSTERIOR_PREDICTIVE_DRAWS, plot_fit
+from .results import FitArtifacts, FitResultContract, PosteriorSummary, save_fit_result
 
 
 def get_all_models() -> list[str]:
@@ -525,6 +535,11 @@ class SANSFitter:
         for name, info in self.fit_result['parameters'].items():
             print(f'  {name}: {info["formatted"]}')
 
+        posterior = self._fit_contract.artifacts.posterior
+        if posterior is not None:
+            print()
+            print(posterior.format_summary())
+
         return self.fit_result
 
     def _get_active_fit_contract(self) -> Optional[FitResultContract]:
@@ -656,6 +671,195 @@ class SANSFitter:
             **kwargs,
         )
         return self._finalize_fit(engine_output)
+
+    def fit_bayesian(
+        self,
+        method: str = 'dream',
+        samples: int = DEFAULT_DREAM_SAMPLES,
+        burn: int = DEFAULT_DREAM_BURN,
+        thin: int = DEFAULT_DREAM_THIN,
+        pop: int = DEFAULT_DREAM_POP,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """
+        Perform a Bayesian (MCMC) fit using bumps' DREAM sampler.
+
+        Samples the posterior distribution of the varying parameters and
+        stores the chain alongside the usual point-estimate results, enabling
+        the posterior displays: plot_posterior_pairs(),
+        plot_param_distribution(), plot_posterior_predictive(),
+        plot_param_correlations(), and plot_trace().
+
+        The reported parameter values are the best (maximum-likelihood)
+        posterior sample; the reported stderr is the posterior 68% credible
+        half-width.
+
+        Args:
+            method: Sampler method (default 'dream').
+            samples: Number of posterior samples to draw.
+            burn: Number of burn-in generations to discard (DREAM's native
+                unit: each generation advances every chain by one step).
+            thin: Keep every nth sample.
+            pop: Population (chain) scale factor per varying parameter.
+            **kwargs: Additional arguments passed to bumps.fitters.fit.
+
+        Returns:
+            Dictionary with fit results including chi-squared and parameter
+            values. The posterior itself is available via get_posterior().
+
+        Raises:
+            ValueError: If data or model is not loaded, or no parameter varies.
+        """
+        if self.data is None:
+            raise ValueError('No data loaded. Use load_data() first.')
+        if self.kernel is None:
+            raise ValueError('No model loaded. Use set_model() first.')
+
+        engine_output = fit_bumps_dream(
+            data=self.data,
+            kernel=self.kernel,
+            fit_state=self._param_manager.snapshot_fit_state(),
+            method=method,
+            samples=samples,
+            burn=burn,
+            thin=thin,
+            pop=pop,
+            **kwargs,
+        )
+        return self._finalize_fit(engine_output)
+
+    def get_posterior(self) -> PosteriorSummary:
+        """
+        Return the posterior summary from the last Bayesian fit.
+
+        Raises:
+            ValueError: If no fit has been run or the last fit was not Bayesian.
+        """
+        contract = self._get_active_fit_contract()
+        if contract is None:
+            raise ValueError('No fit results available. Run fit_bayesian() first.')
+        return contract.require_posterior()
+
+    def plot_posterior_pairs(
+        self,
+        params: Optional[list[str]] = None,
+        show_contours: bool = True,
+        show: bool | None = None,
+    ) -> Figure:
+        """
+        Corner plot of the posterior: marginal densities and pairwise clouds.
+
+        Args:
+            params: Optional subset of parameter names (default: all sampled).
+            show_contours: Overlay density contours on the pairwise panels.
+            show: Same display convention as plot_results().
+
+        Raises:
+            ValueError: If the last fit was not Bayesian.
+        """
+        return plotting.plot_posterior_pairs(
+            self.get_posterior(), params=params, show_contours=show_contours, show=show
+        )
+
+    def plot_param_distribution(
+        self,
+        param: str,
+        bins: int = 50,
+        show: bool | None = None,
+    ) -> Figure:
+        """
+        Marginal posterior distribution for one parameter.
+
+        Args:
+            param: Name of a sampled (varying) parameter.
+            bins: Number of histogram bins.
+            show: Same display convention as plot_results().
+
+        Raises:
+            ValueError: If the last fit was not Bayesian.
+            KeyError: If the parameter was not sampled.
+        """
+        return plotting.plot_param_distribution(self.get_posterior(), param, bins=bins, show=show)
+
+    def plot_posterior_predictive(
+        self,
+        style: str = 'band',
+        n_draws: int = DEFAULT_POSTERIOR_PREDICTIVE_DRAWS,
+        log_scale: bool = True,
+        show: bool | None = None,
+    ) -> Figure:
+        """
+        Posterior predictive check: credible band and/or draws over the data.
+
+        Args:
+            style: 'band' (95% credible interval), 'draws' (sampled curves),
+                or 'band+draws'.
+            n_draws: Number of posterior samples to evaluate through the
+                model. Each draw costs one sasmodels evaluation, so large
+                values can be slow (especially with polydispersity).
+            log_scale: Use log axes.
+            show: Same display convention as plot_results().
+
+        Raises:
+            ValueError: If the last fit was not Bayesian or no data is loaded.
+        """
+        contract = self._get_active_fit_contract()
+        if contract is None:
+            raise ValueError('No fit results available. Run fit_bayesian() first.')
+        posterior = contract.require_posterior()
+        posterior_data = contract.artifacts.posterior_data
+        model_eval = contract.artifacts.posterior_model_eval
+        if posterior_data is None or model_eval is None:
+            raise ValueError('Bayesian fit does not include posterior predictive artifacts.')
+
+        return plotting.plot_posterior_predictive(
+            data=posterior_data,
+            posterior=posterior,
+            model_eval=model_eval,
+            style=style,
+            n_draws=n_draws,
+            fit_index=contract.artifacts.fit_index,
+            log_scale=log_scale,
+            show=show,
+        )
+
+    def plot_param_correlations(
+        self,
+        threshold: float = 0.0,
+        show: bool | None = None,
+    ) -> Figure:
+        """
+        Heatmap of the posterior parameter correlation matrix.
+
+        Args:
+            threshold: Hide cells with |correlation| below this value.
+            show: Same display convention as plot_results().
+
+        Raises:
+            ValueError: If the last fit was not Bayesian.
+        """
+        return plotting.plot_param_correlations(
+            self.get_posterior(), threshold=threshold, show=show
+        )
+
+    def plot_trace(
+        self,
+        params: Optional[list[str]] = None,
+        show: bool | None = None,
+    ) -> Figure:
+        """
+        Trace plot of the MCMC chains for each sampled parameter.
+
+        Falls back to the combined chain when per-chain data is unavailable.
+
+        Args:
+            params: Optional subset of parameter names (default: all sampled).
+            show: Same display convention as plot_results().
+
+        Raises:
+            ValueError: If the last fit was not Bayesian.
+        """
+        return plotting.plot_trace(self.get_posterior(), params=params, show=show)
 
     def plot_results(
         self,
