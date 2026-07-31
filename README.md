@@ -17,6 +17,7 @@ A flexible, model-agnostic Python template for fitting Small-Angle Neutron Scatt
 - **Q-Range Restriction**: Fit only a chosen [qmin, qmax] window (e.g. trim beam-stop or background-dominated points)
 - **User-Friendly Parameter Management**: Easy-to-use interface for setting parameter values, bounds, and fitting flags
 - **Interactive Visualization**: Automatic plotting of data, fitted model, and residuals with Plotly
+- **Bayesian Analysis**: Posterior sampling with BUMPS DREAM (MCMC) plus corner, marginal, predictive-band, correlation, and trace plots
 - **Result Export**: Save fitted parameters and curves to CSV files
 
 ## Installation
@@ -136,6 +137,35 @@ fitter.remove_structure_factor()
 - **Radius handling:** use `radius_effective_mode='link_radius'` to keep `radius_effective` equal to the form-factor `radius`, or leave the default `unconstrained` to fit it independently.
 - **State helpers:** `get_structure_factor()` returns the active structure factor so notebooks/scripts can branch as needed.
 
+## Bayesian Analysis
+
+Sample the full posterior distribution of the varying parameters with the
+DREAM MCMC sampler (built into BUMPS — no extra dependencies):
+
+```python
+fitter.set_model('sphere')
+fitter.set_param('radius', value=50, min=10, max=200, vary=True)
+fitter.set_param('scale', value=0.1, min=0.01, max=1.0, vary=True)
+
+# Run the Bayesian fit (prints point estimates + credible intervals + diagnostics)
+result = fitter.fit_bayesian(samples=10000, burn=200)
+
+# Corner plot of the posterior
+fitter.plot_posterior_pairs()
+
+# More displays
+fitter.plot_param_distribution('radius')      # marginal posterior
+fitter.plot_posterior_predictive()            # 95% credible band over the data
+fitter.plot_param_correlations()              # correlation heatmap
+fitter.plot_trace()                           # MCMC chain traces
+
+# Raw chain access / export
+posterior = fitter.get_posterior()
+posterior.save_posterior_csv('posterior_chain.csv')
+```
+
+See the [User Guide](https://ai4se1dk.github.io/SANS-fitter/usage/) for details.
+
 ### Available Methods
 
 **BUMPS methods:**
@@ -150,9 +180,10 @@ fitter.remove_structure_factor()
 - `'differential_evolution'` - Global optimizer
 - `'powell'`, `'nelder'`, etc.
 
-## Demo Notebook
+## Demo Notebooks
 
-See [sans_fitter_demo.ipynb](sans_fitter_demo.ipynb) for a comprehensive demonstration with examples.
+- [notebooks/sans_fitter_demo.ipynb](notebooks/sans_fitter_demo.ipynb) — comprehensive demonstration of the fitting workflow with examples.
+- [notebooks/bayesian_sampling.ipynb](notebooks/bayesian_sampling.ipynb) — Bayesian posterior sampling API (`fit_bayesian()`) and the associated posterior plots.
 
 
 ## Design Philosophy
