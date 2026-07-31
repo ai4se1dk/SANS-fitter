@@ -10,6 +10,7 @@ The main class for SANS data fitting.
       show_source: true
       members:
         - load_data
+        - set_data
         - set_q_range
         - reset_q_range
         - get_q_range
@@ -28,6 +29,23 @@ The main class for SANS data fitting.
         - is_polydispersity_enabled
         - get_pd_params
         - get_varying_pd_params
+
+## data_ops
+
+Dataset arithmetic: add, subtract, multiply and divide datasets (or a dataset
+and a scalar) with propagated uncertainties, returning fit-ready `Data1D`
+objects.
+
+::: sans_fitter.data_ops
+    options:
+      show_root_heading: true
+      show_source: true
+      members:
+        - load
+        - add
+        - subtract
+        - multiply
+        - divide
 
 ## ParameterManager
 

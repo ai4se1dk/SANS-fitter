@@ -125,6 +125,67 @@ curve, residuals, χ², and the CSV export only cover the fitted range.
 The range can be changed freely between fits — each fit result remembers
 the range it was fitted with.
 
+### Dataset Operations
+
+The `sans_fitter.data_ops` module manipulates datasets with arithmetic
+operations — similar to SasView's *Data Operation* utility. Typical uses are
+background subtraction, rescaling to absolute units, and transmission
+correction.
+
+```python
+from sans_fitter import SANSFitter, data_ops
+
+sample = data_ops.load('sample.csv')          # standalone loader, returns Data1D
+background = data_ops.load('empty_cell.csv')
+
+net = data_ops.subtract(sample, background)   # sample − background
+net = data_ops.divide(net, 0.8)               # transmission correction
+
+fitter = SANSFitter()
+fitter.set_data(net)                          # inject the in-memory dataset
+fitter.set_model('sphere')
+fitter.fit()
+```
+
+Available operations — each returns a new, fit-ready `Data1D`:
+
+| Function | Result |
+|---|---|
+| `data_ops.add(a, b)` | `a + b` |
+| `data_ops.subtract(a, b)` | `a − b` (order matters) |
+| `data_ops.multiply(a, b)` | `a × b` |
+| `data_ops.divide(a, b)` | `a / b` (order matters) |
+
+The second operand can be a dataset or a scalar. For two datasets,
+uncertainties are propagated (`dI = sqrt(dI_a² + dI_b²)` for add/subtract,
+relative errors in quadrature for multiply/divide) and both must share the
+same Q grid (x-values matching within 1% — interpolation onto a common grid
+is not yet supported). For a scalar, `multiply`/`divide` scale both `I` and
+`dI`, while `add`/`subtract` shift `I` and leave `dI` unchanged; the Q grid
+is never altered.
+
+Every result records its provenance: the title becomes the operation (e.g.
+`"sample.csv - empty_cell.csv"`) and a `Process` entry is appended, which
+survives in saved CanSAS output.
+
+Things to know:
+
+- **Missing dI** on an operand triggers a warning — it is treated as zero in
+  error propagation. Error-free data warns again at fit time: the `lmfit`
+  engine falls back to unit weights, while `bumps` refuses to fit.
+- **NaN points** propagate through the arithmetic and are masked in the
+  result (excluded from fits); a warning reports the masked count.
+- **Resolution (dQ) propagation** through arithmetic is not validated
+  upstream — a warning is emitted when any operand carries resolution data.
+  Treat resolution on results with care, especially for slit-smeared data.
+
+`SANSFitter.set_data()` accepts any sasdata `Data1D` — arithmetic results,
+simulated data, or datasets built programmatically — and validates and
+normalizes it so it is fit-ready.
+
+See `examples/data_operations_example.py` and
+`notebooks/data_operations_demo.ipynb` for a complete walkthrough.
+
 ### Structure Factors
 
 You can combine a form factor with a structure factor to model interacting systems.
