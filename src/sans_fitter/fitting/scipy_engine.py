@@ -46,7 +46,24 @@ def fit_scipy(
     # sasmodels evaluates the theory only at the fitted points (inside
     # [qmin, qmax], unmasked); compare against the matching data subset.
     y_fit = np.asarray(calculator.Iq)
-    dy_fit = np.asarray(calculator.dIq)
+    dy_fit = np.asarray(calculator.dIq, dtype=float)
+    # Zero dI would make the weighted residual infinite. Weight such points as
+    # 1.0 instead — they will dominate χ² relative to small-error points, but
+    # masking them would silently change the degrees of freedom.
+    zero_dy = np.nan_to_num(dy_fit) == 0
+    if zero_dy.any():
+        if zero_dy.all():
+            warnings.warn(
+                'All intensity uncertainties (dI) are zero; using unweighted residuals.',
+                stacklevel=2,
+            )
+        else:
+            warnings.warn(
+                f'{int(zero_dy.sum())} of {zero_dy.size} fitted points have zero intensity '
+                'uncertainty (dI); weighting them as 1.0.',
+                stacklevel=2,
+            )
+        dy_fit = np.where(zero_dy, 1.0, dy_fit)
 
     def build_parameter_dict(x: np.ndarray) -> dict[str, Any]:
         par_dict = {name: info['value'] for name, info in fit_state.params.items()}

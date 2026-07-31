@@ -15,6 +15,7 @@ A flexible, model-agnostic Python template for fitting Small-Angle Neutron Scatt
 - **Multiple Fitting Engines**: Supports both BUMPS (default) and LMFit optimization engines
 - **Flexible Data Loading**: Reads CSV, XML, and HDF5 formats via sasdata
 - **Q-Range Restriction**: Fit only a chosen [qmin, qmax] window (e.g. trim beam-stop or background-dominated points)
+- **Dataset Arithmetic**: Add, subtract, multiply, and divide datasets (or scale by constants) with propagated uncertainties via `data_ops` — e.g. background subtraction and transmission correction before fitting
 - **User-Friendly Parameter Management**: Easy-to-use interface for setting parameter values, bounds, and fitting flags
 - **Interactive Visualization**: Automatic plotting of data, fitted model, and residuals with Plotly
 - **Bayesian Analysis**: Posterior sampling with BUMPS DREAM (MCMC) plus corner, marginal, predictive-band, correlation, and trace plots

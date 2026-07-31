@@ -34,6 +34,29 @@ def create_loading_test_data_file_with_resolution(num_points=10):
     return temp_file.name
 
 
+def create_background_data_file(num_points=10):
+    """Flat background on the same Q grid as create_loading_test_data_file."""
+    temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False)
+    temp_file.write('Q,I,dI\n')
+    for index in range(num_points):
+        q_value = 0.01 * (index + 1)
+        temp_file.write(f'{q_value},0.5,0.05\n')
+    temp_file.close()
+    return temp_file.name
+
+
+def create_offset_grid_data_file(num_points=12):
+    """Dataset on a Q grid that does not match create_loading_test_data_file."""
+    temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False)
+    temp_file.write('Q,I,dI\n')
+    for index in range(num_points):
+        q_value = 0.017 * (index + 1)
+        intensity = 50 * np.exp(-q_value * 8) + 0.2
+        temp_file.write(f'{q_value},{intensity},{intensity * 0.1}\n')
+    temp_file.close()
+    return temp_file.name
+
+
 def create_decay_data_file(num_points=30):
     temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False)
     temp_file.write('Q,I,dI\n')

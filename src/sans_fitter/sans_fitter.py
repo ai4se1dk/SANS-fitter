@@ -17,7 +17,7 @@ from sasmodels.core import load_model
 from sasmodels.direct_model import DirectModel
 
 from . import plotting
-from .data_loader import _has_real_data, get_fit_index, load_sans_data
+from .data_loader import _has_real_data, get_fit_index, load_sans_data, normalize_sans_data
 from .fitting import (
     DEFAULT_DREAM_BURN,
     DEFAULT_DREAM_POP,
@@ -110,6 +110,58 @@ class SANSFitter:
         has_dx = _has_real_data(self.data.dx)
 
         print(f'✓ Loaded data from {filename}')
+        print(f'  Q range: {self.data.qmin:.4f} to {self.data.qmax:.4f} Å⁻¹')
+        print(f'  Data points: {len(self.data.x)}')
+        print(f'  Error (dI) column: {"yes" if has_dy else "no"}')
+        print(f'  Resolution (dQ) column: {"yes" if has_dx else "no"}')
+
+    def set_data(self, data: Any) -> None:
+        """
+        Use an in-memory dataset for fitting.
+
+        This is the injection point for datasets that were not loaded from a
+        file: results of dataset arithmetic (see :mod:`sans_fitter.data_ops`),
+        simulated data, or any sasdata ``Data1D`` built programmatically. The
+        dataset is validated and normalized (``qmin``/``qmax``/``mask`` are
+        recomputed as needed) so it is fit-ready.
+
+        Args:
+            data: A sasdata ``Data1D`` object with populated ``x`` and ``y``
+                arrays. 2D data is not supported.
+
+        Raises:
+            TypeError: If the object is 2D data or lacks ``x``/``y`` arrays.
+            ValueError: If ``x``/``y`` are empty, have mismatched lengths, or
+                contain non-positive Q values.
+        """
+        if getattr(data, 'qx_data', None) is not None:
+            raise TypeError('2D data is not supported. Provide a Data1D object.')
+        x = getattr(data, 'x', None)
+        y = getattr(data, 'y', None)
+        if x is None or y is None:
+            raise TypeError('Dataset must have populated x and y arrays.')
+        x = np.asarray(x)
+        y = np.asarray(y)
+        if x.size == 0 or y.size == 0:
+            raise ValueError('Dataset is empty: x and y must contain data points.')
+        if x.size != y.size:
+            raise ValueError(f'x and y have different lengths ({x.size} vs {y.size}).')
+        if np.any(x[np.isfinite(x)] <= 0):
+            raise ValueError('Q values must be positive.')
+        if x.size < 5:
+            warnings.warn(
+                f'Dataset has only {x.size} points; fits may be unreliable.',
+                stacklevel=2,
+            )
+
+        self.data = normalize_sans_data(data)
+        self._full_q_range = (self.data.qmin, self.data.qmax)
+
+        has_dy = _has_real_data(self.data.dy)
+        has_dx = _has_real_data(self.data.dx)
+        label = getattr(data, 'title', '') or getattr(data, 'filename', '') or 'in-memory dataset'
+
+        print(f'✓ Data set: {label}')
         print(f'  Q range: {self.data.qmin:.4f} to {self.data.qmax:.4f} Å⁻¹')
         print(f'  Data points: {len(self.data.x)}')
         print(f'  Error (dI) column: {"yes" if has_dy else "no"}')
@@ -550,14 +602,53 @@ class SANSFitter:
         if self.kernel is None:
             raise ValueError('No model loaded. Use set_model() first.')
 
+        if engine not in ('bumps', 'lmfit'):
+            raise ValueError(f"Unknown engine '{engine}'. Use 'bumps' or 'lmfit'.")
+
+        self._check_fit_uncertainties(engine)
+
         if engine == 'bumps':
             return self._fit_bumps(method or 'amoeba', **kwargs)
-        elif engine == 'lmfit':
-            if not LMFIT_AVAILABLE:
-                raise ValueError("scipy is not installed. Use 'bumps' engine or install scipy.")
-            return self._fit_lmfit(method or 'leastsq', **kwargs)
+        if not LMFIT_AVAILABLE:
+            raise ValueError("scipy is not installed. Use 'bumps' engine or install scipy.")
+        return self._fit_lmfit(method or 'leastsq', **kwargs)
+
+    def _check_fit_uncertainties(self, engine: str) -> None:
+        """Validate intensity uncertainties (dI) before fitting.
+
+        Both engines weight residuals by dI. Zero (or absent) uncertainties
+        make the BUMPS χ² infinite for every parameter set, so the fit cannot
+        proceed; the scipy/lmfit engine falls back to unit weights for the
+        affected points (with a warning from the engine itself).
+        """
+        index = get_fit_index(self.data)
+        dy = getattr(self.data, 'dy', None)
+        if dy is None or np.asarray(dy).size == 0:
+            n_zero = int(index.sum())
         else:
-            raise ValueError(f"Unknown engine '{engine}'. Use 'bumps' or 'lmfit'.")
+            dy_fit = np.asarray(dy, dtype=float)[index]
+            n_zero = int(np.sum(np.nan_to_num(dy_fit) == 0))
+        if n_zero == 0:
+            return
+
+        n_fit = int(index.sum())
+        detail = (
+            'has no intensity uncertainties (dI)'
+            if n_zero == n_fit
+            else f'has {n_zero} of {n_fit} fitted points with zero intensity uncertainty (dI)'
+        )
+        if engine == 'bumps':
+            raise ValueError(
+                f'Data {detail}. The bumps engine cannot weight such points '
+                '(χ² becomes infinite). Provide dI values, exclude the points '
+                "(mask or set_q_range), or use engine='lmfit', which treats "
+                'them as unweighted.'
+            )
+        warnings.warn(
+            f'Data {detail}. Affected residuals will be unweighted (dI treated as 1.0), '
+            'so these points may dominate χ² relative to points with small errors.',
+            stacklevel=2,
+        )
 
     def _fit_bumps(self, method: str = 'amoeba', **kwargs: Any) -> dict[str, Any]:
         """Fit using BUMPS engine."""
