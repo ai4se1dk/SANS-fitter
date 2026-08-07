@@ -30,7 +30,7 @@ def make_composite_data(
     data = Data1D(x=q, y=np.ones_like(q), dy=np.full_like(q, 0.05))
     data.qmin, data.qmax = q.min(), q.max()
     kernel = load_model(expression, dtype='single', platform='dll')
-    defaults = dict(scale=1.0, background=0.01)
+    defaults = {'scale': 1.0, 'background': 0.01}
     if params:
         defaults.update(params)
     y = np.asarray(DirectModel(data, kernel)(**defaults))
@@ -221,15 +221,15 @@ class TestCompositeFitRoundTrip(unittest.TestCase):
     """Test 5: bumps fit recovers known composite parameters."""
 
     def setUp(self):
-        truth = dict(
-            A_scale=10.0,
-            A_cor_length=50.0,
-            B_scale=5.0,
-            B_peak_pos=0.1,
-            B_peak_hwhm=0.01,
-            scale=1.0,
-            background=0.01,
-        )
+        truth = {
+            'A_scale': 10.0,
+            'A_cor_length': 50.0,
+            'B_scale': 5.0,
+            'B_peak_pos': 0.1,
+            'B_peak_hwhm': 0.01,
+            'scale': 1.0,
+            'background': 0.01,
+        }
         self.truth = truth
         self.fitter = SANSFitter()
         self.fitter.set_data(make_composite_data(params=truth))
@@ -302,15 +302,15 @@ class TestComponentCurves(unittest.TestCase):
     """Test 7: per-component curves for '+' mixtures."""
 
     def setUp(self):
-        truth = dict(
-            A_scale=10.0,
-            A_cor_length=50.0,
-            B_scale=5.0,
-            B_peak_pos=0.1,
-            B_peak_hwhm=0.01,
-            scale=1.0,
-            background=0.01,
-        )
+        truth = {
+            'A_scale': 10.0,
+            'A_cor_length': 50.0,
+            'B_scale': 5.0,
+            'B_peak_pos': 0.1,
+            'B_peak_hwhm': 0.01,
+            'scale': 1.0,
+            'background': 0.01,
+        }
         self.fitter = SANSFitter()
         self.fitter.set_data(make_composite_data(params=truth))
         self.fitter.set_models('dab', 'peak_lorentz')
@@ -594,15 +594,15 @@ class TestCompositePlotting(unittest.TestCase):
     """Test 9: show_components plotting."""
 
     def _fit_composite(self):
-        truth = dict(
-            A_scale=10.0,
-            A_cor_length=50.0,
-            B_scale=5.0,
-            B_peak_pos=0.1,
-            B_peak_hwhm=0.01,
-            scale=1.0,
-            background=0.01,
-        )
+        truth = {
+            'A_scale': 10.0,
+            'A_cor_length': 50.0,
+            'B_scale': 5.0,
+            'B_peak_pos': 0.1,
+            'B_peak_hwhm': 0.01,
+            'scale': 1.0,
+            'background': 0.01,
+        }
         fitter = SANSFitter()
         fitter.set_data(make_composite_data(params=truth))
         fitter.set_models('dab', 'peak_lorentz')

@@ -8,7 +8,8 @@ optimization engines (BUMPS, LMFit) with any model from the SasModels library.
 import difflib
 import re
 import warnings
-from typing import Any, Literal, Optional, Sequence
+from collections.abc import Sequence
+from typing import Any, Literal, Optional
 
 import numpy as np
 from plotly.graph_objects import Figure
@@ -793,7 +794,7 @@ class SANSFitter:
 
         canonical_values = self._param_manager.get_canonical_param_values()
         global_scale = canonical_values.get('scale', 1.0)
-        background = canonical_values.get('background', 0.0)
+        canonical_values.get('background', 0.0)
 
         # Active polydispersity settings, keyed by canonical base names.
         pd_settings: dict[str, dict[str, Any]] = {}
