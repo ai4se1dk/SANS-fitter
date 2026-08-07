@@ -66,15 +66,11 @@ def _validate_model_expression(model_name: str) -> None:
         for atomic in part.split('@'):
             atomic = atomic.strip()
             if not atomic:
-                raise ValueError(
-                    f"Invalid model expression '{model_name}': empty component."
-                )
+                raise ValueError(f"Invalid model expression '{model_name}': empty component.")
             if atomic not in available:
                 suggestions = difflib.get_close_matches(atomic, available, n=1)
                 hint = f" Did you mean '{suggestions[0]}'?" if suggestions else ''
-                raise ValueError(
-                    f"Unknown model '{atomic}' in '{model_name}'.{hint}"
-                )
+                raise ValueError(f"Unknown model '{atomic}' in '{model_name}'.{hint}")
 
 
 LMFIT_AVAILABLE = SCIPY_AVAILABLE
@@ -360,8 +356,7 @@ class SANSFitter:
 
         if len(components) < 2:
             raise ValueError(
-                'set_models() requires at least 2 models. '
-                "For a single model use set_model('name')."
+                "set_models() requires at least 2 models. For a single model use set_model('name')."
             )
 
         # Validate monikers: valid identifiers and not reserved names.
@@ -950,11 +945,7 @@ class SANSFitter:
         varying = self._param_manager.get_varying_params()
         if 'scale' not in varying:
             return
-        component_scales = [
-            name
-            for name in varying
-            if name.endswith('_scale') and name != 'scale'
-        ]
+        component_scales = [name for name in varying if name.endswith('_scale') and name != 'scale']
         if component_scales:
             warnings.warn(
                 "Both the global 'scale' and component scale(s) "
@@ -1069,7 +1060,7 @@ class SANSFitter:
         snapshot = self._param_manager.snapshot_fit_state()
         if snapshot.linked_params or snapshot.components:
             raise NotImplementedError(
-                "Composite models and parameter links are currently supported "
+                'Composite models and parameter links are currently supported '
                 "by the 'bumps' point-estimate engine only (fit(engine='bumps'))."
             )
         self._check_scale_degeneracy()

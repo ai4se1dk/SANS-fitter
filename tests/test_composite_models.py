@@ -60,13 +60,9 @@ class TestCompositeLoading(unittest.TestCase):
         # Same shape (flat dict, same schema), differing only in keys.
         self.assertEqual(len(raw.params), len(builder.params))
         for info in raw.params.values():
-            self.assertEqual(
-                set(info.keys()), {'value', 'min', 'max', 'vary', 'description'}
-            )
+            self.assertEqual(set(info.keys()), {'value', 'min', 'max', 'vary', 'description'})
         for info in builder.params.values():
-            self.assertEqual(
-                set(info.keys()), {'value', 'min', 'max', 'vary', 'description'}
-            )
+            self.assertEqual(set(info.keys()), {'value', 'min', 'max', 'vary', 'description'})
 
         self.assertIn('A_cor_length', raw.params)
         self.assertIn('B_peak_pos', raw.params)
@@ -77,9 +73,7 @@ class TestCompositeLoading(unittest.TestCase):
         raw = SANSFitter()
         raw.set_data(make_composite_data())
         raw.set_model('dab+peak_lorentz')
-        self.assertEqual(
-            raw.get_components(), [('A', 'A', 'dab'), ('B', 'B', 'peak_lorentz')]
-        )
+        self.assertEqual(raw.get_components(), [('A', 'A', 'dab'), ('B', 'B', 'peak_lorentz')])
 
         builder = SANSFitter()
         builder.set_data(make_composite_data())
@@ -228,8 +222,13 @@ class TestCompositeFitRoundTrip(unittest.TestCase):
 
     def setUp(self):
         truth = dict(
-            A_scale=10.0, A_cor_length=50.0, B_scale=5.0,
-            B_peak_pos=0.1, B_peak_hwhm=0.01, scale=1.0, background=0.01,
+            A_scale=10.0,
+            A_cor_length=50.0,
+            B_scale=5.0,
+            B_peak_pos=0.1,
+            B_peak_hwhm=0.01,
+            scale=1.0,
+            background=0.01,
         )
         self.truth = truth
         self.fitter = SANSFitter()
@@ -304,8 +303,13 @@ class TestComponentCurves(unittest.TestCase):
 
     def setUp(self):
         truth = dict(
-            A_scale=10.0, A_cor_length=50.0, B_scale=5.0,
-            B_peak_pos=0.1, B_peak_hwhm=0.01, scale=1.0, background=0.01,
+            A_scale=10.0,
+            A_cor_length=50.0,
+            B_scale=5.0,
+            B_peak_pos=0.1,
+            B_peak_hwhm=0.01,
+            scale=1.0,
+            background=0.01,
         )
         self.fitter = SANSFitter()
         self.fitter.set_data(make_composite_data(params=truth))
@@ -320,7 +324,9 @@ class TestComponentCurves(unittest.TestCase):
         self.assertEqual(set(curves.keys()), {'dab', 'peak_lorentz'})
 
         fit_index = self.fitter._fit_contract.artifacts.fit_index
-        n_fit = int(np.asarray(fit_index).sum()) if fit_index is not None else len(self.fitter.data.x)
+        n_fit = (
+            int(np.asarray(fit_index).sum()) if fit_index is not None else len(self.fitter.data.x)
+        )
         for curve in curves.values():
             self.assertEqual(len(curve), n_fit)
 
@@ -589,8 +595,13 @@ class TestCompositePlotting(unittest.TestCase):
 
     def _fit_composite(self):
         truth = dict(
-            A_scale=10.0, A_cor_length=50.0, B_scale=5.0,
-            B_peak_pos=0.1, B_peak_hwhm=0.01, scale=1.0, background=0.01,
+            A_scale=10.0,
+            A_cor_length=50.0,
+            B_scale=5.0,
+            B_peak_pos=0.1,
+            B_peak_hwhm=0.01,
+            scale=1.0,
+            background=0.01,
         )
         fitter = SANSFitter()
         fitter.set_data(make_composite_data(params=truth))

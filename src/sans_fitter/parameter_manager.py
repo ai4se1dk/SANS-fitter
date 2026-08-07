@@ -395,9 +395,7 @@ class ParameterManager:
         if follower == target:
             raise ValueError(f"Cannot link parameter '{name}' to itself.")
         if follower in self._links:
-            raise ValueError(
-                f"Parameter '{name}' is already linked to '{self._links[follower]}'."
-            )
+            raise ValueError(f"Parameter '{name}' is already linked to '{self._links[follower]}'.")
         if target in self._links:
             raise ValueError(
                 f"Cannot link '{name}' to '{to}': '{to}' is itself a follower. "
@@ -535,9 +533,7 @@ class ParameterManager:
                 if shared_to_canonicals[shared_name][0] == canonical:
                     new_params[shared_name] = info
                 # Suppress the prefixed alias of a shared parameter.
-                prefixed_alias = next(
-                    a for a, c in alias_to_canonical.items() if c == canonical
-                )
+                prefixed_alias = next(a for a, c in alias_to_canonical.items() if c == canonical)
                 suppressed.add(prefixed_alias)
             else:
                 new_params[canonical_to_alias[canonical]] = info
