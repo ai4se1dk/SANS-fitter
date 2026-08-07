@@ -2,7 +2,9 @@
 Parameter Manager - Handles model parameter management for SANS fitting.
 
 This module encapsulates all parameter-related operations including initialization,
-validation, bounds management, structure factor parameter linking, and polydispersity.
+validation, bounds management, structure factor parameter linking, polydispersity,
+composite-model component metadata, the friendly-name alias layer, and generic
+parameter equality links.
 """
 
 from typing import Any, Optional
@@ -11,7 +13,61 @@ import numpy as np
 
 from .contracts import ParameterStateSnapshot
 from .polydispersity import PolydispersityManager
-from .structure_factor import StructureFactorManager
+from .structure_factor import StructureFactorManager, default_parameter_bounds
+
+
+def derive_mixture_components(kernel: Any) -> list[tuple[str, str, str]]:
+    """Derive ``(prefix, moniker, part_model_name)`` triples for a mixture kernel.
+
+    The derivation walks the kernel's composition tree and reads each part's
+    actual prefix from the prefixed names in
+    ``kernel.info.parameters.kernel_parameters`` — the user's expression string
+    is never the prefix authority (sasmodels renumbers prefixes for nested
+    mixture plugins). For flat atomic/product parts the result equals
+    part-order prefixing. The moniker is set to the prefix; the alias layer
+    (:meth:`ParameterManager.register_aliases`) replaces it for the
+    ``set_models`` path.
+
+    Returns an empty list for atomic (non-mixture) models.
+    """
+    info = getattr(kernel, 'info', None)
+    composition = getattr(info, 'composition', None) if info is not None else None
+    # Defensive: mock kernels or atomic models may expose anything here. Only
+    # a real ('mixture', parts) tuple proceeds.
+    if not isinstance(composition, (tuple, list)) or len(composition) != 2:
+        return []
+    if composition[0] != 'mixture':
+        return []
+    operation = getattr(info, 'operation', '+')
+    parts = composition[1]
+    try:
+        kernel_names = [param.name for param in info.parameters.kernel_parameters]
+    except Exception:
+        return []
+
+    components: list[tuple[str, str, str]] = []
+    try:
+        cursor = 0
+        for part in parts:
+            prefix = ''
+            if operation == '+':
+                # Every '+' part contributes a leading {prefix}_scale parameter;
+                # its name carries the part's actual prefix ('A_scale', or the
+                # combined 'AB_scale' form for nested product-mixture plugins).
+                scale_name = kernel_names[cursor] if cursor < len(kernel_names) else ''
+                if scale_name.endswith('scale'):
+                    prefix = scale_name[: -len('scale')].rstrip('_')
+                cursor += 1
+            n_part_params = len(part.parameters.kernel_parameters)
+            block = kernel_names[cursor : cursor + n_part_params]
+            cursor += n_part_params
+            if not prefix and block:
+                prefix = block[0].split('_')[0]
+            part_name = getattr(part, 'name', '') or ''
+            components.append((prefix, prefix, part_name))
+    except Exception:
+        return []
+    return components
 
 
 class ParameterManager:
@@ -36,6 +92,21 @@ class ParameterManager:
         self.model_name: Optional[str] = None
         self._sf_manager = StructureFactorManager()
         self._pd_manager = PolydispersityManager()
+
+        # Composite-model state (see 46_COMPOSITE_MODELS.md)
+        # _components: ordered (prefix, moniker, part_model_name) triples.
+        self._components: list[tuple[str, str, str]] = []
+        # _links: equality links, follower -> target, stored under whatever
+        # names self.params uses (aliases on the set_models path, canonical
+        # names on the raw set_model path).
+        self._links: dict[str, str] = {}
+        # Alias layer (set_models path only): alias -> canonical name. Shared
+        # parameters additionally map one alias to several canonical names.
+        self._alias_to_canonical: dict[str, str] = {}
+        self._canonical_to_alias: dict[str, str] = {}
+        self._shared_to_canonicals: dict[str, list[str]] = {}
+        # Aliases suppressed from the user-facing params dict (shared= entries).
+        self._suppressed_aliases: set[str] = set()
 
     @property
     def _structure_factor_name(self) -> Optional[str]:
@@ -93,13 +164,21 @@ class ParameterManager:
     def _backed_up_pd_state(self, value: Optional[dict[str, Any]]) -> None:
         self._pd_manager.backup_state = value
 
-    def initialize_from_kernel(self, kernel: Any, model_name: str) -> None:
+    def initialize_from_kernel(
+        self,
+        kernel: Any,
+        model_name: str,
+        components: Optional[list[tuple[str, str, str]]] = None,
+    ) -> None:
         """
         Initialize parameters from a SasModels kernel.
 
         Args:
             kernel: SasModels kernel object
             model_name: Name of the model
+            components: Optional ordered ``(prefix, moniker, part_model_name)``
+                triples for composite models. Defaults to deriving components
+                from the kernel's composition tree (empty for atomic models).
 
         Raises:
             ValueError: If kernel is invalid
@@ -111,13 +190,17 @@ class ParameterManager:
         self.clear()
 
         self.model_name = model_name
+        if components is None:
+            components = derive_mixture_components(kernel)
+        self._components = [tuple(entry) for entry in components]
 
         # Extract parameters from kernel
         for param in kernel.info.parameters.kernel_parameters:
+            lo, hi = default_parameter_bounds(param.default, param.limits)
             self.params[param.name] = {
                 'value': param.default,
-                'min': param.limits[0] if param.limits[0] > -np.inf else 0,
-                'max': param.limits[1] if param.limits[1] < np.inf else param.default * 10,
+                'min': lo,
+                'max': hi,
                 'vary': False,  # By default, parameters are fixed
                 'description': param.description,
             }
@@ -165,10 +248,74 @@ class ParameterManager:
         """
         return {name: info['value'] for name, info in self.params.items()}
 
+    def get_canonical_param_values(self) -> dict[str, float]:
+        """Get current parameter values keyed by canonical sasmodels names.
+
+        Shared parameters expand to every canonical name they drive. Used by
+        post-fit evaluation (component curves) that speaks sasmodels names.
+        """
+        values: dict[str, float] = {}
+        for name, info in self.params.items():
+            canonicals = self._shared_to_canonicals.get(name)
+            if canonicals:
+                for canonical in canonicals:
+                    values[canonical] = info['value']
+            else:
+                values[self._resolve_canonical(name)] = info['value']
+        return values
+
     def snapshot_fit_state(self) -> ParameterStateSnapshot:
-        """Capture a stable snapshot of parameter state for fitting engines."""
+        """Capture a stable snapshot of parameter state for fitting engines.
+
+        The snapshot carries **canonical sasmodels names only**: alias-keyed
+        entries are emitted under their canonical names, shared parameters
+        expand to their first canonical name as the link target plus equality
+        links from the remaining canonical names, and ``_links`` (stored under
+        user-facing names) is translated to canonical names here — the one and
+        only translation site for links.
+        """
+        canonical_params: dict[str, dict[str, Any]] = {}
+        linked_params: dict[str, str] = {}
+
+        for name, info in self.params.items():
+            canonicals = self._shared_to_canonicals.get(name)
+            if canonicals:
+                # Shared parameter: one user-facing entry drives several
+                # canonical parameters. Emit the first as the target and link
+                # the rest to it.
+                target = canonicals[0]
+                canonical_params[target] = dict(info)
+                for follower in canonicals[1:]:
+                    canonical_params[follower] = dict(info)
+                    canonical_params[follower]['vary'] = False
+                    linked_params[follower] = target
+            else:
+                canonical = self._alias_to_canonical.get(name, name)
+                canonical_params[canonical] = dict(info)
+
+        # Translate equality links (stored in user-facing names) to canonical.
+        for follower, target in self._links.items():
+            follower_canonicals = self._shared_to_canonicals.get(follower, [follower])
+            target_canonicals = self._shared_to_canonicals.get(target, [target])
+            for follower_canonical in follower_canonicals:
+                follower_canonical = self._alias_to_canonical.get(
+                    follower_canonical, follower_canonical
+                )
+                target_canonical = self._alias_to_canonical.get(
+                    target_canonicals[0], target_canonicals[0]
+                )
+                linked_params[follower_canonical] = target_canonical
+                if follower_canonical in canonical_params:
+                    canonical_params[follower_canonical]['vary'] = False
+
+        varying = [
+            name
+            for name, info in canonical_params.items()
+            if info['vary'] and name not in linked_params
+        ]
+
         return ParameterStateSnapshot(
-            params={name: dict(info) for name, info in self.params.items()},
+            params=canonical_params,
             polydisperse_param_names=self._pd_manager.get_parameters(),
             polydisperse_params={
                 name: dict(info) for name, info in self._pd_manager.params.items()
@@ -176,19 +323,243 @@ class ParameterManager:
             pd_enabled=self._pd_manager.is_enabled(),
             radius_effective_mode=self._radius_effective_mode,
             structure_factor_name=self._structure_factor_name,
-            varying_params=self.get_varying_params(),
+            varying_params=varying,
             varying_pd_params=self.get_varying_pd_params(),
+            linked_params=linked_params,
+            components=tuple(self._components),
         )
 
     def apply_fitted_values(self, fitted_values: dict[str, float]) -> None:
-        """Apply fitted values back into regular and PD parameter state."""
+        """Apply fitted values back into regular and PD parameter state.
+
+        Engine results carry canonical names; they are translated back through
+        the reverse alias map before write-back so a fitted ``A_sld`` lands on
+        the user-facing ``sld`` entry.
+        """
         for name, value in fitted_values.items():
             if name in self.params:
                 self.set_param(name, value=value)
+            elif name in self._canonical_to_alias:
+                self.set_param(self._canonical_to_alias[name], value=value)
             elif name.endswith('_pd'):
                 base_param = name[:-3]
+                # PD state is keyed by canonical names end-to-end; no reverse
+                # translation is needed here.
                 if base_param in self._pd_manager.get_parameters():
                     self.set_pd_param(base_param, pd_width=value)
+
+        # Propagate each link target's fitted value onto its followers.
+        # Followers are excluded from the varying set, so engine results never
+        # contain a follower name — this post-loop propagation is the
+        # follower's *only* update path. Do not remove it as apparently dead.
+        for follower, target in self._links.items():
+            if target in self.params and follower in self.params:
+                self.params[follower]['value'] = self.params[target]['value']
+
+    def resolve_name(self, name: str) -> str:
+        """Resolve a user-facing parameter name to the key used in ``params``.
+
+        Resolution rule: try the alias map first, fall back to canonical names
+        (so ``A_sld`` always works), then raise ``KeyError`` listing the
+        user-facing (alias) names.
+        """
+        if name in self.params:
+            return name
+        if name in self._alias_to_canonical:
+            canonical = self._alias_to_canonical[name]
+            if canonical in self.params:
+                return canonical
+            # Alias of a suppressed (shared) prefixed entry: not in params.
+            return name
+        if name in self._canonical_to_alias:
+            return self._canonical_to_alias[name]
+        available = ', '.join(self.params.keys())
+        raise KeyError(f"Parameter '{name}' not found. Available: {available}")
+
+    def link_params(self, name: str, to: str) -> None:
+        """Create an equality link: *name* (follower) mirrors *to* (target).
+
+        The follower is forced to ``vary=False`` and always carries the
+        target's value — before, during, and after the fit.
+
+        Raises:
+            KeyError: If either name does not exist.
+            ValueError: On self-links, link chains, or conflicting links.
+        """
+        follower = self.resolve_name(name)
+        target = self.resolve_name(to)
+        for resolved, original in ((follower, name), (target, to)):
+            if resolved not in self.params:
+                available = ', '.join(self.params.keys())
+                raise KeyError(f"Parameter '{original}' not found. Available: {available}")
+        if follower == target:
+            raise ValueError(f"Cannot link parameter '{name}' to itself.")
+        if follower in self._links:
+            raise ValueError(
+                f"Parameter '{name}' is already linked to '{self._links[follower]}'."
+            )
+        if target in self._links:
+            raise ValueError(
+                f"Cannot link '{name}' to '{to}': '{to}' is itself a follower. "
+                'Link chains are not supported — link both followers directly '
+                'to the common target.'
+            )
+        if follower in self._links.values():
+            raise ValueError(
+                f"Cannot make '{name}' a follower: it is the target of another "
+                'link. Link chains are not supported — link both followers '
+                'directly to the common target.'
+            )
+        self._links[follower] = target
+        self.params[follower]['vary'] = False
+        self.params[follower]['value'] = self.params[target]['value']
+
+    def unlink_params(self, name: str) -> None:
+        """Remove an equality link, restoring the follower's independence.
+
+        Raises:
+            KeyError: If the name does not exist.
+            ValueError: If the parameter is not a follower.
+        """
+        follower = self.resolve_name(name)
+        if follower not in self._links:
+            raise ValueError(f"Parameter '{name}' is not linked to another parameter.")
+        del self._links[follower]
+
+    def get_links(self) -> dict[str, str]:
+        """Return the equality links (follower -> target) in user-facing names."""
+        return dict(self._links)
+
+    def get_components(self) -> list[tuple[str, str, str]]:
+        """Return composite components as (prefix, moniker, part_model_name) triples.
+
+        Empty for atomic models.
+        """
+        return [tuple(entry) for entry in self._components]
+
+    # =========================================================================
+    # Alias layer (set_models path) — see 46_COMPOSITE_MODELS.md §4.2b
+    # =========================================================================
+
+    def register_aliases(
+        self, components: list[tuple[str, str]], shared: 'list[str] | tuple[str, ...]'
+    ) -> None:
+        """Build the friendly-name alias layer over a loaded composite model.
+
+        Args:
+            components: Ordered ``(moniker, model_name)`` pairs as given to
+                ``set_models``. Monikers replace the prefix-derived monikers in
+                the component triples by position.
+            shared: Parameter names (unprefixed) that must exist in >= 2
+                components and are collapsed into a single unprefixed parameter.
+
+        Raises:
+            ValueError: If a shared name is present in fewer than 2 components,
+                or if the generated alias set has collisions.
+        """
+        # Update monikers in the kernel-derived triples by position.
+        for i, (moniker, _model_name) in enumerate(components):
+            if i < len(self._components):
+                prefix, _old_moniker, part_name = self._components[i]
+                self._components[i] = (prefix, moniker, part_name)
+
+        # Longest-prefix-first so nested combined prefixes (e.g. 'AB') win.
+        comps = sorted(self._components, key=lambda c: len(c[0]), reverse=True)
+
+        alias_to_canonical: dict[str, str] = {}
+        canonical_to_alias: dict[str, str] = {}
+        for canonical in self.params.keys():
+            matched = None
+            for prefix, moniker, _part_name in comps:
+                if prefix and canonical.startswith(prefix + '_'):
+                    matched = (prefix, moniker)
+                    break
+            if matched is None:
+                continue  # global parameter (scale/background) — no alias
+            prefix, moniker = matched
+            stripped = canonical[len(prefix) + 1 :]
+            alias = f'{moniker}_{stripped}'
+            if alias in alias_to_canonical and alias_to_canonical[alias] != canonical:
+                raise ValueError(
+                    f"Component monikers produce a colliding parameter name '{alias}' "
+                    f"(from both '{alias_to_canonical[alias]}' and '{canonical}'). "
+                    'Choose distinct monikers.'
+                )
+            alias_to_canonical[alias] = canonical
+
+        # Shared parameters: one-to-many, must exist in >= 2 components.
+        shared_to_canonicals: dict[str, list[str]] = {}
+        for shared_name in shared:
+            canonicals = []
+            for prefix, _moniker, _part_name in self._components:
+                candidate = f'{prefix}_{shared_name}' if prefix else shared_name
+                if candidate in self.params:
+                    canonicals.append(candidate)
+            if len(canonicals) < 2:
+                per_component = '; '.join(
+                    f'{moniker}: '
+                    + ', '.join(
+                        name[len(prefix) + 1 :]
+                        for name in self.params
+                        if prefix and name.startswith(prefix + '_')
+                    )
+                    for prefix, moniker, _part in self._components
+                )
+                raise ValueError(
+                    f"Shared parameter '{shared_name}' must exist in at least 2 "
+                    f'components (found in {len(canonicals)}). '
+                    f'Per-component parameters — {per_component}'
+                )
+            shared_to_canonicals[shared_name] = canonicals
+            # The shared canonical names reverse-map to the shared alias.
+            for canonical in canonicals:
+                canonical_to_alias[canonical] = shared_name
+
+        # Non-shared canonical names reverse-map to their prefixed alias.
+        for alias, canonical in alias_to_canonical.items():
+            if canonical not in canonical_to_alias:
+                canonical_to_alias[canonical] = alias
+
+        # Re-key the user-facing params dict to alias names.
+        new_params: dict[str, dict[str, Any]] = {}
+        suppressed: set[str] = set()
+        shared_canonical_set = {
+            canonical for canonicals in shared_to_canonicals.values() for canonical in canonicals
+        }
+        for canonical, info in self.params.items():
+            if canonical not in alias_to_canonical.values():
+                new_params[canonical] = info  # global scale/background
+                continue
+            if canonical in shared_canonical_set:
+                shared_name = canonical_to_alias[canonical]
+                if shared_to_canonicals[shared_name][0] == canonical:
+                    new_params[shared_name] = info
+                # Suppress the prefixed alias of a shared parameter.
+                prefixed_alias = next(
+                    a for a, c in alias_to_canonical.items() if c == canonical
+                )
+                suppressed.add(prefixed_alias)
+            else:
+                new_params[canonical_to_alias[canonical]] = info
+
+        self.params = new_params
+        self._alias_to_canonical = alias_to_canonical
+        self._canonical_to_alias = canonical_to_alias
+        self._shared_to_canonicals = shared_to_canonicals
+        self._suppressed_aliases = suppressed
+
+    def _resolve_canonical(self, name: str) -> str:
+        """Map an alias (or canonical) name to its canonical sasmodels name."""
+        return self._alias_to_canonical.get(name, name)
+
+    def to_display_name(self, canonical_name: str) -> str:
+        """Translate a canonical sasmodels name to its user-facing name.
+
+        Used for engine results, saved CSVs, and plot labels on the
+        ``set_models`` path. On the raw ``set_model`` path the alias map is
+        empty and names pass through unchanged.
+        """
+        return self._canonical_to_alias.get(canonical_name, canonical_name)
 
     def set_param(
         self,
@@ -202,7 +573,7 @@ class ParameterManager:
         Configure a model parameter.
 
         Args:
-            name: Parameter name
+            name: Parameter name (alias or canonical)
             value: Initial value (optional)
             min: Minimum bound (optional)
             max: Maximum bound (optional)
@@ -210,26 +581,41 @@ class ParameterManager:
 
         Raises:
             KeyError: If parameter name doesn't exist
+            ValueError: If the parameter is a link follower and value/vary is
+                written, or if vary=True is requested for a follower.
         """
-        if name not in self.params:
+        resolved = self.resolve_name(name)
+        if resolved not in self.params:
             available = ', '.join(self.params.keys())
             raise KeyError(f"Parameter '{name}' not found. Available: {available}")
 
+        if resolved in self._links:
+            target = self._links[resolved]
+            if value is not None or vary is True:
+                raise ValueError(
+                    f"Parameter '{name}' is linked to '{target}' and cannot be "
+                    'set directly. Configure the target, or unlink_params() first.'
+                )
+
         if value is not None:
-            self.params[name]['value'] = value
+            self.params[resolved]['value'] = value
             # Sync radius_effective when radius is updated in link_radius mode
             if (
-                name == 'radius'
+                resolved == 'radius'
                 and self._radius_effective_mode == 'link_radius'
                 and 'radius_effective' in self.params
             ):
                 self.params['radius_effective']['value'] = value
+            # Propagate to equality-link followers of this parameter.
+            for follower, link_target in self._links.items():
+                if link_target == resolved:
+                    self.params[follower]['value'] = value
         if min is not None:
-            self.params[name]['min'] = min
+            self.params[resolved]['min'] = min
         if max is not None:
-            self.params[name]['max'] = max
+            self.params[resolved]['max'] = max
         if vary is not None:
-            self.params[name]['vary'] = vary
+            self.params[resolved]['vary'] = vary
 
     def validate_param(self, name: str) -> bool:
         """
@@ -244,7 +630,12 @@ class ParameterManager:
         return name in self.params
 
     def display_params(self) -> None:
-        """Display current parameter values and settings in a readable format."""
+        """Display current parameter values and settings in a readable format.
+
+        For composite models the parameters are grouped: global parameters
+        first, then shared parameters (from ``shared=``), then one block per
+        component moniker.
+        """
         if not self.params:
             print('No parameters available.')
             return
@@ -255,19 +646,64 @@ class ParameterManager:
             print(f'Structure Factor: {self._structure_factor_name}')
             print(f'Radius Effective Mode: {self._radius_effective_mode}')
         print(f'{"=" * 80}')
-        print(f'{"Parameter":<20} {"Value":<12} {"Min":<12} {"Max":<12} {"Vary":<8}')
+
+        if not self._components:
+            self._print_param_table(self.params)
+            print(f'{"=" * 80}\n')
+            return
+
+        global_names = {'scale', 'background'}
+        shared_names = set(self._shared_to_canonicals.keys())
+
+        def entry_line(name: str, info: dict[str, Any]) -> str:
+            vary_str = '✓' if info['vary'] else '✗'
+            if name == 'radius_effective' and self._radius_effective_mode == 'link_radius':
+                vary_str = '→radius'
+            if name in self._links:
+                vary_str = f'→{self._links[name]}'
+            return (
+                f'{name:<28} {info["value"]:<12.4g} {info["min"]:<12.4g} '
+                f'{info["max"]:<12.4g} {vary_str:<8}'
+            )
+
+        header = f'{"Parameter":<28} {"Value":<12} {"Min":<12} {"Max":<12} {"Vary":<8}'
+        print(header)
         print(f'{"-" * 80}')
 
-        for name, info in self.params.items():
+        print('Global:')
+        for name in ('scale', 'background'):
+            if name in self.params:
+                print('  ' + entry_line(name, self.params[name]))
+        if shared_names:
+            print('Shared:')
+            for name in sorted(shared_names):
+                if name in self.params:
+                    print('  ' + entry_line(name, self.params[name]))
+        for prefix, moniker, part_name in self._components:
+            label = moniker if moniker == part_name else f'{moniker} ({part_name})'
+            print(f'{label}:')
+            for name, info in self.params.items():
+                if name in global_names or name in shared_names:
+                    continue
+                if name.startswith(f'{moniker}_') or name.startswith(f'{prefix}_'):
+                    print('  ' + entry_line(name, info))
+        print(f'{"=" * 80}\n')
+
+    def _print_param_table(self, params: dict[str, dict[str, Any]]) -> None:
+        """Print a flat parameter table (atomic models)."""
+        print(f'{"Parameter":<20} {"Value":<12} {"Min":<12} {"Max":<12} {"Vary":<8}')
+        print(f'{"-" * 80}')
+        for name, info in params.items():
             vary_str = '✓' if info['vary'] else '✗'
             # Show linked indicator for radius_effective in link_radius mode
             if name == 'radius_effective' and self._radius_effective_mode == 'link_radius':
                 vary_str = '→radius'
+            if name in self._links:
+                vary_str = f'→{self._links[name]}'
             print(
                 f'{name:<20} {info["value"]:<12.4g} {info["min"]:<12.4g} '
                 f'{info["max"]:<12.4g} {vary_str:<8}'
             )
-        print(f'{"=" * 80}\n')
 
     def backup_params(self) -> None:
         """Backup current parameters (used before applying structure factor)."""
@@ -429,6 +865,9 @@ class ParameterManager:
             KeyError: If base_param is not a polydisperse parameter
             ValueError: If pd_type is not a valid distribution type
         """
+        # Polydispersity state is keyed by canonical names end-to-end; resolve
+        # aliases (e.g. 'small_radius' -> 'A_radius') before delegating.
+        base_param = self._resolve_canonical(base_param)
         self._pd_manager.set_param(
             base_param,
             pd_width=pd_width,
@@ -452,6 +891,7 @@ class ParameterManager:
         Raises:
             KeyError: If base_param is not a polydisperse parameter
         """
+        base_param = self._resolve_canonical(base_param)
         return self._pd_manager.get_param(base_param)
 
     def toggle_pd_visibility(self, enabled: bool) -> None:
@@ -503,8 +943,36 @@ class ParameterManager:
         return self._pd_manager.get_varying_params()
 
     def display_pd_params(self) -> None:
-        """Display polydispersity parameter values and settings."""
-        self._pd_manager.display()
+        """Display polydispersity parameter values and settings.
+
+        On the ``set_models`` path the canonical prefixed names are translated
+        to their user-facing aliases for display.
+        """
+        if not self._canonical_to_alias:
+            self._pd_manager.display()
+            return
+
+        if not self._pd_manager.param_names:
+            print('No polydisperse parameters available for this model.')
+            return
+
+        status = 'ENABLED' if self._pd_manager.enabled else 'DISABLED'
+        print(f'\n{"=" * 90}')
+        print(f'Polydispersity Status: {status}')
+        print(f'{"=" * 90}')
+        print(
+            f'{"Parameter":<20} {"Width":<10} {"N Points":<10} {"N Sigma":<10} {"Type":<12} {"Vary":<8}'
+        )
+        print(f'{"-" * 90}')
+        for param_name in self._pd_manager.param_names:
+            pd_config = self._pd_manager.params[param_name]
+            display_name = self._canonical_to_alias.get(param_name, param_name)
+            vary_str = '✓' if pd_config.get('vary', False) else '✗'
+            print(
+                f'{display_name:<20} {pd_config["pd"]:<10.4g} {pd_config["pd_n"]:<10} '
+                f'{pd_config["pd_nsigma"]:<10.4g} {pd_config["pd_type"]:<12} {vary_str:<8}'
+            )
+        print(f'{"=" * 90}\n')
 
     def backup_pd_state(self) -> None:
         """Backup current polydispersity state (used before applying structure factor)."""
@@ -528,6 +996,14 @@ class ParameterManager:
         self.params = {}
         self.model_name = None
         self._sf_manager.clear()
+
+        # Reset composite-model state
+        self._components = []
+        self._links = {}
+        self._alias_to_canonical = {}
+        self._canonical_to_alias = {}
+        self._shared_to_canonicals = {}
+        self._suppressed_aliases = set()
 
         # Reset polydispersity state
         self._pd_manager.clear()

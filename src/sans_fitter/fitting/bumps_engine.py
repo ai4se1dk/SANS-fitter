@@ -83,6 +83,14 @@ def _build_bumps_problem(
 
     link_radius_effective_model(model, fit_state.radius_effective_mode)
 
+    # Generic equality links (composite models / shared= / link_params):
+    # alias the follower's bumps parameter object to the target's, the exact
+    # mechanism the radius link uses. Followers are never in the varying set,
+    # so they don't appear in problem.labels(); their post-fit value comes
+    # from apply_fitted_values propagation, not from the engine.
+    for follower, target in fit_state.linked_params.items():
+        setattr(model, follower, getattr(model, target))
+
     experiment = Experiment(data=data, model=model)
     problem = FitProblem(experiment)
     return problem, experiment

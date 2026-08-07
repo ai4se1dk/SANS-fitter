@@ -138,6 +138,58 @@ fitter.remove_structure_factor()
 - **Radius handling:** use `radius_effective_mode='link_radius'` to keep `radius_effective` equal to the form-factor `radius`, or leave the default `unconstrained` to fit it independently.
 - **State helpers:** `get_structure_factor()` returns the active structure factor so notebooks/scripts can branch as needed.
 
+## Combining Models
+
+Describe a dataset with several models at once — for example a low-Q diffuse
+feature plus a high-Q peak — fitted simultaneously against one dataset:
+
+```python
+fitter = SANSFitter()
+fitter.load_data('data.csv')
+
+# Combine models; parameters get friendly per-model prefixes
+fitter.set_models('dab', 'peak_lorentz')
+fitter.set_param('dab_cor_length', value=50, min=1, max=500, vary=True)
+fitter.set_param('peak_lorentz_peak_pos', value=0.1, min=0.01, max=0.5, vary=True)
+fitter.set_param('background', value=0.001, min=0, max=0.1, vary=True)
+
+result = fitter.fit(engine='bumps')
+
+# See which feature each model accounts for
+fitter.plot_results(show_components=True)
+```
+
+The combined intensity is
+
+$I(q) = \text{scale} \cdot \sum_i \text{scale}_i \cdot I_i(q) + \text{background}$
+
+so the global `scale` and `background` are shared by all components natively,
+while each component has its own `<model>_scale`.
+
+**Custom names (monikers)** — for long model names, duplicates, or physics labels:
+
+```python
+fitter.set_models(small='sphere', large='sphere', shared=['sld', 'sld_solvent'])
+fitter.set_param('small_radius', value=20, vary=True)
+fitter.set_param('large_radius', value=200, vary=True)
+```
+
+**Sharing parameters** — any name in `shared=[...]` that exists in ≥ 2
+components becomes a single unprefixed parameter driving all of them
+(`sld` above). Polydispersity configuration stays per-component under the
+prefixed names.
+
+**Component curves** — after fitting a `'+'` mixture, `plot_results(show_components=True)`
+overlays one dashed curve per component, each drawn as
+`scale · part_scale · I_part(q)` (background shown implicitly in the total).
+
+> **Advanced:** the raw sasmodels expression syntax is also available and keeps
+> sasmodels' native `A_`/`B_` names: `fitter.set_model('dab+peak_lorentz')`.
+> For after-the-fact or asymmetric sharing, use equality links:
+> `fitter.link_params('large_sld', to='small_sld')` and
+> `fitter.unlink_params('large_sld')`. Composite models and parameter links
+> currently require the `bumps` engine.
+
 ## Bayesian Analysis
 
 Sample the full posterior distribution of the varying parameters with the

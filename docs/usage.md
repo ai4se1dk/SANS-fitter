@@ -210,6 +210,106 @@ When using a structure factor, you often need to define an effective radius. You
 fitter.set_structure_factor('hardsphere', radius_effective_mode='link_radius')
 ```
 
+### Combining Models (Composite Models)
+
+Datasets with several distinct features — for example a low-Q diffuse
+scattering contribution plus a high-Q correlation peak — are often best
+described by *several models fitted simultaneously* against the same data.
+`set_models()` combines any sasmodels models into one fit:
+
+```python
+fitter = SANSFitter()
+fitter.load_data('data.csv')
+
+fitter.set_models('dab', 'peak_lorentz')
+fitter.set_param('dab_cor_length', value=50, min=1, max=500, vary=True)
+fitter.set_param('dab_scale', value=10, min=0.1, max=100, vary=True)
+fitter.set_param('peak_lorentz_peak_pos', value=0.1, min=0.01, max=0.5, vary=True)
+fitter.set_param('peak_lorentz_peak_hwhm', value=0.01, min=0.001, max=0.1, vary=True)
+fitter.set_param('background', value=0.001, min=0, max=0.1, vary=True)
+
+result = fitter.fit(engine='bumps')
+fitter.plot_results(show_components=True)
+```
+
+**How the combination works.** With the default `operation='+'` the combined
+intensity is
+
+    I(q) = scale · [dab_scale·I_dab(q) + peak_lorentz_scale·I_peak(q)] + background
+
+The global `scale` and `background` are shared by every component natively
+(sasmodels' mixture semantics), while each component carries its own
+`<name>_scale`. Varying the global `scale` together with a component scale is
+degenerate — only their product is fitted — so `fit()` warns when both are
+free. With `operation='*'` the part intensities multiply instead.
+
+**Friendly parameter names.** Every component parameter is prefixed with the
+model name (`dab_cor_length`, `peak_lorentz_peak_pos`). Give components custom
+names (monikers) with keyword arguments — useful for long model names,
+duplicates, or physics labels:
+
+```python
+fitter.set_models(small='sphere', large='sphere', shared=['sld', 'sld_solvent'])
+fitter.set_param('small_radius', value=20, min=5, max=100, vary=True)
+fitter.set_param('large_radius', value=200, min=50, max=1000, vary=True)
+fitter.set_param('sld', value=4.0, vary=True)   # one knob drives both spheres
+```
+
+**Sharing parameters.** Each name in `shared=[...]` must exist in at least
+two components; it becomes a single unprefixed parameter driving all of them
+(the per-component versions disappear from the parameter list). This is the
+one-line answer to "share SLD across models". Note that polydispersity
+configuration stays per-component: after `shared=['radius']`,
+`set_pd_param('small_radius', ...)` and `set_pd_param('large_radius', ...)`
+still configure the two components independently.
+
+**Structure factors on one part.** A component entry may itself contain `@`,
+applying a structure factor to that part only:
+
+```python
+fitter.set_models('sphere@hardsphere', 'peak_lorentz')
+```
+
+(`@` binds tighter than `+`, so this is `(sphere@hardsphere) + peak_lorentz`.)
+Applying `set_structure_factor()` to an already-composite model raises an
+error — sasmodels cannot express `(A+B)@S`.
+
+**Component curves.** After fitting a `'+'` mixture,
+`plot_results(show_components=True)` overlays one dashed curve per component,
+each drawn as `scale · part_scale · I_part(q)` (background excluded, shown
+implicitly in the total curve). For `'*'` mixtures and atomic models the flag
+is a documented no-op.
+
+**Equality links.** For sharing that `shared=` cannot express — linking only
+some components, or parameters with different names — use explicit links:
+
+```python
+fitter.link_params('large_sld', to='small_sld')      # follower mirrors target
+fitter.link_params('shell_sld_core', to='small_sld') # different names work too
+fitter.unlink_params('large_sld')                    # escape hatch
+```
+
+A follower is forced `vary=False` and mirrors the target's value before,
+during, and after the fit; writing it directly raises. Link chains are not
+supported.
+
+**Raw string syntax (advanced).** `set_model()` accepts sasmodels' native
+composite expressions directly and keeps the canonical `A_`/`B_` parameter
+names — zero magic when following sasmodels documentation:
+
+```python
+fitter.set_model('dab+peak_lorentz')   # A_scale, A_cor_length, B_scale, ...
+```
+
+Every atomic name in the expression is validated before loading, with a
+nearest-match suggestion for typos.
+
+**Engine support.** Composite models and parameter links currently work with
+the `bumps` engine only; `fit(engine='lmfit')` and `fit_bayesian()` raise
+`NotImplementedError` when either is active.
+
+See `examples/composite_model_example.py` for a complete runnable example.
+
 ## Polydispersity
 
 SANS Fitter supports polydispersity, which models size distributions in your samples. Many real samples have a distribution of particle sizes rather than a single monodisperse size.

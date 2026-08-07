@@ -125,6 +125,10 @@ class FitArtifacts:
     posterior: Optional[PosteriorSummary] = None
     posterior_data: Any = None
     posterior_model_eval: Any = None
+    # Per-component curves for '+' mixture models: label -> I(q) evaluated on
+    # the same fit_index points as fitted_curve. None for atomic models and
+    # '*' mixtures (where part curves would not stack to the total).
+    component_curves: Optional[dict[str, np.ndarray]] = None
 
 
 @dataclass(slots=True)
