@@ -134,6 +134,26 @@ class TestCompositeValidation(unittest.TestCase):
             self.fitter.set_structure_factor('hardsphere')
         self.assertIn('composite', str(ctx.exception))
 
+    def test_nested_expression_in_moniker_raises(self):
+        # A keyword value that is itself a composite expands to more kernel
+        # parts than user entries, so monikers cannot map 1:1. Must raise
+        # instead of silently mislabeling components (54_REVIEW issue 1).
+        with self.assertRaises(ValueError) as ctx:
+            self.fitter.set_models(diffuse='dab+peak_lorentz', particle='sphere')
+        message = str(ctx.exception)
+        self.assertIn('2 model entries expanded to 3 kernel components', message)
+        self.assertIn('Pass each component separately', message)
+
+    def test_plugin_path_reaches_load_model(self):
+        # Non-identifier specs (custom plugin-model paths) are load_model's
+        # business; pre-validation must not reject them as unknown model
+        # names (54_REVIEW issue 2).
+        with self.assertRaises(ValueError) as ctx:
+            self.fitter.set_model('C:/nonexistent/plugin_model.py')
+        message = str(ctx.exception)
+        self.assertNotIn('Unknown model', message)
+        self.assertIn('Failed to load model', message)
+
 
 class TestBoundsPolicy(unittest.TestCase):
     """Test 3: the new sign-permissive bounds fallback."""

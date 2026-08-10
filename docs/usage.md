@@ -263,6 +263,14 @@ configuration stays per-component: after `shared=['radius']`,
 `set_pd_param('small_radius', ...)` and `set_pd_param('large_radius', ...)`
 still configure the two components independently.
 
+**One component per entry.** Each `set_models()` entry must be a single
+component (optionally with `@`, see below). An entry that is itself a
+composite expression — e.g. `set_models(diffuse='dab+peak_lorentz',
+particle='sphere')` — raises an error, because the two entries would expand
+to three kernel components and the monikers could not map 1:1. Pass each
+component separately, or use the raw string path
+(`set_model('dab+peak_lorentz+sphere')`) with canonical `A_`/`B_`/`C_` names.
+
 **Structure factors on one part.** A component entry may itself contain `@`,
 applying a structure factor to that part only:
 

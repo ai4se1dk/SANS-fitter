@@ -7,6 +7,7 @@ composite-model component metadata, the friendly-name alias layer, and generic
 parameter equality links.
 """
 
+import warnings
 from typing import Any, Optional
 
 import numpy as np
@@ -42,7 +43,13 @@ def derive_mixture_components(kernel: Any) -> list[tuple[str, str, str]]:
     parts = composition[1]
     try:
         kernel_names = [param.name for param in info.parameters.kernel_parameters]
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 - mock kernels may expose anything
+        warnings.warn(
+            f'Could not read kernel parameters of mixture model: {exc!r}. '
+            'Treating the model as atomic — component features (aliases, '
+            'monikers, component curves) are disabled.',
+            stacklevel=2,
+        )
         return []
 
     components: list[tuple[str, str, str]] = []
@@ -65,7 +72,13 @@ def derive_mixture_components(kernel: Any) -> list[tuple[str, str, str]]:
                 prefix = block[0].split('_')[0]
             part_name = getattr(part, 'name', '') or ''
             components.append((prefix, prefix, part_name))
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 - mock kernels may expose anything
+        warnings.warn(
+            f'Could not derive components of mixture model: {exc!r}. '
+            'Treating the model as atomic — component features (aliases, '
+            'monikers, component curves) are disabled.',
+            stacklevel=2,
+        )
         return []
     return components
 
@@ -452,17 +465,34 @@ class ParameterManager:
                 components and are collapsed into a single unprefixed parameter.
 
         Raises:
-            ValueError: If a shared name is present in fewer than 2 components,
-                or if the generated alias set has collisions.
+            ValueError: If a model entry expanded to more than one kernel
+                component (monikers could not map 1:1), if a shared name is
+                present in fewer than 2 components, or if the generated alias
+                set has collisions.
+
+        Note:
+            This method is atomic: all validation runs against local state, and
+            ``self.*`` is only mutated once every check has passed. On failure
+            the manager is left exactly as ``set_model`` configured it.
         """
-        # Update monikers in the kernel-derived triples by position.
-        for i, (moniker, _model_name) in enumerate(components):
-            if i < len(self._components):
-                prefix, _old_moniker, part_name = self._components[i]
-                self._components[i] = (prefix, moniker, part_name)
+        if len(components) != len(self._components):
+            raise ValueError(
+                f'{len(components)} model entries expanded to {len(self._components)} kernel '
+                'components (a nested mixture expression or mixture plugin). Pass each '
+                'component separately so monikers map 1:1.'
+            )
+
+        # Overlay the user's monikers onto the kernel-derived triples by
+        # position — into a local list; self._components is committed last.
+        new_components = [
+            (prefix, moniker, part_name)
+            for (prefix, _old_moniker, part_name), (moniker, _model_name) in zip(
+                self._components, components
+            )
+        ]
 
         # Longest-prefix-first so nested combined prefixes (e.g. 'AB') win.
-        comps = sorted(self._components, key=lambda c: len(c[0]), reverse=True)
+        comps = sorted(new_components, key=lambda c: len(c[0]), reverse=True)
 
         alias_to_canonical: dict[str, str] = {}
         canonical_to_alias: dict[str, str] = {}
@@ -489,7 +519,7 @@ class ParameterManager:
         shared_to_canonicals: dict[str, list[str]] = {}
         for shared_name in shared:
             canonicals = []
-            for prefix, _moniker, _part_name in self._components:
+            for prefix, _moniker, _part_name in new_components:
                 candidate = f'{prefix}_{shared_name}' if prefix else shared_name
                 if candidate in self.params:
                     canonicals.append(candidate)
@@ -501,7 +531,7 @@ class ParameterManager:
                         for name in self.params
                         if prefix and name.startswith(prefix + '_')
                     )
-                    for prefix, moniker, _part in self._components
+                    for prefix, moniker, _part in new_components
                 )
                 raise ValueError(
                     f"Shared parameter '{shared_name}' must exist in at least 2 "
@@ -538,6 +568,7 @@ class ParameterManager:
             else:
                 new_params[canonical_to_alias[canonical]] = info
 
+        self._components = new_components
         self.params = new_params
         self._alias_to_canonical = alias_to_canonical
         self._canonical_to_alias = canonical_to_alias
@@ -675,13 +706,17 @@ class ParameterManager:
             for name in sorted(shared_names):
                 if name in self.params:
                     print('  ' + entry_line(name, self.params[name]))
-        for prefix, moniker, part_name in self._components:
+        for _prefix, moniker, part_name in self._components:
             label = moniker if moniker == part_name else f'{moniker} ({part_name})'
             print(f'{label}:')
             for name, info in self.params.items():
                 if name in global_names or name in shared_names:
                     continue
-                if name.startswith(f'{moniker}_') or name.startswith(f'{prefix}_'):
+                # Moniker alone covers both paths: params are keyed by alias
+                # after register_aliases, and moniker == prefix on the raw
+                # set_model path. Also matching the prefix would misfile
+                # params when one component's moniker equals another's prefix.
+                if name.startswith(f'{moniker}_'):
                     print('  ' + entry_line(name, info))
         print(f'{"=" * 80}\n')
 

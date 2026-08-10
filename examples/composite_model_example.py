@@ -135,6 +135,10 @@ fitter3.link_params('large_sld', to='small_sld')
 print('\nActive links:', fitter3.get_links())
 
 fitter3.set_param('small_sld', value=4.0, min=0, max=8, vary=True)
+# Match the solvent SLD the data was simulated with (the sphere default is
+# 6.0); otherwise the fit compensates through small_sld and recovers ~3.6.
+fitter3.set_param('small_sld_solvent', value=6.4, vary=False)
+fitter3.set_param('large_sld_solvent', value=6.4, vary=False)
 fitter3.set_param('small_radius', value=15, min=5, max=100, vary=True)
 fitter3.set_param('large_radius', value=150, min=50, max=1000, vary=True)
 fitter3.set_param('scale', value=0.1, min=0.001, max=1, vary=True)

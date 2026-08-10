@@ -53,11 +53,15 @@ def get_all_models() -> list[str]:
 
 
 def _validate_model_expression(model_name: str) -> None:
-    """Validate every atomic model name in a (possibly composite) expression.
+    """Validate atomic model names in a (possibly composite) expression.
 
-    Splits on top-level ``+``/``*`` and on ``@`` (product parts), checking each
-    atomic name against ``sasmodels.core.list_models()``. Unknown names raise a
-    ``ValueError`` with a nearest-match suggestion.
+    Splits on top-level ``+``/``*`` and on ``@`` (product parts). Only parts
+    that look like plain model identifiers are checked against
+    ``sasmodels.core.list_models()``; unknown names raise a ``ValueError``
+    with a nearest-match suggestion. Anything else — custom plugin-model
+    paths, parenthesized or scaled expressions — is passed through for
+    ``sasmodels.core.load_model`` to accept or reject, since it is the
+    authority on those forms.
     """
     available = set(core.list_models())
     for part in re.split(r'[+*]', model_name):
@@ -68,6 +72,8 @@ def _validate_model_expression(model_name: str) -> None:
             atomic = atomic.strip()
             if not atomic:
                 raise ValueError(f"Invalid model expression '{model_name}': empty component.")
+            if not re.fullmatch(r'[A-Za-z_]\w*', atomic):
+                continue  # custom path or expression form — load_model decides
             if atomic not in available:
                 suggestions = difflib.get_close_matches(atomic, available, n=1)
                 hint = f" Did you mean '{suggestions[0]}'?" if suggestions else ''
@@ -340,7 +346,11 @@ class SANSFitter:
         Raises:
             ValueError: If fewer than 2 models are given, the operation is
                 invalid, a moniker is invalid, a shared name is missing from
-                enough components, or the generated alias names collide.
+                enough components, the generated alias names collide, or an
+                entry expands to more than one kernel component (e.g. a
+                nested ``'+'``/``'*'`` expression) — each entry must be a
+                single component so monikers map 1:1; use the raw
+                ``set_model('a+b')`` string path for nested expressions.
         """
         if operation not in ('+', '*'):
             raise ValueError(f"Invalid operation '{operation}'. Use '+' or '*'.")
@@ -794,7 +804,6 @@ class SANSFitter:
 
         canonical_values = self._param_manager.get_canonical_param_values()
         global_scale = canonical_values.get('scale', 1.0)
-        canonical_values.get('background', 0.0)
 
         # Active polydispersity settings, keyed by canonical base names.
         pd_settings: dict[str, dict[str, Any]] = {}
@@ -945,6 +954,10 @@ class SANSFitter:
         """
         varying = self._param_manager.get_varying_params()
         if 'scale' not in varying:
+            return
+        # Atomic models can expose their own *_scale parameters (broad_peak,
+        # gel_fit, ...) that are not mixture component scales.
+        if not self._param_manager.get_components():
             return
         component_scales = [name for name in varying if name.endswith('_scale') and name != 'scale']
         if component_scales:
