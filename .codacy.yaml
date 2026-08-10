@@ -1,0 +1,9 @@
+---
+# Bandit's B101 ("use of assert detected") flags every pytest assertion as a
+# high-severity security issue. Bare asserts are the idiomatic pytest mechanism
+# and are never stripped in test runs, so keep Bandit off the test suite while
+# leaving all other tools scanning it.
+engines:
+  bandit:
+    exclude_paths:
+      - 'tests/**'
