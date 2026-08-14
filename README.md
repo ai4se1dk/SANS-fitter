@@ -19,6 +19,7 @@ A flexible, model-agnostic Python template for fitting Small-Angle Neutron Scatt
 - **User-Friendly Parameter Management**: Easy-to-use interface for setting parameter values, bounds, and fitting flags
 - **Interactive Visualization**: Automatic plotting of data, fitted model, and residuals with Plotly
 - **Bayesian Analysis**: Posterior sampling with BUMPS DREAM (MCMC) plus corner, marginal, predictive-band, correlation, and trace plots
+- **P(r) Inversion**: Model-free pair distance distribution analysis (indirect Fourier transform) via `pr_inversion` — D_max exploration, automatic regularization/term selection, and Rg/I(0)/positivity diagnostics
 - **Result Export**: Save fitted parameters and curves to CSV files
 
 ## Installation
@@ -185,6 +186,7 @@ See the [User Guide](https://ai4se1dk.github.io/SANS-fitter/usage/) for details.
 
 - [notebooks/sans_fitter_demo.ipynb](notebooks/sans_fitter_demo.ipynb) — comprehensive demonstration of the fitting workflow with examples.
 - [notebooks/bayesian_sampling.ipynb](notebooks/bayesian_sampling.ipynb) — Bayesian posterior sampling API (`fit_bayesian()`) and the associated posterior plots.
+- [notebooks/pr_inversion_demo.ipynb](notebooks/pr_inversion_demo.ipynb) — model-free P(r) inversion: D_max exploration, automatic inversion, and diagnostics.
 
 
 ## Design Philosophy

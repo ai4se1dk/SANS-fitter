@@ -64,6 +64,10 @@ class SANSFitter:
     - Supports multiple fitting engines (BUMPS, LMFit)
     - User-friendly parameter management
 
+    For model-free P(r) inversion (pair distance distribution analysis), see
+    :mod:`sans_fitter.pr_inversion` — it operates directly on datasets
+    (``fitter.data`` or ``data_ops`` results) and needs no model setup.
+
     Example:
         >>> fitter = SANSFitter()
         >>> fitter.load_data('my_sans_data.csv')

@@ -672,3 +672,245 @@ def plot_trace(
     if _resolve_show(show):
         fig.show()
     return fig
+
+
+# ---------------------------------------------------------------------------
+# P(r) inversion plots
+#
+# These functions are duck-typed on the PrResult / DmaxScan attributes and
+# must not import from pr_inversion (which imports this module for the
+# result-object plot wrappers).
+# ---------------------------------------------------------------------------
+
+PR_LINE_COLOR = 'rgb(99, 110, 250)'
+PR_BAND_FILL_COLOR = POSTERIOR_BAND_FILL_COLOR
+PR_FIT_CURVE_POINTS = 300
+DMAX_SCAN_QUANTITIES = {
+    'rg': ('rg', 'Rg (Å)'),
+    'i0': ('i0', 'I(0)'),
+    'data_chisq': ('data_chisq', 'Data χ²'),
+    'oscillations': ('oscillations', 'Oscillations'),
+    'positive_fraction': ('positive_fraction', 'Positive fraction'),
+    'sigma_positive_fraction': ('sigma_positive_fraction', '1σ positive fraction'),
+    'background': ('background', 'Background'),
+}
+
+
+def plot_pr_distribution(result, show: bool | None = None) -> go.Figure:
+    """Plot P(r) with its 1-sigma uncertainty band.
+
+    Args:
+        result: A PrResult (duck-typed: needs r, pr, pr_err, rg,
+            positive_fraction).
+        show: Same display convention as plot_results().
+    """
+    r = np.asarray(result.r)
+    pr = np.asarray(result.pr)
+    pr_err = np.asarray(result.pr_err)
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=np.concatenate([r, r[::-1]]),
+            y=np.concatenate([pr + pr_err, (pr - pr_err)[::-1]]),
+            fill='toself',
+            fillcolor=PR_BAND_FILL_COLOR,
+            line={'width': 0},
+            name='±1σ',
+            hoverinfo='skip',
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=r,
+            y=pr,
+            mode='lines',
+            name='P(r)',
+            line={'color': PR_LINE_COLOR, 'width': 2},
+        )
+    )
+    fig.add_hline(y=0, line_dash='dash', line_color='gray')
+    fig.update_layout(
+        title=(
+            f'P(r) — Rg = {result.rg:.4g} Å, positive fraction = {result.positive_fraction:.3f}'
+        ),
+        xaxis_title='r (Å)',
+        yaxis_title='P(r)',
+        template='plotly_white',
+        height=500,
+        width=800,
+    )
+
+    if _resolve_show(show):
+        fig.show()
+    return fig
+
+
+def plot_pr_fit(data, result, show: bool | None = None) -> go.Figure:
+    """Plot measured I(q) against the P(r) fit, with residuals below.
+
+    The theory curve is evaluated on a dense q grid via result.evaluate_iq;
+    the stored accepted-point vectors (q_fit/iq_fit/sigma_fit) provide
+    point-aligned residuals.
+
+    Args:
+        data: The dataset the inversion was run on.
+        result: A PrResult (duck-typed: needs accepted, q_fit, iq_fit,
+            sigma_fit, evaluate_iq).
+        show: Same display convention as plot_results().
+    """
+    accepted = np.asarray(result.accepted, dtype=bool)
+    if accepted.size != np.asarray(data.x).size:
+        raise ValueError(
+            f'Result accepted-mask length ({accepted.size}) does not match '
+            f'the data length ({np.asarray(data.x).size}).'
+        )
+    q = _subset(data.x, accepted)
+    y = _subset(data.y, accepted)
+    dy = _subset(data.dy, accepted)
+    excluded = ~accepted
+
+    q_dense = np.geomspace(q.min(), q.max(), PR_FIT_CURVE_POINTS)
+    i_dense = result.evaluate_iq(q_dense)
+    residuals = (y - np.asarray(result.iq_fit)) / np.asarray(result.sigma_fit)
+
+    fig = make_subplots(
+        rows=2,
+        cols=1,
+        row_heights=[0.75, 0.25],
+        shared_xaxes=True,
+        vertical_spacing=0.05,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=q,
+            y=y,
+            error_y=_error_bars(dy),
+            mode='markers',
+            name='Experimental Data',
+            opacity=0.6,
+            marker={'size': 6},
+        ),
+        row=1,
+        col=1,
+    )
+    if excluded.any():
+        fig.add_trace(
+            go.Scatter(
+                x=_subset(data.x, excluded),
+                y=_subset(data.y, excluded),
+                error_y=_error_bars(_subset(data.dy, excluded)),
+                mode='markers',
+                name='Excluded Data',
+                opacity=0.4,
+                marker={'size': 6, 'color': 'lightgray'},
+            ),
+            row=1,
+            col=1,
+        )
+    fig.add_trace(
+        go.Scatter(
+            x=q_dense,
+            y=i_dense,
+            mode='lines',
+            name='P(r) Fit',
+            line={'color': 'red', 'width': 2},
+        ),
+        row=1,
+        col=1,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=q,
+            y=residuals,
+            mode='markers',
+            name='Residuals',
+            marker={'size': 6},
+            opacity=0.6,
+            showlegend=False,
+        ),
+        row=2,
+        col=1,
+    )
+    fig.add_hline(y=0, line_dash='dash', line_color='gray', row=2, col=1)
+    fig.update_yaxes(title_text='I(Q)', type='log', row=1, col=1)
+    fig.update_yaxes(title_text='Residuals (σ)', row=2, col=1)
+    fig.update_xaxes(type='log', row=1, col=1)
+    fig.update_xaxes(title_text='Q (Å⁻¹)', type='log', row=2, col=1)
+    fig.update_layout(
+        title='P(r) inversion fit',
+        template='plotly_white',
+        height=600,
+        width=800,
+    )
+
+    if _resolve_show(show):
+        fig.show()
+    return fig
+
+
+def plot_dmax_scan(scan, quantity: str = 'rg', show: bool | None = None) -> go.Figure:
+    """Plot a D_max scan quantity (or 'all' as a small-multiples grid).
+
+    Args:
+        scan: A DmaxScan (duck-typed: needs d_max_values and the quantity
+            arrays named in DMAX_SCAN_QUANTITIES).
+        quantity: One of the DMAX_SCAN_QUANTITIES keys, or 'all'.
+        show: Same display convention as plot_results().
+    """
+    if quantity == 'all':
+        names = list(DMAX_SCAN_QUANTITIES)
+        n_cols = 2
+        n_rows = -(-len(names) // n_cols)
+        fig = make_subplots(
+            rows=n_rows,
+            cols=n_cols,
+            subplot_titles=[DMAX_SCAN_QUANTITIES[name][1] for name in names],
+        )
+        for position, name in enumerate(names):
+            attr, _ = DMAX_SCAN_QUANTITIES[name]
+            fig.add_trace(
+                go.Scatter(
+                    x=scan.d_max_values,
+                    y=getattr(scan, attr),
+                    mode='lines+markers',
+                    showlegend=False,
+                ),
+                row=position // n_cols + 1,
+                col=position % n_cols + 1,
+            )
+        for row in range(1, n_rows + 1):
+            fig.update_xaxes(title_text='D_max (Å)', row=row, col=1)
+            fig.update_xaxes(title_text='D_max (Å)', row=row, col=2)
+        fig.update_layout(
+            title='D_max exploration',
+            template='plotly_white',
+            height=280 * n_rows,
+            width=900,
+        )
+    else:
+        if quantity not in DMAX_SCAN_QUANTITIES:
+            available = ', '.join([*DMAX_SCAN_QUANTITIES, 'all'])
+            raise ValueError(f"Unknown quantity '{quantity}'. Available: {available}")
+        attr, label = DMAX_SCAN_QUANTITIES[quantity]
+        fig = go.Figure()
+        fig.add_trace(
+            go.Scatter(
+                x=scan.d_max_values,
+                y=getattr(scan, attr),
+                mode='lines+markers',
+                name=label,
+            )
+        )
+        fig.update_layout(
+            title=f'D_max exploration — {label}',
+            xaxis_title='D_max (Å)',
+            yaxis_title=label,
+            template='plotly_white',
+            height=500,
+            width=800,
+        )
+
+    if _resolve_show(show):
+        fig.show()
+    return fig
