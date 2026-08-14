@@ -2,7 +2,7 @@
 Example: model-free P(r) inversion with sans_fitter.pr_inversion
 
 This script demonstrates how to:
-1. Simulate a protein-like sphere dataset (analytic form factor — P(r)
+1. Simulate a protein-like sphere dataset (analytic form factor P(r)
    inversion is model-free, so no model setup is involved anywhere)
 2. Load it with data_ops.load(), the standard SANS-fitter loading path
 3. Explore D_max before trusting any inversion
@@ -37,14 +37,13 @@ with open('simulated_protein.csv', 'w') as f:
 
 data = data_ops.load('simulated_protein.csv')
 
-# The data is simulated background-free, so we skip the fitted background —
-# the normal workflow for buffer-subtracted protein data.
+# The data is simulated background-free, so we skip the fitted background.
 FIT_BACKGROUND = False
 
 # ============================================================================
-# Part 2: explore D_max first — every P(r) result is conditional on it
+# Part 2: explore D_max first. Every P(r) result depends on it
 # ============================================================================
-# Start from a deliberately wrong guess to see the scan earn its keep: the
+# Start from a deliberately wrong guess to see the scan works: the
 # Rg/I(0) plateau and the chi-squared minimum locate the true D_max (= 2R).
 print('Scanning D_max around a deliberately wrong initial guess (100 Å)...')
 scan = pr_inversion.explore_dmax(

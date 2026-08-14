@@ -45,6 +45,10 @@ from .data_loader import _has_real_data, get_fit_index
 
 logger = logging.getLogger(__name__)
 
+# numpy.trapezoid arrived in NumPy 2.0 (where trapz was removed); the package
+# floor is numpy>=1.20, so pick whichever name exists.
+_trapezoid = np.trapezoid if hasattr(np, 'trapezoid') else np.trapz
+
 __all__ = [
     'invert',
     'auto_invert',
@@ -144,6 +148,16 @@ def _ortho_transformed(d_max: float, n: int, q: np.ndarray) -> np.ndarray:
     value = np.where(at_zero, 8.0 * d_max**2 * sign / n, value)
     value = np.where(at_pole & ~at_zero, 4.0 * d_max**2 / n, value)
     return value
+
+
+def _pr_curve_and_band(
+    coefficients: np.ndarray, coefficient_cov: np.ndarray, d_max: float, r: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """Evaluate P(r) and its 1-sigma band (full quadratic form) on a grid."""
+    phi = np.column_stack([_ortho(d_max, j + 1, r) for j in range(len(coefficients))])
+    pr = phi @ coefficients
+    variance = np.einsum('ij,jk,ik->i', phi, coefficient_cov, phi)
+    return pr, np.sqrt(np.maximum(variance, 0.0))
 
 
 # ---------------------------------------------------------------------------
@@ -398,6 +412,11 @@ class PrResult:
     q-points, the fit evaluated there, and the sigma actually used (needed
     for residuals when uncertainties were fabricated); smooth curves come
     from :meth:`evaluate_iq` on a dense grid.
+
+    ``regularization_penalty`` is ``alpha * ||L c||^2`` in the active
+    regularizer's own scaling: approximately ``alpha * integral(P''(r)^2 dr)``
+    for ``'corrected'``, SasView's native ``(D/N_r)^2`` row scaling for
+    ``'sasview'`` — the values are not comparable across modes.
     """
 
     d_max: float
@@ -448,10 +467,8 @@ class PrResult:
     def evaluate_pr_err(self, r: np.ndarray) -> np.ndarray:
         """Evaluate the P(r) uncertainty band via the full quadratic form."""
         r = np.asarray(r, dtype=float)
-        phi = np.column_stack([_ortho(self.d_max, j + 1, r) for j in range(len(self.coefficients))])
-        cov = self.coefficient_covariance
-        variance = np.einsum('ij,jk,ik->i', phi, cov, phi)
-        return np.sqrt(np.maximum(variance, 0.0))
+        _, band = _pr_curve_and_band(self.coefficients, self.coefficient_covariance, self.d_max, r)
+        return band
 
     def evaluate_iq(self, q: np.ndarray) -> np.ndarray:
         """Evaluate the fitted I(q) (including the background) on an arbitrary q grid."""
@@ -566,11 +583,11 @@ def _derived_outputs(
     (with a warning) when the P(r) integral is non-positive; the oscillation
     and positive-fraction metrics are 0 for P identically zero.
     """
-    integral_p = float(np.trapezoid(pr, r))
+    integral_p = float(_trapezoid(pr, r))
     i0 = 4.0 * np.pi * integral_p
 
     if integral_p > 0:
-        integral_r2p = float(np.trapezoid(r**2 * pr, r))
+        integral_r2p = float(_trapezoid(r**2 * pr, r))
         rg = math.sqrt(integral_r2p / (2.0 * integral_p)) if integral_r2p > 0 else float('nan')
     else:
         rg = float('nan')
@@ -579,12 +596,12 @@ def _derived_outputs(
             stacklevel=4,
         )
 
-    pr_square = float(np.trapezoid(pr**2, r))
+    pr_square = float(_trapezoid(pr**2, r))
     if pr_square > 0:
         pr_prime = np.zeros_like(r)
         for j, c in enumerate(coefficients):
             pr_prime += c * _ortho_derived(d_max, j + 1, r)
-        prime_square = float(np.trapezoid(pr_prime**2, r))
+        prime_square = float(_trapezoid(pr_prime**2, r))
         oscillations = (d_max / np.pi) * math.sqrt(prime_square / pr_square)
     else:
         oscillations = 0.0
@@ -625,15 +642,32 @@ def _count_peaks(values: np.ndarray) -> int:
 # ---------------------------------------------------------------------------
 
 
+def _require_integer(name: str, value: Any) -> None:
+    """Reject booleans and non-integers before they reach range()/linspace()."""
+    if isinstance(value, bool) or not isinstance(value, (int, np.integer)):
+        raise ValueError(f'{name} must be an integer, got {value!r}.')
+
+
 def _validate_invert_args(
-    d_max: float, n_terms: int, alpha: float, r_points: int, regularizer: str
+    d_max: float,
+    n_terms: int,
+    alpha: float,
+    r_points: int,
+    regularizer: str,
+    background: float = 0.0,
 ) -> None:
-    if not d_max > 0:
-        raise ValueError(f'd_max must be positive, got {d_max}.')
+    """Reject invalid scalar arguments (non-finite, non-integer, out of range)
+    before any numerical work begins."""
+    _require_integer('n_terms', n_terms)
+    _require_integer('r_points', r_points)
+    if not (np.isfinite(d_max) and d_max > 0):
+        raise ValueError(f'd_max must be positive and finite, got {d_max}.')
+    if not (np.isfinite(alpha) and alpha >= 0):
+        raise ValueError(f'alpha must be non-negative and finite, got {alpha}.')
+    if not np.isfinite(background):
+        raise ValueError(f'background must be finite, got {background}.')
     if n_terms < 1:
         raise ValueError(f'n_terms must be at least 1, got {n_terms}.')
-    if alpha < 0:
-        raise ValueError(f'alpha must be non-negative, got {alpha}.')
     if r_points < 2:
         raise ValueError(f'r_points must be at least 2, got {r_points}.')
     if regularizer not in REGULARIZERS:
@@ -663,8 +697,9 @@ def _invert_prepared(
     q_max = float(prep.q.max())
     if d_max > np.pi / q_min:
         warnings.warn(
-            f'd_max = {d_max:g} exceeds the Shannon limit pi/q_min = {np.pi / q_min:g}; '
-            'the data cannot resolve distances that large.',
+            f'd_max = {d_max:g} exceeds pi/q_min = {np.pi / q_min:g}; distances '
+            'beyond pi/q_min are only weakly constrained by the lowest measured '
+            'q (low-q support heuristic, not a hard limit).',
             stacklevel=3,
         )
     # Same ceiling as _admissible_n_range, so the warning can never fire on an
@@ -695,11 +730,8 @@ def _invert_prepared(
         background_err = float('nan')
 
     r = np.linspace(0.0, d_max, r_points)
-    phi = np.column_stack([_ortho(d_max, j + 1, r) for j in range(n_terms)])
-    pr = phi @ coefficients
     coefficient_cov = solution.covariance[n_bg:, n_bg:]
-    variance = np.einsum('ij,jk,ik->i', phi, coefficient_cov, phi)
-    pr_err = np.sqrt(np.maximum(variance, 0.0))
+    pr, pr_err = _pr_curve_and_band(coefficients, coefficient_cov, d_max, r)
 
     rg, i0, oscillations, pos_frac, sigma_pos_frac = _derived_outputs(
         coefficients, d_max, r, pr, pr_err
@@ -791,7 +823,7 @@ def invert(
         ValueError: For invalid arguments or unusable datasets.
         InsufficientDataError: When too few usable points remain.
     """
-    _validate_invert_args(d_max, n_terms, alpha, r_points, regularizer)
+    _validate_invert_args(d_max, n_terms, alpha, r_points, regularizer, background)
     if alpha == 0.0:
         warnings.warn(
             'alpha = 0 gives an unregularized fit, which is usually noise-dominated; '
@@ -851,6 +883,7 @@ def _estimate_alpha_prepared(
     n_terms: int,
     fit_background: bool,
     regularizer: str,
+    background: float = 0.0,
 ) -> AlphaEstimate:
     """Alpha heuristic on prepared data (shared by the public estimators).
 
@@ -880,7 +913,7 @@ def _estimate_alpha_prepared(
                 n_terms,
                 alpha_step,
                 fit_background,
-                0.0,
+                background,
                 DEFAULT_R_POINTS,
                 regularizer,
             )
@@ -920,6 +953,7 @@ def estimate_alpha(
     n_terms: int,
     fit_background: bool = True,
     regularizer: str = 'corrected',
+    background: float = 0.0,
 ) -> AlphaEstimate:
     """Estimate the regularization constant alpha for a given number of terms.
 
@@ -930,13 +964,19 @@ def estimate_alpha(
     the largest alpha satisfying the discrepancy principle (data chi-squared
     down to the number of points).
 
+    ``background`` is the fixed level subtracted when ``fit_background`` is
+    False (ignored otherwise) — pass the same value you will pass to
+    :func:`invert`, so the estimate is made on the problem actually solved.
+    The heuristic evaluates candidates on the default 101-point r grid
+    regardless of the ``r_points`` used for the final inversion.
+
     Raises:
         PrEstimationError: When no alpha in the scan yields a solvable
             inversion.
     """
-    _validate_invert_args(d_max, n_terms, 0.0, DEFAULT_R_POINTS, regularizer)
+    _validate_invert_args(d_max, n_terms, 0.0, DEFAULT_R_POINTS, regularizer, background)
     prep = _prepare_data(data)
-    return _estimate_alpha_prepared(prep, d_max, n_terms, fit_background, regularizer)
+    return _estimate_alpha_prepared(prep, d_max, n_terms, fit_background, regularizer, background)
 
 
 def _admissible_n_range(prep: _PreparedData, d_max: float, fit_background: bool) -> tuple[int, int]:
@@ -956,25 +996,14 @@ def _admissible_n_range(prep: _PreparedData, d_max: float, fit_background: bool)
     return n_min, n_max
 
 
-def estimate_n_terms(
-    data: Any,
+def _estimate_n_terms_prepared(
+    prep: _PreparedData,
     d_max: float,
-    fit_background: bool = True,
-    regularizer: str = 'corrected',
+    fit_background: bool,
+    regularizer: str,
+    background: float = 0.0,
 ) -> NTermsEstimate:
-    """Estimate the number of basis terms (and the matching alpha).
-
-    Scans admissible N, preferring the group whose P(r) is significantly
-    positive (1-sigma positive fraction >= 0.9, with 0.8 and 0.7 fallback
-    buckets) and picking the member with the most typical oscillation level.
-    The scan stops early once P(r) becomes wildly oscillatory.
-
-    Raises:
-        InsufficientDataError: When no N is admissible for the dataset.
-        PrEstimationError: When the scan has no acceptable candidate.
-    """
-    _validate_invert_args(d_max, 1, 0.0, DEFAULT_R_POINTS, regularizer)
-    prep = _prepare_data(data)
+    """N-terms heuristic on prepared data (shared by the public entry points)."""
     n_min, n_max = _admissible_n_range(prep, d_max, fit_background)
 
     # candidate tuples: (n, alpha, oscillations, pos_1sigma, data_chisq)
@@ -982,14 +1011,16 @@ def estimate_n_terms(
     failures: list[str] = []
     for n in range(n_min, n_max + 1):
         try:
-            alpha_est = _estimate_alpha_prepared(prep, d_max, n, fit_background, regularizer)
+            alpha_est = _estimate_alpha_prepared(
+                prep, d_max, n, fit_background, regularizer, background
+            )
             result = _invert_prepared(
                 prep,
                 d_max,
                 n,
                 alpha_est.alpha,
                 fit_background,
-                0.0,
+                background,
                 DEFAULT_R_POINTS,
                 regularizer,
             )
@@ -1053,6 +1084,35 @@ def estimate_n_terms(
     )
 
 
+def estimate_n_terms(
+    data: Any,
+    d_max: float,
+    fit_background: bool = True,
+    regularizer: str = 'corrected',
+    background: float = 0.0,
+) -> NTermsEstimate:
+    """Estimate the number of basis terms (and the matching alpha).
+
+    Scans admissible N, preferring the smallest N that fits the data with a
+    significantly positive P(r) (1-sigma positive fraction >= 0.9, with 0.8
+    and 0.7 fallback buckets). The scan stops early once P(r) becomes wildly
+    oscillatory.
+
+    ``background`` is the fixed level subtracted when ``fit_background`` is
+    False (ignored otherwise) — pass the same value you will pass to
+    :func:`invert`, so the selection is made on the problem actually solved.
+    The heuristic evaluates candidates on the default 101-point r grid
+    regardless of the ``r_points`` used for the final inversion.
+
+    Raises:
+        InsufficientDataError: When no N is admissible for the dataset.
+        PrEstimationError: When the scan has no acceptable candidate.
+    """
+    _validate_invert_args(d_max, 1, 0.0, DEFAULT_R_POINTS, regularizer, background)
+    prep = _prepare_data(data)
+    return _estimate_n_terms_prepared(prep, d_max, fit_background, regularizer, background)
+
+
 def auto_invert(
     data: Any,
     d_max: float,
@@ -1063,13 +1123,16 @@ def auto_invert(
 ) -> PrResult:
     """One-shot inversion with automatic selection of n_terms and alpha.
 
-    Runs :func:`estimate_n_terms` and inverts with the estimate's
-    ``(n_terms, alpha)`` pair. The chosen values are recorded on the result
-    (``result.n_terms``, ``result.alpha``).
+    Runs the :func:`estimate_n_terms` scan and inverts with the estimate's
+    ``(n_terms, alpha)`` pair. The ``background`` (used when ``fit_background``
+    is False) is applied during the selection scan as well, so the parameters
+    are chosen on the same problem the final inversion solves. The chosen
+    values are recorded on the result (``result.n_terms``, ``result.alpha``).
     """
-    estimate = estimate_n_terms(data, d_max, fit_background=fit_background, regularizer=regularizer)
-    logger.debug('auto_invert: %s', estimate.message)
+    _validate_invert_args(d_max, 1, 0.0, r_points, regularizer, background)
     prep = _prepare_data(data)
+    estimate = _estimate_n_terms_prepared(prep, d_max, fit_background, regularizer, background)
+    logger.debug('auto_invert: %s', estimate.message)
     return _invert_prepared(
         prep,
         d_max,
@@ -1111,7 +1174,7 @@ class DmaxScan:
     def format_summary(self) -> str:
         """Return an ASCII table of the scanned quantities per D_max."""
         header = (
-            f'{"D_max":>10} {"chi2_data":>12} {"Rg":>10} {"I(0)":>12} '
+            f'{"D_max":>10} {"data_chisq":>12} {"Rg":>10} {"I(0)":>12} '
             f'{"Osc":>8} {"P+":>7} {"P+1s":>7} {"Bkg":>10}'
         )
         lines = [f'D_max scan ({self.n_terms} terms):', header, '-' * len(header)]
@@ -1148,6 +1211,7 @@ def explore_dmax(
     refit_alpha: bool = False,
     fit_background: bool = True,
     regularizer: str = 'corrected',
+    background: float = 0.0,
 ) -> DmaxScan:
     """Re-invert over a range of D_max values to locate a stable choice.
 
@@ -1158,30 +1222,50 @@ def explore_dmax(
     corrected operator's resolved quadrature). ``refit_alpha=True`` recomputes
     the alpha suggestion at each D_max instead.
 
+    ``background`` is the fixed level subtracted when ``fit_background`` is
+    False (ignored otherwise) — pass the same value you use with
+    :func:`invert`/:func:`auto_invert`, so the scan explores the same problem
+    the final inversion solves.
+
     Raises:
         ValueError: For an invalid scan range.
         InsufficientDataError / PrEstimationError: From the central estimation
-            when ``n_terms``/``alpha`` are not supplied.
+            when ``n_terms``/``alpha`` are not supplied, or when every scan
+            point fails.
     """
-    _validate_invert_args(d_max, n_terms or 1, alpha or 0.0, DEFAULT_R_POINTS, regularizer)
+    _validate_invert_args(
+        d_max, n_terms or 1, alpha or 0.0, DEFAULT_R_POINTS, regularizer, background
+    )
+    _require_integer('n_points', n_points)
     low = DMAX_SCAN_LOW_FACTOR * d_max if dmin is None else dmin
     high = DMAX_SCAN_HIGH_FACTOR * d_max if dmax is None else dmax
-    if not 0 < low < high:
+    if not (np.isfinite(low) and np.isfinite(high) and 0 < low < high):
         raise ValueError(f'Invalid D_max scan range: [{low}, {high}].')
     if n_points < 2:
         raise ValueError(f'n_points must be at least 2, got {n_points}.')
 
     prep = _prepare_data(data)
 
-    if n_terms is None:
-        estimate = estimate_n_terms(
-            data, d_max, fit_background=fit_background, regularizer=regularizer
+    # One scan-level advisory instead of a per-point repeat (the per-point
+    # copies are suppressed inside the loop below).
+    support = np.pi / float(prep.q.min())
+    if high > support:
+        warnings.warn(
+            f'Part of the D_max scan range ([{low:g}, {high:g}]) exceeds '
+            f'pi/q_min = {support:g}; distances beyond it are only weakly '
+            'constrained by the lowest measured q (low-q support heuristic).',
+            stacklevel=2,
         )
+
+    if n_terms is None:
+        estimate = _estimate_n_terms_prepared(prep, d_max, fit_background, regularizer, background)
         n_terms = estimate.n_terms
         if alpha is None:
             alpha = estimate.alpha
     elif alpha is None:
-        alpha = _estimate_alpha_prepared(prep, d_max, n_terms, fit_background, regularizer).alpha
+        alpha = _estimate_alpha_prepared(
+            prep, d_max, n_terms, fit_background, regularizer, background
+        ).alpha
 
     scan_values = np.linspace(low, high, n_points)
     collected: dict[str, list[float]] = {
@@ -1201,14 +1285,15 @@ def explore_dmax(
     failures: list[tuple[float, str]] = []
     for d in scan_values:
         try:
-            # The scan deliberately holds N fixed while D_max (and with it the
-            # Shannon channel count) varies, so the per-point channel warning
-            # is noise by construction here — suppress just that one.
+            # The scan deliberately varies D_max at fixed N, so both per-point
+            # support warnings (channel count and pi/q_min) are noise by
+            # construction here — the scan-level advisory above covers them.
             with warnings.catch_warnings():
                 warnings.filterwarnings('ignore', message='.*Shannon channels.*')
+                warnings.filterwarnings('ignore', message='.*pi/q_min.*')
                 alpha_d = (
                     _estimate_alpha_prepared(
-                        prep, float(d), n_terms, fit_background, regularizer
+                        prep, float(d), n_terms, fit_background, regularizer, background
                     ).alpha
                     if refit_alpha
                     else alpha
@@ -1219,7 +1304,7 @@ def explore_dmax(
                     n_terms,
                     alpha_d,
                     fit_background,
-                    0.0,
+                    background,
                     DEFAULT_R_POINTS,
                     regularizer,
                 )
@@ -1235,6 +1320,10 @@ def explore_dmax(
         collected['sigma_positive_fraction'].append(result.sigma_positive_fraction)
         collected['background'].append(result.background)
         collected['alpha'].append(alpha_d)
+
+    if not collected['d_max']:
+        details = '; '.join(f'D_max={d:g}: {message}' for d, message in failures)
+        raise PrEstimationError(f'Every D_max scan point failed: {details}')
 
     return DmaxScan(
         d_max_values=np.asarray(collected['d_max']),

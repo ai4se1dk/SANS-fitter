@@ -305,6 +305,15 @@ class TestSphereRoundTrip(unittest.TestCase):
         ).oscillations
         self.assertLessEqual(osc_smooth, osc_loose + 0.05)
 
+    def test_regularization_penalty_matches_integral(self):
+        """Corrected-mode penalty is a quadrature of alpha * integral(P''^2 dr)."""
+        r_fine = np.linspace(0.0, SPHERE_D_MAX, 4001)
+        pr_second = np.zeros_like(r_fine)
+        for j, c in enumerate(self.result.coefficients):
+            pr_second += c * pri._ortho_second_derivative(SPHERE_D_MAX, j + 1, r_fine)
+        expected = self.result.alpha * np.trapezoid(pr_second**2, r_fine)
+        self.assertAlmostEqual(self.result.regularization_penalty / expected, 1.0, delta=0.02)
+
 
 class TestCylinderRoundTrip(unittest.TestCase):
     """Elongated fixture: 20 x 400 A cylinder, q_min chosen so pi/q_min >= D_max."""
@@ -515,12 +524,21 @@ class TestDataPreparation(unittest.TestCase):
         for kwargs in (
             {'d_max': -1.0},
             {'d_max': 0.0},
+            {'d_max': np.inf},
+            {'d_max': np.nan},
             {'alpha': -0.5},
+            {'alpha': np.nan},
+            {'alpha': np.inf},
             {'n_terms': 0},
+            {'n_terms': 8.5},
+            {'n_terms': True},
             {'r_points': 1},
+            {'r_points': 101.5},
+            {'background': np.nan},
+            {'background': np.inf},
             {'regularizer': 'bogus'},
         ):
-            with self.assertRaises(ValueError):
+            with self.assertRaises(ValueError, msg=str(kwargs)):
                 quiet_invert(self.data, **{'d_max': SPHERE_D_MAX, **kwargs})
 
     def test_insufficient_points_for_terms(self):
@@ -538,7 +556,7 @@ class TestDataPreparation(unittest.TestCase):
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter('always')
             pri.invert(self.data, 1000.0, n_terms=8, alpha=1.0)
-        self.assertTrue(any('Shannon limit' in str(w.message) for w in caught))
+        self.assertTrue(any('pi/q_min' in str(w.message) for w in caught))
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter('always')
             pri.invert(self.data, SPHERE_D_MAX, n_terms=25, alpha=1.0)
@@ -630,6 +648,43 @@ class TestEstimators(unittest.TestCase):
         self.assertEqual(result.n_terms, estimate.n_terms)
         self.assertEqual(result.alpha, estimate.alpha)
 
+    def test_fixed_background_threads_through_selection(self):
+        """Selection with a fixed background equals selection on pre-subtracted
+        data — the estimators must see the same problem the final fit solves."""
+        background = 0.1
+        data = make_synthetic_data('sphere', SPHERE_PARS, SPHERE_Q, seed=5, background=background)
+        subtracted = normalize_sans_data(
+            Data1D(x=SPHERE_Q, y=np.asarray(data.y) - background, dy=np.asarray(data.dy))
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')
+            with_bkg = pri.estimate_n_terms(
+                data, SPHERE_D_MAX, fit_background=False, background=background
+            )
+            pre_sub = pri.estimate_n_terms(subtracted, SPHERE_D_MAX, fit_background=False)
+        self.assertEqual(with_bkg.n_terms, pre_sub.n_terms)
+        self.assertAlmostEqual(with_bkg.alpha, pre_sub.alpha)
+
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')
+            auto = pri.auto_invert(data, SPHERE_D_MAX, fit_background=False, background=background)
+        self.assertEqual(auto.n_terms, with_bkg.n_terms)
+        self.assertEqual(auto.alpha, with_bkg.alpha)
+
+    def test_estimate_alpha_accepts_background(self):
+        background = 0.1
+        data = make_synthetic_data('sphere', SPHERE_PARS, SPHERE_Q, seed=5, background=background)
+        subtracted = normalize_sans_data(
+            Data1D(x=SPHERE_Q, y=np.asarray(data.y) - background, dy=np.asarray(data.dy))
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')
+            with_bkg = pri.estimate_alpha(
+                data, SPHERE_D_MAX, n_terms=10, fit_background=False, background=background
+            )
+            pre_sub = pri.estimate_alpha(subtracted, SPHERE_D_MAX, n_terms=10, fit_background=False)
+        self.assertAlmostEqual(with_bkg.alpha, pre_sub.alpha)
+
 
 class TestExploreDmax(unittest.TestCase):
     """D_max scan: plateau location, failure alignment, alpha policies."""
@@ -697,6 +752,67 @@ class TestExploreDmax(unittest.TestCase):
         self.assertIn('injected failure', scan.failures[0][1])
         self.assertEqual(scan.d_max_values.size, 5)
         self.assertEqual(scan.rg.size, 5)
+
+    def test_all_failed_scan_raises(self):
+        """An entirely failed scan raises instead of returning empty arrays."""
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')
+            with patch.object(pri, '_invert_prepared', side_effect=ValueError('always broken')):
+                with self.assertRaises(pri.PrEstimationError) as ctx:
+                    pri.explore_dmax(
+                        self.data,
+                        SPHERE_D_MAX,
+                        n_terms=self.n_terms,
+                        alpha=self.alpha,
+                        n_points=4,
+                    )
+        self.assertIn('always broken', str(ctx.exception))
+
+    def test_background_threaded_through_scan(self):
+        """A scan with a fixed background equals a scan on pre-subtracted data."""
+        background = 0.1
+        data = make_synthetic_data('sphere', SPHERE_PARS, SPHERE_Q, seed=6, background=background)
+        subtracted = normalize_sans_data(
+            Data1D(x=SPHERE_Q, y=np.asarray(data.y) - background, dy=np.asarray(data.dy))
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')
+            with_bkg = pri.explore_dmax(
+                data,
+                SPHERE_D_MAX,
+                n_terms=self.n_terms,
+                alpha=self.alpha,
+                n_points=5,
+                fit_background=False,
+                background=background,
+            )
+            pre_sub = pri.explore_dmax(
+                subtracted,
+                SPHERE_D_MAX,
+                n_terms=self.n_terms,
+                alpha=self.alpha,
+                n_points=5,
+                fit_background=False,
+            )
+        np.testing.assert_allclose(with_bkg.rg, pre_sub.rg, rtol=1e-10)
+        np.testing.assert_allclose(with_bkg.data_chisq, pre_sub.data_chisq, rtol=1e-10)
+
+    def test_scan_emits_single_support_warning(self):
+        """A scan crossing pi/q_min warns once at scan level, not per point."""
+        support = np.pi / float(np.min(self.data.x))
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            pri.explore_dmax(
+                self.data,
+                0.9 * support,
+                n_terms=self.n_terms,
+                alpha=self.alpha,
+                dmin=0.8 * support,
+                dmax=1.2 * support,
+                n_points=6,
+            )
+        support_warnings = [w for w in caught if 'pi/q_min' in str(w.message)]
+        self.assertEqual(len(support_warnings), 1)
 
     def test_refit_alpha_comparable_plateau(self):
         with warnings.catch_warnings():

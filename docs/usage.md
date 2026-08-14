@@ -225,10 +225,15 @@ Explicit control is available through the individual functions:
 | Function | Result |
 |---|---|
 | `invert(data, d_max, n_terms=10, alpha=0.0, fit_background=True, background=0.0, r_points=101, regularizer='corrected')` | Core inversion → `PrResult` |
-| `estimate_n_terms(data, d_max)` | `NTermsEstimate(n_terms, alpha, message)`; its `alpha` is authoritative — use it directly |
-| `estimate_alpha(data, d_max, n_terms)` | `AlphaEstimate(alpha, message)` |
+| `estimate_n_terms(data, d_max, fit_background=True, ..., background=0.0)` | `NTermsEstimate(n_terms, alpha, message)`; its `alpha` is authoritative — use it directly |
+| `estimate_alpha(data, d_max, n_terms, fit_background=True, ..., background=0.0)` | `AlphaEstimate(alpha, message)` |
 | `auto_invert(data, d_max, ...)` | `estimate_n_terms` → `invert`, silent |
-| `explore_dmax(data, d_max, ..., refit_alpha=False)` | `DmaxScan` over 0.9–1.1×d_max (25 points) |
+| `explore_dmax(data, d_max, ..., refit_alpha=False, background=0.0)` | `DmaxScan` over 0.9–1.1×d_max (25 points); raises when every point fails |
+
+When working with a known fixed background (`fit_background=False`), pass the
+same `background` value to the estimators and `explore_dmax` too — the
+selection and the scan then operate on exactly the problem the final
+inversion solves (`auto_invert` does this automatically).
 
 Things to know:
 
