@@ -118,8 +118,6 @@ class ParameterManager:
         self._alias_to_canonical: dict[str, str] = {}
         self._canonical_to_alias: dict[str, str] = {}
         self._shared_to_canonicals: dict[str, list[str]] = {}
-        # Aliases suppressed from the user-facing params dict (shared= entries).
-        self._suppressed_aliases: set[str] = set()
 
     @property
     def _structure_factor_name(self) -> Optional[str]:
@@ -550,7 +548,6 @@ class ParameterManager:
 
         # Re-key the user-facing params dict to alias names.
         new_params: dict[str, dict[str, Any]] = {}
-        suppressed: set[str] = set()
         shared_canonical_set = {
             canonical for canonicals in shared_to_canonicals.values() for canonical in canonicals
         }
@@ -559,12 +556,11 @@ class ParameterManager:
                 new_params[canonical] = info  # global scale/background
                 continue
             if canonical in shared_canonical_set:
+                # The prefixed alias of a shared parameter is suppressed: only
+                # the shared name appears in the user-facing params dict.
                 shared_name = canonical_to_alias[canonical]
                 if shared_to_canonicals[shared_name][0] == canonical:
                     new_params[shared_name] = info
-                # Suppress the prefixed alias of a shared parameter.
-                prefixed_alias = next(a for a, c in alias_to_canonical.items() if c == canonical)
-                suppressed.add(prefixed_alias)
             else:
                 new_params[canonical_to_alias[canonical]] = info
 
@@ -573,7 +569,6 @@ class ParameterManager:
         self._alias_to_canonical = alias_to_canonical
         self._canonical_to_alias = canonical_to_alias
         self._shared_to_canonicals = shared_to_canonicals
-        self._suppressed_aliases = suppressed
 
     def _resolve_canonical(self, name: str) -> str:
         """Map an alias (or canonical) name to its canonical sasmodels name."""
@@ -979,31 +974,7 @@ class ParameterManager:
         On the ``set_models`` path the canonical prefixed names are translated
         to their user-facing aliases for display.
         """
-        if not self._canonical_to_alias:
-            self._pd_manager.display()
-            return
-
-        if not self._pd_manager.param_names:
-            print('No polydisperse parameters available for this model.')
-            return
-
-        status = 'ENABLED' if self._pd_manager.enabled else 'DISABLED'
-        print(f'\n{"=" * 90}')
-        print(f'Polydispersity Status: {status}')
-        print(f'{"=" * 90}')
-        print(
-            f'{"Parameter":<20} {"Width":<10} {"N Points":<10} {"N Sigma":<10} {"Type":<12} {"Vary":<8}'
-        )
-        print(f'{"-" * 90}')
-        for param_name in self._pd_manager.param_names:
-            pd_config = self._pd_manager.params[param_name]
-            display_name = self._canonical_to_alias.get(param_name, param_name)
-            vary_str = '✓' if pd_config.get('vary', False) else '✗'
-            print(
-                f'{display_name:<20} {pd_config["pd"]:<10.4g} {pd_config["pd_n"]:<10} '
-                f'{pd_config["pd_nsigma"]:<10.4g} {pd_config["pd_type"]:<12} {vary_str:<8}'
-            )
-        print(f'{"=" * 90}\n')
+        self._pd_manager.display(name_map=self._canonical_to_alias or None)
 
     def backup_pd_state(self) -> None:
         """Backup current polydispersity state (used before applying structure factor)."""
@@ -1034,7 +1005,6 @@ class ParameterManager:
         self._alias_to_canonical = {}
         self._canonical_to_alias = {}
         self._shared_to_canonicals = {}
-        self._suppressed_aliases = set()
 
         # Reset polydispersity state
         self._pd_manager.clear()

@@ -906,6 +906,8 @@ class SANSFitter:
 
         Raises:
             ValueError: If data or model not loaded, or invalid engine
+            NotImplementedError: If a composite model or parameter links are
+                used with an engine other than 'bumps'.
         """
         if self.data is None:
             raise ValueError('No data loaded. Use load_data() first.')
@@ -1065,6 +1067,8 @@ class SANSFitter:
 
         Raises:
             ValueError: If data or model is not loaded, or no parameter varies.
+            NotImplementedError: If a composite model or parameter links are
+                used — the DREAM path does not support them yet.
         """
         if self.data is None:
             raise ValueError('No data loaded. Use load_data() first.')

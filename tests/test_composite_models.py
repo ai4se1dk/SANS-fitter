@@ -546,6 +546,51 @@ class TestSharedParameters(unittest.TestCase):
         self.assertIn('sld', fitter.params)
 
 
+class TestSharedLinkInteraction(unittest.TestCase):
+    """shared= and link_params combine without canonical-level link chains.
+
+    snapshot_fit_state may only emit a depth-1 link graph — no target is
+    itself a follower — because the bumps engine aliases parameter objects
+    in dict order and relies on that invariant.
+    """
+
+    def setUp(self):
+        self.fitter = SANSFitter()
+        self.fitter.set_data(make_composite_data(expression='sphere+sphere'))
+        self.fitter.set_models(small='sphere', large='sphere', shared=['sld'])
+
+    def assert_chain_free(self, linked_params):
+        followers = set(linked_params)
+        targets = set(linked_params.values())
+        self.assertFalse(followers & targets, f'link chain in {linked_params}')
+
+    def test_linking_the_shared_follower_repoints_all_canonicals(self):
+        # 'sld' expands to A_sld/B_sld; linking it must re-point both to the
+        # new target instead of leaving B_sld -> A_sld -> A_radius.
+        self.fitter.link_params('sld', to='small_radius')
+        snap = self.fitter._param_manager.snapshot_fit_state()
+        self.assertEqual(snap.linked_params, {'A_sld': 'A_radius', 'B_sld': 'A_radius'})
+        self.assert_chain_free(snap.linked_params)
+
+    def test_linking_to_a_shared_target_uses_its_first_canonical(self):
+        self.fitter.link_params('small_radius', to='sld')
+        snap = self.fitter._param_manager.snapshot_fit_state()
+        self.assertEqual(snap.linked_params, {'B_sld': 'A_sld', 'A_radius': 'A_sld'})
+        self.assert_chain_free(snap.linked_params)
+
+    def test_chain_through_shared_rejected_in_both_orders(self):
+        self.fitter.link_params('large_radius', to='sld')
+        with self.assertRaises(ValueError):
+            self.fitter.link_params('sld', to='small_radius')
+
+        fitter2 = SANSFitter()
+        fitter2.set_data(make_composite_data(expression='sphere+sphere'))
+        fitter2.set_models(small='sphere', large='sphere', shared=['sld'])
+        fitter2.link_params('sld', to='small_radius')
+        with self.assertRaises(ValueError):
+            fitter2.link_params('large_radius', to='sld')
+
+
 class TestComponentCurvesAgainstIntermediates(unittest.TestCase):
     """Dev-only validation against sasmodels' private MixtureKernel API.
 

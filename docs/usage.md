@@ -235,7 +235,9 @@ fitter.plot_results(show_components=True)
 **How the combination works.** With the default `operation='+'` the combined
 intensity is
 
-    I(q) = scale · [dab_scale·I_dab(q) + peak_lorentz_scale·I_peak(q)] + background
+```text
+I(q) = scale · [dab_scale·I_dab(q) + peak_lorentz_scale·I_peak(q)] + background
+```
 
 The global `scale` and `background` are shared by every component natively
 (sasmodels' mixture semantics), while each component carries its own
