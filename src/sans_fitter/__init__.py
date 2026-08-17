@@ -9,7 +9,7 @@ from .pr_inversion import InsufficientDataError, PrEstimationError, PrResult
 from .results import FitResultContract, PosteriorSummary
 from .sans_fitter import SANSFitter, get_all_models
 
-__version__ = '0.0.3'
+__version__ = '0.2.2'
 __all__ = [
     'SANSFitter',
     'ParameterManager',
