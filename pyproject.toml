@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sans-fitter"
-version = "0.2.0"
+version = "0.2.2"
 description = "A flexible template for fitting SANS data with SasModels"
 requires-python = ">=3.10"
 license = {text = "BSD-3-Clause"}
@@ -13,16 +13,16 @@ authors = [
 ]
 readme = "README.md"
 dependencies = [
-    "numpy",
-    "plotly",
-    "scipy",
-    "sasmodels",
-    "sasdata",
-    "bumps",
-    "jupyter",
-    "notebook",
-    "ipykernel",
-    "ipywidgets",
+    "numpy>=1.20",
+    "plotly>=5.0",
+    "scipy>=1.7",
+    "sasmodels>=1.0",
+    "sasdata>=0.8",
+    "bumps>=0.9",
+    "jupyter>=1.0",
+    "notebook>=7.0",
+    "ipykernel>=6.0",
+    "ipywidgets>=8.0",
 ]
 
 [tool.setuptools.packages.find]
@@ -30,15 +30,14 @@ where = ["src"]
 
 [project.optional-dependencies]
 dev = [
-    "pytest",
-    "pytest-cov",
-    "pandas",
-    "ruff",
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "pandas>=2.0.0",
 ]
 docs = [
-    "mkdocs",
-    "mkdocs-material",
-    "mkdocstrings[python]",
+    "mkdocs>=1.5",
+    "mkdocs-material>=9.5",
+    "mkdocstrings[python]>=0.25",
 ]
 
 [tool.pixi.workspace]
@@ -46,10 +45,19 @@ channels = ["conda-forge"]
 platforms = ["win-64", "linux-64", "osx-64", "osx-arm64"]
 
 [tool.pixi.pypi-dependencies]
-sans-fitter = { path = ".", editable = true, extras = ["dev"] }
+sans-fitter = { path = ".", editable = true }
 
 [tool.pixi.dependencies]
 python = ">=3.10,<3.14"
+numpy = ">=1.20"
+plotly = ">=5.0"
+scipy = ">=1.7"
+sasmodels = ">=1.0"
+bumps = ">=0.9"
+pytest = ">=7.0"
+pytest-cov = ">=4.0"
+jupyter = ">=1.0"
+ruff = ">=0.8.0"
 
 [tool.pixi.tasks]
 test = "pytest tests/ -v"
