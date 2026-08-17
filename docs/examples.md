@@ -49,7 +49,7 @@ examples.list_examples(tag='resolution')        # datasets carrying dQ
 facts read from the file — point count, Q range, and whether dI and dQ are
 present:
 
-```
+```text
 silica_spheres
 ==============
 Measured Ludox colloidal silica. Carries both dI and dQ, so it exercises
@@ -125,7 +125,7 @@ examples.simulate('sphere', radius=100, q=real.x)
 Uncertainties follow counting statistics, scaled so a point at the median
 intensity gets exactly the requested relative error:
 
-```
+```text
 dI = noise * sqrt(|I| * median(|I|))
 ```
 

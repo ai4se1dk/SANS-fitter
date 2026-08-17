@@ -86,6 +86,7 @@ See the [Example Data](examples.md) guide for the full collection.
         - load_fitter
         - simulate
         - simulate_pair
+        - Example
 
 
 ## ParameterManager

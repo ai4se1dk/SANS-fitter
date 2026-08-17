@@ -331,10 +331,17 @@ class TestSimulate:
             {'qmin': 0},
             {'qmin': -1},
             {'qmin': 0.5, 'qmax': 0.1},
+            {'qmin': np.nan},
+            {'qmax': np.nan},
             {'npoints': 1},
             {'noise': -0.1},
+            {'noise': np.nan},
+            {'dq': -0.05},
+            {'dq': np.nan},
             {'q': np.array([])},
             {'q': np.array([0.1, -0.2])},
+            {'q': np.array([0.1, np.nan])},
+            {'q': np.array([0.2, 0.1])},
         ],
     )
     def test_invalid_arguments_raise_valueerror(self, kwargs):

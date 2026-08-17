@@ -632,7 +632,7 @@ def simulate(
     seed: int | None = 0,
     dq: float | None = None,
     q: np.ndarray | None = None,
-    **params: float,
+    **params: Any,
 ) -> Data1D:
     """Simulate a SANS dataset from any sasmodels model, with known truth.
 
@@ -682,8 +682,10 @@ def simulate(
     """
     q_values = _build_q(q, qmin, qmax, npoints)
 
-    if noise < 0:
-        raise ValueError(f'noise must be non-negative, got {noise}.')
+    if not np.isfinite(noise) or noise < 0:
+        raise ValueError(f'noise must be non-negative and finite, got {noise}.')
+    if dq is not None and (not np.isfinite(dq) or dq < 0):
+        raise ValueError(f'dq must be non-negative and finite, got {dq}.')
 
     try:
         kernel = load_model(model, dtype='single', platform='dll')
@@ -799,10 +801,16 @@ def _build_q(q: np.ndarray | None, qmin: float, qmax: float, npoints: int) -> np
         q_values = np.asarray(q, dtype=float)
         if q_values.ndim != 1 or q_values.size == 0:
             raise ValueError('q must be a non-empty 1D array.')
+        if not np.all(np.isfinite(q_values)):
+            raise ValueError('Q values must be finite.')
         if np.any(q_values <= 0):
             raise ValueError('Q values must be positive.')
+        if np.any(np.diff(q_values) <= 0):
+            raise ValueError('Q values must be strictly increasing.')
         return q_values
 
+    if not (np.isfinite(qmin) and np.isfinite(qmax)):
+        raise ValueError(f'qmin and qmax must be finite, got qmin={qmin}, qmax={qmax}.')
     if qmin <= 0:
         raise ValueError(f'qmin must be positive, got {qmin}.')
     if qmax <= qmin:
