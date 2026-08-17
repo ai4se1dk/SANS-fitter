@@ -5,7 +5,7 @@ This module encapsulates all parameter-related operations including initializati
 validation, bounds management, structure factor parameter linking, and polydispersity.
 """
 
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 
@@ -33,16 +33,16 @@ class ParameterManager:
     def __init__(self):
         """Initialize the parameter manager."""
         self.params: dict[str, dict[str, Any]] = {}
-        self.model_name: Optional[str] = None
+        self.model_name: str | None = None
         self._sf_manager = StructureFactorManager()
         self._pd_manager = PolydispersityManager()
 
     @property
-    def _structure_factor_name(self) -> Optional[str]:
+    def _structure_factor_name(self) -> str | None:
         return self._sf_manager.name
 
     @_structure_factor_name.setter
-    def _structure_factor_name(self, value: Optional[str]) -> None:
+    def _structure_factor_name(self, value: str | None) -> None:
         self._sf_manager.name = value
 
     @property
@@ -86,11 +86,11 @@ class ParameterManager:
         self._pd_manager.enabled = value
 
     @property
-    def _backed_up_pd_state(self) -> Optional[dict[str, Any]]:
+    def _backed_up_pd_state(self) -> dict[str, Any] | None:
         return self._pd_manager.backup_state
 
     @_backed_up_pd_state.setter
-    def _backed_up_pd_state(self, value: Optional[dict[str, Any]]) -> None:
+    def _backed_up_pd_state(self, value: dict[str, Any] | None) -> None:
         self._pd_manager.backup_state = value
 
     def initialize_from_kernel(self, kernel: Any, model_name: str) -> None:
@@ -193,10 +193,10 @@ class ParameterManager:
     def set_param(
         self,
         name: str,
-        value: Optional[float] = None,
-        min: Optional[float] = None,
-        max: Optional[float] = None,
-        vary: Optional[bool] = None,
+        value: float | None = None,
+        min: float | None = None,
+        max: float | None = None,
+        vary: bool | None = None,
     ) -> None:
         """
         Configure a model parameter.
@@ -337,7 +337,7 @@ class ParameterManager:
         self.restore_pd_state()
         return sf_name
 
-    def get_structure_factor(self) -> Optional[str]:
+    def get_structure_factor(self) -> str | None:
         """
         Get the name of the currently applied structure factor.
 
@@ -408,11 +408,11 @@ class ParameterManager:
     def set_pd_param(
         self,
         base_param: str,
-        pd_width: Optional[float] = None,
-        pd_n: Optional[int] = None,
-        pd_nsigma: Optional[float] = None,
-        pd_type: Optional[str] = None,
-        vary: Optional[bool] = None,
+        pd_width: float | None = None,
+        pd_n: int | None = None,
+        pd_nsigma: float | None = None,
+        pd_type: str | None = None,
+        vary: bool | None = None,
     ) -> None:
         """
         Configure polydispersity for a specific parameter.

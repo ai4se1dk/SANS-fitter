@@ -1,4 +1,5 @@
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 import numpy as np
 import plotly.graph_objects as go
@@ -225,7 +226,7 @@ def plot_fit(
 
 
 def _resolve_posterior_params(
-    posterior: PosteriorSummary, params: Optional[list[str]]
+    posterior: PosteriorSummary, params: list[str] | None
 ) -> list[tuple[str, int]]:
     """Return (label, chain column) pairs for a requested parameter subset."""
     if params is None:
@@ -235,7 +236,7 @@ def _resolve_posterior_params(
 
 def plot_posterior_pairs(
     posterior: PosteriorSummary,
-    params: Optional[list[str]] = None,
+    params: list[str] | None = None,
     show_contours: bool = True,
     show: bool | None = None,
 ) -> go.Figure:
@@ -461,7 +462,7 @@ def plot_posterior_predictive(
 
     curves = []
     for row in posterior.samples[chosen]:
-        curve = np.asarray(model_eval(dict(zip(posterior.labels, row))))
+        curve = np.asarray(model_eval(dict(zip(posterior.labels, row, strict=True))))
         if len(curve) != len(q):
             raise ValueError(
                 f'model_eval returned a curve of length {len(curve)}, expected '
@@ -607,7 +608,7 @@ def plot_param_correlations(
 
 def plot_trace(
     posterior: PosteriorSummary,
-    params: Optional[list[str]] = None,
+    params: list[str] | None = None,
     show: bool | None = None,
 ) -> go.Figure:
     """Trace plot of the MCMC chains for each parameter.
@@ -746,7 +747,7 @@ def plot_pr_distribution(result, show: bool | None = None) -> go.Figure:
     return fig
 
 
-def plot_pr_fit(data, result, show: bool | None = None) -> go.Figure:
+def plot_pr_fit(data, result, show: bool | None = None, log_scale: bool = True) -> go.Figure:
     """Plot measured I(q) against the P(r) fit, with residuals below.
 
     The theory curve is evaluated on a dense q grid via result.evaluate_iq;
@@ -758,6 +759,9 @@ def plot_pr_fit(data, result, show: bool | None = None) -> go.Figure:
         result: A PrResult (duck-typed: needs accepted, q_fit, iq_fit,
             sigma_fit, evaluate_iq).
         show: Same display convention as plot_results().
+        log_scale: Use log axes. Pass False when intensities include zero or
+            negative values (e.g. background-subtracted data) — a log axis
+            silently omits such points.
     """
     accepted = np.asarray(result.accepted, dtype=bool)
     if accepted.size != np.asarray(data.x).size:
@@ -833,10 +837,10 @@ def plot_pr_fit(data, result, show: bool | None = None) -> go.Figure:
         col=1,
     )
     fig.add_hline(y=0, line_dash='dash', line_color='gray', row=2, col=1)
-    fig.update_yaxes(title_text='I(Q)', type='log', row=1, col=1)
+    fig.update_yaxes(title_text='I(Q)', type='log' if log_scale else 'linear', row=1, col=1)
     fig.update_yaxes(title_text='Residuals (σ)', row=2, col=1)
-    fig.update_xaxes(type='log', row=1, col=1)
-    fig.update_xaxes(title_text='Q (Å⁻¹)', type='log', row=2, col=1)
+    fig.update_xaxes(type='log' if log_scale else 'linear', row=1, col=1)
+    fig.update_xaxes(title_text='Q (Å⁻¹)', type='log' if log_scale else 'linear', row=2, col=1)
     fig.update_layout(
         title='P(r) inversion fit',
         template='plotly_white',

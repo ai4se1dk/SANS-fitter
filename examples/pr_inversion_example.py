@@ -32,7 +32,7 @@ i_noisy = i_clean + rng.normal(0.0, sigma)
 
 with open('simulated_protein.csv', 'w') as f:
     f.write('Q,I,dI\n')
-    for q_value, i_value, di_value in zip(q, i_noisy, sigma):
+    for q_value, i_value, di_value in zip(q, i_noisy, sigma, strict=True):
         f.write(f'{q_value},{i_value},{di_value}\n')
 
 data = data_ops.load('simulated_protein.csv')

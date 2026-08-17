@@ -6,7 +6,7 @@ optimization engines (BUMPS, LMFit) with any model from the SasModels library.
 """
 
 import warnings
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
 import numpy as np
 from plotly.graph_objects import Figure
@@ -83,9 +83,9 @@ class SANSFitter:
         self.data = None
         self.kernel = None
         self.fit_result = None
-        self._fit_contract: Optional[FitResultContract] = None
+        self._fit_contract: FitResultContract | None = None
         self._fitted_model = None
-        self._full_q_range: Optional[tuple[float, float]] = None
+        self._full_q_range: tuple[float, float] | None = None
 
         # Parameter management delegated to ParameterManager
         self._param_manager = ParameterManager()
@@ -171,7 +171,7 @@ class SANSFitter:
         print(f'  Error (dI) column: {"yes" if has_dy else "no"}')
         print(f'  Resolution (dQ) column: {"yes" if has_dx else "no"}')
 
-    def set_q_range(self, qmin: Optional[float] = None, qmax: Optional[float] = None) -> None:
+    def set_q_range(self, qmin: float | None = None, qmax: float | None = None) -> None:
         """
         Restrict the Q range used for fitting.
 
@@ -232,7 +232,7 @@ class SANSFitter:
         print(f'✓ Q range reset to {self.data.qmin:.6g} to {self.data.qmax:.6g} Å⁻¹')
         print(f'  Points in fit: {n_points}')
 
-    def get_q_range(self) -> Optional[tuple[float, float]]:
+    def get_q_range(self) -> tuple[float, float] | None:
         """
         Get the Q range currently used for fitting.
 
@@ -274,12 +274,12 @@ class SANSFitter:
     # =========================================================================
 
     @property
-    def model_name(self) -> Optional[str]:
+    def model_name(self) -> str | None:
         """Get the current model name."""
         return self._param_manager.model_name
 
     @model_name.setter
-    def model_name(self, value: Optional[str]) -> None:
+    def model_name(self, value: str | None) -> None:
         """Set the model name (used internally)."""
         self._param_manager.model_name = value
 
@@ -294,7 +294,7 @@ class SANSFitter:
         self._param_manager.params = value
 
     @property
-    def _structure_factor_name(self) -> Optional[str]:
+    def _structure_factor_name(self) -> str | None:
         """Get the structure factor name."""
         return self._param_manager.get_structure_factor()
 
@@ -310,10 +310,10 @@ class SANSFitter:
     def set_param(
         self,
         name: str,
-        value: Optional[float] = None,
-        min: Optional[float] = None,
-        max: Optional[float] = None,
-        vary: Optional[bool] = None,
+        value: float | None = None,
+        min: float | None = None,
+        max: float | None = None,
+        vary: bool | None = None,
     ) -> None:
         """
         Configure a model parameter for fitting.
@@ -410,7 +410,7 @@ class SANSFitter:
         except Exception as e:
             raise ValueError(f'Failed to reload form factor model: {str(e)}') from e
 
-    def get_structure_factor(self) -> Optional[str]:
+    def get_structure_factor(self) -> str | None:
         """
         Get the name of the currently applied structure factor.
 
@@ -444,11 +444,11 @@ class SANSFitter:
     def set_pd_param(
         self,
         param_name: str,
-        pd_width: Optional[float] = None,
-        pd_n: Optional[int] = None,
-        pd_nsigma: Optional[float] = None,
-        pd_type: Optional[str] = None,
-        vary: Optional[bool] = None,
+        pd_width: float | None = None,
+        pd_n: int | None = None,
+        pd_nsigma: float | None = None,
+        pd_type: str | None = None,
+        vary: bool | None = None,
     ) -> None:
         """
         Configure polydispersity for a parameter.
@@ -546,7 +546,7 @@ class SANSFitter:
 
         return self.fit_result
 
-    def _get_active_fit_contract(self) -> Optional[FitResultContract]:
+    def _get_active_fit_contract(self) -> FitResultContract | None:
         """Return the active fit contract, adapting legacy runtime state if needed."""
         if self._fit_contract is not None:
             return self._fit_contract
@@ -582,7 +582,7 @@ class SANSFitter:
     def fit(
         self,
         engine: Literal['bumps', 'lmfit'] = 'bumps',
-        method: Optional[str] = None,
+        method: str | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
         """
@@ -746,7 +746,7 @@ class SANSFitter:
 
     def plot_posterior_pairs(
         self,
-        params: Optional[list[str]] = None,
+        params: list[str] | None = None,
         show_contours: bool = True,
         show: bool | None = None,
     ) -> Figure:
@@ -848,7 +848,7 @@ class SANSFitter:
 
     def plot_trace(
         self,
-        params: Optional[list[str]] = None,
+        params: list[str] | None = None,
         show: bool | None = None,
     ) -> Figure:
         """

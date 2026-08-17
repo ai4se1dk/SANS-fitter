@@ -1,5 +1,6 @@
+from collections.abc import Callable
 from copy import deepcopy
-from typing import Any, Callable, Optional
+from typing import Any
 
 import numpy as np
 from bumps.fitters import fit as bumps_fit
@@ -106,7 +107,7 @@ def fit_bumps(
     result_parameters: dict[str, dict[str, Any]] = {}
     fitted_values: dict[str, float] = {}
 
-    for name, value, stderr in zip(problem.labels(), result.x, result.dx):
+    for name, value, stderr in zip(problem.labels(), result.x, result.dx, strict=True):
         result_parameters[name] = {
             'value': value,
             'stderr': stderr,
@@ -174,8 +175,8 @@ def _effective_sample_size(series: np.ndarray) -> float:
 
 
 def _compute_diagnostics(
-    state: Any, labels: list[str], chains: Optional[np.ndarray]
-) -> Optional[dict[str, dict[str, float]]]:
+    state: Any, labels: list[str], chains: np.ndarray | None
+) -> dict[str, dict[str, float]] | None:
     """Compute per-parameter r-hat/ESS, or None when unavailable."""
     if chains is None:
         return None
@@ -344,7 +345,7 @@ def fit_bumps_dream(
 
     # For DREAM, result.dx is the posterior 68% credible half-width, so the
     # existing formatted-uncertainty convention carries over unchanged.
-    for name, value, stderr in zip(labels, result.x, result.dx):
+    for name, value, stderr in zip(labels, result.x, result.dx, strict=True):
         result_parameters[name] = {
             'value': value,
             'stderr': stderr,

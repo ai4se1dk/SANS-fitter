@@ -6,6 +6,7 @@ handed to the module as sasdata Data1D objects), data-preparation edge cases,
 estimator behaviour, D_max exploration and plots.
 """
 
+import os
 import tempfile
 import unittest
 import warnings
@@ -283,6 +284,7 @@ class TestSphereRoundTrip(unittest.TestCase):
     def test_save_csv_round_trip(self):
         with tempfile.NamedTemporaryFile(mode='r', suffix='.csv', delete=False) as f:
             filename = f.name
+        self.addCleanup(os.unlink, filename)
         self.result.save_csv(filename)
         with open(filename) as f:
             lines = f.read().splitlines()
@@ -446,6 +448,7 @@ class TestDataPreparation(unittest.TestCase):
         self.assertTrue(any('fabricated' in str(w.message) for w in caught))
         with tempfile.NamedTemporaryFile(mode='r', suffix='.csv', delete=False) as f:
             filename = f.name
+        self.addCleanup(os.unlink, filename)
         result.save_csv(filename)
         with open(filename) as f:
             self.assertIn('Uncertainties fabricated: True', f.read())

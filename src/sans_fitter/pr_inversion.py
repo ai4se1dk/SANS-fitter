@@ -45,10 +45,6 @@ from .data_loader import _has_real_data, get_fit_index
 
 logger = logging.getLogger(__name__)
 
-# numpy.trapezoid arrived in NumPy 2.0 (where trapz was removed); the package
-# floor is numpy>=1.20, so pick whichever name exists.
-_trapezoid = np.trapezoid if hasattr(np, 'trapezoid') else np.trapz
-
 __all__ = [
     'invert',
     'auto_invert',
@@ -544,7 +540,7 @@ class PrResult:
             f.write(f'# Points dropped in preparation: {self.n_dropped_points}\n')
             f.write('#\n')
             f.write('r,P(r),dP(r)\n')
-            for r_value, p_value, dp_value in zip(self.r, self.pr, self.pr_err):
+            for r_value, p_value, dp_value in zip(self.r, self.pr, self.pr_err, strict=True):
                 f.write(f'{r_value:.6e},{p_value:.6e},{dp_value:.6e}\n')
 
     def plot_pr(self, show: bool | None = None):
@@ -553,16 +549,17 @@ class PrResult:
 
         return plot_pr_distribution(self, show=show)
 
-    def plot_fit(self, data: Any, show: bool | None = None):
+    def plot_fit(self, data: Any, show: bool | None = None, log_scale: bool = True):
         """Plot data vs the fitted I(q) with residuals.
 
         The dataset is passed explicitly — the result stores the model and the
         accepted mask, not the observed intensities. Same display convention
-        as plot_results().
+        as plot_results(). Pass ``log_scale=False`` when intensities include
+        zero or negative values (a log axis silently omits such points).
         """
         from .plotting import plot_pr_fit
 
-        return plot_pr_fit(data, self, show=show)
+        return plot_pr_fit(data, self, show=show, log_scale=log_scale)
 
 
 # ---------------------------------------------------------------------------
@@ -583,12 +580,19 @@ def _derived_outputs(
     (with a warning) when the P(r) integral is non-positive; the oscillation
     and positive-fraction metrics are 0 for P identically zero.
     """
-    integral_p = float(_trapezoid(pr, r))
+    integral_p = float(np.trapezoid(pr, r))
     i0 = 4.0 * np.pi * integral_p
 
     if integral_p > 0:
-        integral_r2p = float(_trapezoid(r**2 * pr, r))
-        rg = math.sqrt(integral_r2p / (2.0 * integral_p)) if integral_r2p > 0 else float('nan')
+        integral_r2p = float(np.trapezoid(r**2 * pr, r))
+        if integral_r2p > 0:
+            rg = math.sqrt(integral_r2p / (2.0 * integral_p))
+        else:
+            rg = float('nan')
+            warnings.warn(
+                'The r^2-weighted P(r) integral is non-positive; Rg is undefined (NaN).',
+                stacklevel=4,
+            )
     else:
         rg = float('nan')
         warnings.warn(
@@ -596,12 +600,12 @@ def _derived_outputs(
             stacklevel=4,
         )
 
-    pr_square = float(_trapezoid(pr**2, r))
+    pr_square = float(np.trapezoid(pr**2, r))
     if pr_square > 0:
         pr_prime = np.zeros_like(r)
         for j, c in enumerate(coefficients):
             pr_prime += c * _ortho_derived(d_max, j + 1, r)
-        prime_square = float(_trapezoid(pr_prime**2, r))
+        prime_square = float(np.trapezoid(pr_prime**2, r))
         oscillations = (d_max / np.pi) * math.sqrt(prime_square / pr_square)
     else:
         oscillations = 0.0
@@ -1234,7 +1238,12 @@ def explore_dmax(
             point fails.
     """
     _validate_invert_args(
-        d_max, n_terms or 1, alpha or 0.0, DEFAULT_R_POINTS, regularizer, background
+        d_max,
+        1 if n_terms is None else n_terms,
+        0.0 if alpha is None else alpha,
+        DEFAULT_R_POINTS,
+        regularizer,
+        background,
     )
     _require_integer('n_points', n_points)
     low = DMAX_SCAN_LOW_FACTOR * d_max if dmin is None else dmin

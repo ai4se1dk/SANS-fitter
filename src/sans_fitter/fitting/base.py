@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, Optional, Protocol
+from typing import Any, Protocol
 
 import numpy as np
 
@@ -12,7 +12,7 @@ def pd_is_active(pd_config: dict[str, Any]) -> bool:
     return pd_config['pd'] > 0 or pd_config.get('vary', False)
 
 
-def extract_fit_index(source: Any) -> Optional[np.ndarray]:
+def extract_fit_index(source: Any) -> np.ndarray | None:
     """Return the boolean fit index from a sasmodels calculator/experiment.
 
     sasmodels stores the points it actually evaluates (inside [qmin, qmax],

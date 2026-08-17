@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 
@@ -43,15 +43,15 @@ class PosteriorSummary:
 
     labels: list[str]
     samples: np.ndarray  # [n_samples, n_params]
-    logp: Optional[np.ndarray] = None  # [n_samples]
-    chains: Optional[np.ndarray] = None  # [n_generations, n_chains, n_params]
+    logp: np.ndarray | None = None  # [n_samples]
+    chains: np.ndarray | None = None  # [n_generations, n_chains, n_params]
     best: dict[str, float] = field(default_factory=dict)
     mean: dict[str, float] = field(default_factory=dict)
     median: dict[str, float] = field(default_factory=dict)
     std: dict[str, float] = field(default_factory=dict)
     ci_68: dict[str, tuple[float, float]] = field(default_factory=dict)
     ci_95: dict[str, tuple[float, float]] = field(default_factory=dict)
-    diagnostics: Optional[dict[str, dict[str, float]]] = None
+    diagnostics: dict[str, dict[str, float]] | None = None
 
     @property
     def n_samples(self) -> int:
@@ -117,12 +117,12 @@ class PosteriorSummary:
 class FitArtifacts:
     """Engine-specific runtime data needed after fitting."""
 
-    fitted_curve: Optional[np.ndarray] = None
-    fit_index: Optional[np.ndarray] = None
+    fitted_curve: np.ndarray | None = None
+    fit_index: np.ndarray | None = None
     raw_result: Any = None
     runtime_handle: Any = None
-    runtime_key: Optional[str] = None
-    posterior: Optional[PosteriorSummary] = None
+    runtime_key: str | None = None
+    posterior: PosteriorSummary | None = None
     posterior_data: Any = None
     posterior_model_eval: Any = None
 
@@ -224,11 +224,15 @@ class FitResultContract:
 
             if has_dx:
                 f.write('Q,dQ,I_exp,dI_exp,I_fit,Residuals\n')
-                for q, dq, i_exp, di_exp, i_fit, res in zip(x, dx, y, dy, fitted_curve, residuals):
+                for q, dq, i_exp, di_exp, i_fit, res in zip(
+                    x, dx, y, dy, fitted_curve, residuals, strict=True
+                ):
                     f.write(f'{q:.6e},{dq:.6e},{i_exp:.6e},{di_exp:.6e},{i_fit:.6e},{res:.6e}\n')
             else:
                 f.write('Q,I_exp,dI_exp,I_fit,Residuals\n')
-                for q, i_exp, di_exp, i_fit, res in zip(x, y, dy, fitted_curve, residuals):
+                for q, i_exp, di_exp, i_fit, res in zip(
+                    x, y, dy, fitted_curve, residuals, strict=True
+                ):
                     f.write(f'{q:.6e},{i_exp:.6e},{di_exp:.6e},{i_fit:.6e},{res:.6e}\n')
 
 
