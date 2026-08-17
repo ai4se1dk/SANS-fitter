@@ -33,6 +33,7 @@ dev = [
     "pytest",
     "pytest-cov",
     "pandas",
+    "ruff",
 ]
 docs = [
     "mkdocs",
@@ -45,7 +46,10 @@ channels = ["conda-forge"]
 platforms = ["win-64", "linux-64", "osx-64", "osx-arm64"]
 
 [tool.pixi.pypi-dependencies]
-sans-fitter = { path = ".", editable = true }
+sans-fitter = { path = ".", editable = true, extras = ["dev"] }
+
+[tool.pixi.dependencies]
+python = ">=3.10,<3.14"
 
 [tool.pixi.tasks]
 test = "pytest tests/ -v"
