@@ -8,10 +8,7 @@ from .polydispersity import PD_DEFAULTS, PD_DISTRIBUTION_TYPES
 from .results import FitResultContract, PosteriorSummary
 from .sans_fitter import SANSFitter, get_all_models
 
-# Imported after sans_fitter: examples builds on SANSFitter, not the reverse.
-from . import examples  # isort: skip
-
-__version__ = '0.0.3'
+__version__ = '0.2.2'
 __all__ = [
     'SANSFitter',
     'ParameterManager',
