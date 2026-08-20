@@ -95,9 +95,12 @@ def _build_bumps_problem(
     # directions; snapshot_fit_state re-points shared followers to the one
     # canonical target).
     followers = set(fit_state.linked_params)
-    assert not followers & set(fit_state.linked_params.values()), (
-        'Link chains are not supported by the bumps aliasing mechanism.'
-    )
+    if followers & set(fit_state.linked_params.values()):
+        raise RuntimeError(
+            'Internal error: the link graph contains a chain (a target is '
+            'itself a follower), which the bumps aliasing mechanism does not '
+            'support. ParameterManager should have rejected this.'
+        )
     for follower, target in fit_state.linked_params.items():
         if follower == 'radius_effective' and fit_state.radius_effective_mode == 'link_radius':
             raise ValueError(

@@ -749,7 +749,10 @@ def simulate_pair(
     Args:
         model: sasmodels model name for the sample.
         background_level: Flat intensity added to the sample and carried by the
-            background dataset.
+            background dataset. An explicit ``background=`` model parameter in
+            ``**kwargs`` is treated as part of the sample's signal, not the
+            flat level: it is added on top of ``background_level`` in the
+            sample only, so it survives ``subtract(sample, background)``.
         noise: Relative Gaussian noise, applied independently to each dataset.
         seed: Seed for reproducibility. The background uses ``seed + 1`` so the
             two datasets do not share identical noise.
