@@ -83,6 +83,28 @@ def _build_bumps_problem(
 
     link_radius_effective_model(model, fit_state.radius_effective_mode)
 
+    # Generic equality links (composite models / shared= / link_params):
+    # alias the follower's bumps parameter object to the target's, the exact
+    # mechanism the radius link uses. Followers are never in the varying set,
+    # so they don't appear in problem.labels(); their post-fit value comes
+    # from apply_fitted_values propagation, not from the engine.
+    # Precondition: the link graph has depth 1 — no target is itself a
+    # follower — so the aliasing below is independent of dict order.
+    # ParameterManager guarantees this (link_params rejects chains in both
+    # directions; snapshot_fit_state re-points shared followers to the one
+    # canonical target).
+    followers = set(fit_state.linked_params)
+    assert not followers & set(fit_state.linked_params.values()), (
+        'Link chains are not supported by the bumps aliasing mechanism.'
+    )
+    for follower, target in fit_state.linked_params.items():
+        if follower == 'radius_effective' and fit_state.radius_effective_mode == 'link_radius':
+            raise ValueError(
+                "'radius_effective' is already linked to 'radius' by "
+                "radius_effective_mode='link_radius'. Remove one of the links."
+            )
+        setattr(model, follower, getattr(model, target))
+
     experiment = Experiment(data=data, model=model)
     problem = FitProblem(experiment)
     return problem, experiment
