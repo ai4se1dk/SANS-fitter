@@ -30,6 +30,20 @@ POSTERIOR_PREDICTIVE_INTERVAL_TRACE_NAME = '95% credible interval'
 MARGINAL_DENSITY_TRACE_NAME = 'Marginal density'
 MEASURED_TRACE_NAME = 'Measured'
 
+# Qualitative color cycle for per-component curves (plotly's default palette).
+COMPONENT_CURVE_COLORS = [
+    '#636efa',
+    '#ef553b',
+    '#00cc96',
+    '#ab63fa',
+    '#ffa15a',
+    '#19d3f3',
+    '#ff6692',
+    '#b6e880',
+    '#ff97ff',
+    '#fecb52',
+]
+
 
 def _running_in_notebook() -> bool:
     """Return True when executing inside a Jupyter kernel.
@@ -68,10 +82,14 @@ def plot_fit(
     show_residuals: bool = True,
     log_scale: bool = True,
     show: bool | None = None,
+    show_components: bool = False,
 ) -> go.Figure:
     """Plot experimental data and, when available, the fitted model curve.
 
     Args:
+        show_components: When True and the fit result carries per-component
+            curves ('+' mixture models), draw one dashed curve per component.
+            A no-op when no component curves are available.
         show: If True, call fig.show(); if False, only return the figure.
             Default (None) shows the figure except in Jupyter, where the
             returned figure is rendered by the notebook itself.
@@ -166,11 +184,33 @@ def plot_fit(
         line={'color': 'red', 'width': 2},
     )
 
+    component_traces = []
+    if show_components and fit_result.artifacts.component_curves:
+        for i, (label, curve) in enumerate(fit_result.artifacts.component_curves.items()):
+            curve = np.asarray(curve)
+            if len(curve) != len(q):
+                continue
+            component_traces.append(
+                go.Scatter(
+                    x=q,
+                    y=curve,
+                    mode='lines',
+                    name=label,
+                    line={
+                        'dash': 'dash',
+                        'width': 1.5,
+                        'color': COMPONENT_CURVE_COLORS[i % len(COMPONENT_CURVE_COLORS)],
+                    },
+                )
+            )
+
     if show_residuals:
         fig.add_trace(data_trace, row=1, col=1)
         if excluded_trace is not None:
             fig.add_trace(excluded_trace, row=1, col=1)
         fig.add_trace(fit_trace, row=1, col=1)
+        for trace in component_traces:
+            fig.add_trace(trace, row=1, col=1)
         fig.add_trace(
             go.Scatter(
                 x=q,
@@ -204,6 +244,8 @@ def plot_fit(
         if excluded_trace is not None:
             fig.add_trace(excluded_trace)
         fig.add_trace(fit_trace)
+        for trace in component_traces:
+            fig.add_trace(trace)
         fig.update_xaxes(
             title_text='Q (Å⁻¹)',
             type='log' if log_scale else 'linear',

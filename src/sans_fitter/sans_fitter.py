@@ -5,7 +5,10 @@ This module provides a unified interface for fitting SANS data using different
 optimization engines (BUMPS, LMFit) with any model from the SasModels library.
 """
 
+import difflib
+import re
 import warnings
+from collections.abc import Sequence
 from typing import Any, Literal
 
 import numpy as np
@@ -28,7 +31,7 @@ from .fitting import (
     fit_bumps_dream,
     fit_scipy,
 )
-from .fitting.base import extract_fit_index
+from .fitting.base import extract_fit_index, pd_is_active
 from .parameter_manager import ParameterManager
 from .plotting import DEFAULT_POSTERIOR_PREDICTIVE_DRAWS, plot_fit
 from .results import FitArtifacts, FitResultContract, PosteriorSummary, save_fit_result
@@ -47,6 +50,34 @@ def get_all_models() -> list[str]:
     except Exception as e:
         print(f'Error fetching models: {str(e)}')
         return []
+
+
+def _validate_model_expression(model_name: str) -> None:
+    """Validate atomic model names in a (possibly composite) expression.
+
+    Splits on top-level ``+``/``*`` and on ``@`` (product parts). Only parts
+    that look like plain model identifiers are checked against
+    ``sasmodels.core.list_models()``; unknown names raise a ``ValueError``
+    with a nearest-match suggestion. Anything else — custom plugin-model
+    paths, parenthesized or scaled expressions — is passed through for
+    ``sasmodels.core.load_model`` to accept or reject, since it is the
+    authority on those forms.
+    """
+    available = set(core.list_models())
+    for part in re.split(r'[+*]', model_name):
+        part = part.strip()
+        if not part:
+            raise ValueError(f"Invalid model expression '{model_name}': empty component.")
+        for atomic in part.split('@'):
+            atomic = atomic.strip()
+            if not atomic:
+                raise ValueError(f"Invalid model expression '{model_name}': empty component.")
+            if not re.fullmatch(r'[A-Za-z_]\w*', atomic):
+                continue  # custom path or expression form — load_model decides
+            if atomic not in available:
+                suggestions = difflib.get_close_matches(atomic, available, n=1)
+                hint = f" Did you mean '{suggestions[0]}'?" if suggestions else ''
+                raise ValueError(f"Unknown model '{atomic}' in '{model_name}'.{hint}")
 
 
 LMFIT_AVAILABLE = SCIPY_AVAILABLE
@@ -247,20 +278,32 @@ class SANSFitter:
         """
         Set the SANS model to use for fitting.
 
+        Accepts both single models and composite expressions understood by
+        sasmodels: ``'dab+peak_lorentz'`` (sum mixture), ``'modelA*modelB'``
+        (product mixture), and ``'sphere@hardsphere'`` (form factor with
+        structure factor). Every atomic model name in the expression is
+        validated against the sasmodels model list before loading, with a
+        nearest-match suggestion for unknown names.
+
         This resets any active structure factor to ensure a clean state.
 
         Args:
-            model_name: Name of the model from SasModels (e.g., 'cylinder', 'sphere')
+            model_name: Name of the model from SasModels (e.g., 'cylinder',
+                'sphere', 'dab+peak_lorentz')
             platform: Computation platform ('cpu' or 'opencl')
 
         Raises:
             ValueError: If the model name is not valid
         """
+        _validate_model_expression(model_name)
+
         try:
             # Force CPU platform to avoid OpenCL issues
             self.kernel = load_model(model_name, dtype='single', platform='dll')
 
-            # Initialize parameters via ParameterManager
+            # Initialize parameters via ParameterManager. Components are
+            # derived from the kernel's composition tree, not the expression
+            # string (robust against nested mixture plugins).
             self._param_manager.initialize_from_kernel(self.kernel, model_name)
 
             print(f"✓ Model '{model_name}' loaded successfully")
@@ -268,6 +311,179 @@ class SANSFitter:
 
         except Exception as e:
             raise ValueError(f"Failed to load model '{model_name}': {str(e)}") from e
+
+    def set_models(
+        self,
+        *model_names: str,
+        operation: str = '+',
+        shared: Sequence[str] = (),
+        **monikers: str,
+    ) -> None:
+        """
+        Combine multiple models against the current dataset.
+
+        The friendly-name entry point for composite models. Parameters are
+        exposed with model-name (or moniker) prefixes instead of sasmodels'
+        ``A_``/``B_`` prefixes, e.g. ``dab_cor_length`` instead of
+        ``A_cor_length``.
+
+        Args:
+            *model_names: Model names, positionally. Each may itself contain
+                ``@`` to apply a structure factor to one part (e.g.
+                ``'sphere@hardsphere'``).
+            operation: How to combine the models: ``'+'`` (sum mixture, the
+                default) or ``'*'`` (product mixture).
+            shared: Unprefixed parameter names that must exist in at least 2
+                components. Each becomes a single unprefixed parameter driving
+                every component that has it (e.g. ``shared=['sld']``).
+                Polydispersity configuration stays per-component under the
+                prefixed names.
+            **monikers: Components given as ``moniker=model_name`` keyword
+                arguments, for long model names, duplicates, or physics
+                labels (e.g. ``small='sphere', large='sphere'``).
+
+        Example:
+            >>> fitter.set_models('dab', 'peak_lorentz')
+            >>> fitter.set_param('dab_cor_length', value=50, vary=True)
+            >>> fitter.set_models(small='sphere', large='sphere', shared=['sld'])
+
+        Raises:
+            ValueError: If fewer than 2 models are given, the operation is
+                invalid, a moniker is invalid, a shared name is missing from
+                enough components, the generated alias names collide, or an
+                entry expands to more than one kernel component (e.g. a
+                nested ``'+'``/``'*'`` expression) — each entry must be a
+                single component so monikers map 1:1; use the raw
+                ``set_model('a+b')`` string path for nested expressions.
+        """
+        if operation not in ('+', '*'):
+            raise ValueError(f"Invalid operation '{operation}'. Use '+' or '*'.")
+
+        components: list[tuple[str, str]] = []  # (moniker, model_name)
+        for name in model_names:
+            # Positional moniker defaults to the model name; for product
+            # entries ('sphere@hardsphere') use the form-factor part so the
+            # moniker stays a valid identifier.
+            moniker = name if name.isidentifier() else name.split('@')[0]
+            components.append((moniker, name))
+        for moniker, name in monikers.items():
+            components.append((moniker, name))
+
+        if len(components) < 2:
+            raise ValueError(
+                "set_models() requires at least 2 models. For a single model use set_model('name')."
+            )
+
+        # Validate monikers: valid identifiers and not reserved names.
+        # Positional model names may repeat (they get auto-suffixed below);
+        # keyword monikers must be unique among themselves.
+        reserved = {'scale', 'background'} | set(shared)
+        for moniker, _name in components:
+            if not moniker.isidentifier():
+                raise ValueError(
+                    f"Component name '{moniker}' is not a valid identifier. "
+                    'Use keyword monikers for non-identifier model names.'
+                )
+            if moniker in reserved:
+                raise ValueError(
+                    f"Component name '{moniker}' is reserved "
+                    "(collides with 'scale', 'background', or a shared name)."
+                )
+        keyword_monikers = [moniker for moniker, _name in components[len(model_names) :]]
+        if len(set(keyword_monikers)) != len(keyword_monikers):
+            raise ValueError('Duplicate keyword monikers are not allowed.')
+
+        # Duplicate positional model names auto-suffix their monikers
+        # (sphere1_, sphere2_); keyword monikers are the recommended spelling
+        # for that case.
+        positional_counts: dict[str, int] = {}
+        for name in model_names:
+            positional_counts[name] = positional_counts.get(name, 0) + 1
+        duplicate_names = {name for name, count in positional_counts.items() if count > 1}
+
+        resolved: list[tuple[str, str]] = []
+        dup_counters: dict[str, int] = {}
+        for moniker, name in components:
+            if moniker == name and name in duplicate_names:
+                dup_counters[name] = dup_counters.get(name, 0) + 1
+                resolved.append((f'{name}{dup_counters[name]}', name))
+            else:
+                resolved.append((moniker, name))
+        components = resolved
+
+        # Re-check uniqueness after auto-suffixing (a generated suffix could
+        # collide with an explicit moniker).
+        all_monikers = [moniker for moniker, _name in components]
+        if len(set(all_monikers)) != len(all_monikers):
+            raise ValueError(
+                'Component names collide after auto-suffixing duplicates: '
+                f'{all_monikers}. Use distinct keyword monikers.'
+            )
+
+        # Delegate loading/validation to set_model using canonical syntax.
+        expression = operation.join(name for _moniker, name in components)
+        self.set_model(expression)
+
+        # Register the friendly-name alias layer. register_aliases raises on
+        # shared-name or alias-collision problems (detected by building the
+        # full alias map, not by ad-hoc string rules).
+        self._param_manager.register_aliases(components, list(shared))
+
+        print(f'✓ Combined {len(components)} models: {expression}')
+        print(f'  Components: {", ".join(m for m, _n in components)}')
+        if shared:
+            print(f'  Shared parameters: {", ".join(shared)}')
+        print(f'  Available parameters: {len(self._param_manager.params)}')
+
+    def link_params(self, name: str, to: str) -> None:
+        """
+        Create an equality link between two parameters.
+
+        The follower (*name*) is forced to ``vary=False`` and mirrors the
+        target's (*to*) value at all times — before, during, and after the
+        fit. Links are equality-only; no expressions. Works for any pair of
+        parameters, including cross-component ones (``'large_sld'`` following
+        ``'small_sld'``) and differently named ones.
+
+        Args:
+            name: The follower parameter name.
+            to: The target parameter name.
+
+        Raises:
+            KeyError: If either name does not exist.
+            ValueError: On self-links, link chains, or conflicting links.
+        """
+        self._param_manager.link_params(name, to)
+        print(f'✓ Linked {name} → {to}')
+
+    def unlink_params(self, name: str) -> None:
+        """
+        Remove an equality link, restoring the follower's independence.
+
+        Args:
+            name: The follower parameter name.
+
+        Raises:
+            KeyError: If the name does not exist.
+            ValueError: If the parameter is not linked.
+        """
+        self._param_manager.unlink_params(name)
+        print(f'✓ Unlinked {name}')
+
+    def get_links(self) -> dict[str, str]:
+        """Return the active parameter equality links (follower -> target)."""
+        return self._param_manager.get_links()
+
+    def get_components(self) -> list[tuple[str, str, str]]:
+        """
+        Return the composite-model components.
+
+        Returns:
+            List of ``(prefix, moniker, part_model_name)`` triples, e.g.
+            ``[('A', 'dab', 'dab'), ('B', 'peak_lorentz', 'peak_lorentz')]``.
+            Empty for atomic models.
+        """
+        return self._param_manager.get_components()
 
     # =========================================================================
     # Property accessors for backward compatibility
@@ -356,6 +572,15 @@ class SANSFitter:
         """
         if self.kernel is None or self.model_name is None:
             raise ValueError('No form factor model loaded. Use set_model() first.')
+
+        if self._param_manager.get_components():
+            raise ValueError(
+                'Cannot apply a structure factor to a composite model. '
+                "The expression '(modelA+modelB)@sf' cannot be expressed in "
+                'sasmodels, and naive concatenation would be parsed as '
+                "'modelA + (modelB@sf)'. Apply the structure factor to one "
+                "part instead, e.g. set_models('sphere@hardsphere', 'peak_lorentz')."
+            )
 
         # Validate structure factor name
         supported_sf = ['hardsphere', 'hayter_msa', 'squarewell', 'stickyhardsphere']
@@ -530,6 +755,20 @@ class SANSFitter:
         """Apply engine output to fitter state and return legacy-compatible results."""
         self._param_manager.apply_fitted_values(engine_output.fitted_values)
         self._fit_contract = engine_output.contract
+
+        # Translate engine result names (canonical) back to user-facing names
+        # so saved results and displays never expose A_/B_ on the set_models
+        # path (Boundary 2 of the alias layer).
+        self._fit_contract.parameters = {
+            self._param_manager.to_display_name(name): dict(info)
+            for name, info in self._fit_contract.parameters.items()
+        }
+
+        # Attach per-component curves for '+' mixture models (no-op otherwise).
+        component_curves = self._compute_component_curves()
+        if component_curves:
+            self._fit_contract.artifacts.component_curves = component_curves
+
         self.fit_result = self._fit_contract.to_legacy_dict()
         self._fitted_model = engine_output.runtime_model
 
@@ -546,6 +785,77 @@ class SANSFitter:
 
         return self.fit_result
 
+    def _compute_component_curves(self) -> dict[str, np.ndarray] | None:
+        """Compute per-component curves after a fit of a '+' mixture model.
+
+        Each component curve is ``scale · I_part(q, scale=part_scale,
+        background=0)`` — matching the mixture kernel's own computation — so
+        the component curves plus the background stack onto the total curve.
+
+        Returns None for atomic models and '*' mixtures (where part curves
+        would not stack to the total and would mislead when overlaid).
+        Evaluation happens on the same masked q-points as the total curve.
+        """
+        components = self._param_manager.get_components()
+        if not components:
+            return None
+
+        # '*' mixtures: part intensities multiply, so additive component
+        # curves are meaningless. Documented no-op.
+        operation = getattr(self.kernel.info, 'operation', '+')
+        if operation != '+':
+            return None
+
+        canonical_values = self._param_manager.get_canonical_param_values()
+        global_scale = canonical_values.get('scale', 1.0)
+
+        # Active polydispersity settings, keyed by canonical base names.
+        pd_settings: dict[str, dict[str, Any]] = {}
+        if self._param_manager.is_pd_enabled():
+            for base_param in self._param_manager.get_polydisperse_parameters():
+                pd_config = self._param_manager.polydisperse_params[base_param]
+                if pd_is_active(pd_config):
+                    pd_settings[base_param] = pd_config
+
+        curves: dict[str, np.ndarray] = {}
+        for prefix, moniker, part_name in components:
+            # Label: moniker, with the model name appended when they differ;
+            # on the raw-string path moniker == prefix ('A: dab').
+            if moniker == prefix and moniker != part_name:
+                label = f'{prefix}: {part_name}'
+            elif moniker != part_name:
+                label = f'{moniker} ({part_name})'
+            else:
+                label = moniker
+
+            part_kernel = load_model(part_name, dtype='single', platform='dll')
+            calculator = DirectModel(self.data, part_kernel)
+
+            # Map fitted values by stripping the component prefix; fold in
+            # active PD settings the same way the posterior evaluator does.
+            part_pars: dict[str, Any] = {}
+            prefix_marker = f'{prefix}_'
+            for canonical, value in canonical_values.items():
+                if canonical.startswith(prefix_marker):
+                    stripped = canonical[len(prefix_marker) :]
+                    part_pars[stripped] = value
+            # The part's own scale slot gets the component scale; background
+            # is excluded from component curves (shown implicitly in total).
+            part_scale = canonical_values.get(f'{prefix}_scale', 1.0)
+            part_pars['scale'] = part_scale
+            part_pars['background'] = 0.0
+            for base_param, pd_config in pd_settings.items():
+                if base_param.startswith(prefix_marker):
+                    stripped = base_param[len(prefix_marker) :]
+                    part_pars[f'{stripped}_pd'] = pd_config['pd']
+                    part_pars[f'{stripped}_pd_n'] = pd_config['pd_n']
+                    part_pars[f'{stripped}_pd_nsigma'] = pd_config['pd_nsigma']
+                    part_pars[f'{stripped}_pd_type'] = pd_config['pd_type']
+
+            curves[label] = global_scale * np.asarray(calculator(**part_pars))
+
+        return curves
+
     def _get_active_fit_contract(self) -> FitResultContract | None:
         """Return the active fit contract, adapting legacy runtime state if needed."""
         if self._fit_contract is not None:
@@ -561,8 +871,8 @@ class SANSFitter:
                 chisq=self.fit_result['chisq'],
                 parameters=self.fit_result['parameters'],
                 artifacts=FitArtifacts(
-                    fitted_curve=np.asarray(self._fitted_model.fitness.theory()),
-                    fit_index=extract_fit_index(self._fitted_model.fitness),
+                    fitted_curve=np.asarray(self._fitted_model.active_model.theory()),
+                    fit_index=extract_fit_index(self._fitted_model.active_model),
                 ),
             )
 
@@ -600,6 +910,8 @@ class SANSFitter:
 
         Raises:
             ValueError: If data or model not loaded, or invalid engine
+            NotImplementedError: If a composite model or parameter links are
+                used with an engine other than 'bumps'.
         """
         if self.data is None:
             raise ValueError('No data loaded. Use load_data() first.')
@@ -609,6 +921,8 @@ class SANSFitter:
         if engine not in ('bumps', 'lmfit'):
             raise ValueError(f"Unknown engine '{engine}'. Use 'bumps' or 'lmfit'.")
 
+        self._check_composite_engine_support(engine)
+        self._check_scale_degeneracy()
         self._check_fit_uncertainties(engine)
 
         if engine == 'bumps':
@@ -616,6 +930,50 @@ class SANSFitter:
         if not LMFIT_AVAILABLE:
             raise ValueError("scipy is not installed. Use 'bumps' engine or install scipy.")
         return self._fit_lmfit(method or 'leastsq', **kwargs)
+
+    def _check_composite_engine_support(self, engine: str) -> None:
+        """Gate composite models and parameter links to the bumps engine.
+
+        The scipy path would probably work for composites (DirectModel accepts
+        prefixed kwargs) but it is untested; failing loudly beats silently
+        unvalidated results. A model using shared= always presents non-empty
+        linked_params, so no separate gate is needed for it.
+        """
+        if engine == 'bumps':
+            return
+        snapshot = self._param_manager.snapshot_fit_state()
+        if snapshot.linked_params:
+            raise NotImplementedError(
+                "Parameter links are currently supported by the 'bumps' engine only."
+            )
+        if snapshot.components:
+            raise NotImplementedError(
+                "Composite models are currently supported by the 'bumps' engine only."
+            )
+
+    def _check_scale_degeneracy(self) -> None:
+        """Warn when the global scale and a component scale are both free.
+
+        Under a mixture, the total intensity is scale · Σ(part_scale · I_part);
+        varying both the global scale and any component scale is degenerate —
+        only their product is fitted.
+        """
+        varying = self._param_manager.get_varying_params()
+        if 'scale' not in varying:
+            return
+        # Atomic models can expose their own *_scale parameters (broad_peak,
+        # gel_fit, ...) that are not mixture component scales.
+        if not self._param_manager.get_components():
+            return
+        component_scales = [name for name in varying if name.endswith('_scale') and name != 'scale']
+        if component_scales:
+            warnings.warn(
+                "Both the global 'scale' and component scale(s) "
+                f'{", ".join(component_scales)} are varying. Their product is '
+                'what the fit sees, so the split between them is degenerate. '
+                'Fix one of them.',
+                stacklevel=3,
+            )
 
     def _check_fit_uncertainties(self, engine: str) -> None:
         """Validate intensity uncertainties (dI) before fitting.
@@ -713,11 +1071,21 @@ class SANSFitter:
 
         Raises:
             ValueError: If data or model is not loaded, or no parameter varies.
+            NotImplementedError: If a composite model or parameter links are
+                used — the DREAM path does not support them yet.
         """
         if self.data is None:
             raise ValueError('No data loaded. Use load_data() first.')
         if self.kernel is None:
             raise ValueError('No model loaded. Use set_model() first.')
+
+        snapshot = self._param_manager.snapshot_fit_state()
+        if snapshot.linked_params or snapshot.components:
+            raise NotImplementedError(
+                'Composite models and parameter links are currently supported '
+                "by the 'bumps' point-estimate engine only (fit(engine='bumps'))."
+            )
+        self._check_scale_degeneracy()
 
         engine_output = fit_bumps_dream(
             data=self.data,
@@ -870,6 +1238,7 @@ class SANSFitter:
         show_residuals: bool = True,
         log_scale: bool = True,
         show: bool | None = None,
+        show_components: bool = False,
     ) -> Figure:
         """
         Plot experimental data and fitted model.
@@ -881,6 +1250,9 @@ class SANSFitter:
                 return it. The default (None) displays the figure except in
                 Jupyter notebooks, where the returned figure is rendered by
                 the notebook itself (avoids showing the plot twice).
+            show_components: If True and the fitted model is a '+' mixture,
+                overlay one dashed curve per component (labelled by moniker).
+                A documented no-op for atomic models and '*' mixtures.
 
         Returns:
             Plotly Figure object
@@ -892,6 +1264,7 @@ class SANSFitter:
             show_residuals=show_residuals,
             log_scale=log_scale,
             show=show,
+            show_components=show_components,
         )
 
     def save_results(self, filename: str) -> None:

@@ -4,6 +4,27 @@ from typing import Any
 import numpy as np
 
 
+def default_parameter_bounds(default: float, limits: tuple[float, float]) -> tuple[float, float]:
+    """Finite, sign-permissive fallback bounds for a kernel parameter.
+
+    Finite declared limits are kept as-is. Each infinite side of a
+    ``(-inf, inf)``-style declaration is replaced by a range derived from the
+    default value: ``default ± max(10·|default|, 1.0)``, with the lower side
+    additionally capped at 0 so SLD-like parameters can go negative. This
+    guarantees a non-degenerate range even for zero-default parameters.
+
+    Note: this is a deliberate policy — parameters whose old fallback produced
+    ``[0, 10·default]`` now get sign-permissive ranges; users who relied on
+    the implicit positivity should set explicit bounds via ``set_param``.
+    """
+    lo, hi = limits
+    if not np.isfinite(lo):
+        lo = min(0.0, default - max(10 * abs(default), 1.0))
+    if not np.isfinite(hi):
+        hi = default + max(10 * abs(default), 1.0)
+    return lo, hi
+
+
 class StructureFactorManager:
     """Manage structure factor state and form-factor parameter backups."""
 
@@ -70,10 +91,11 @@ class StructureFactorManager:
             if param.name in self._form_factor_params:
                 new_params[param.name] = dict(self._form_factor_params[param.name])
             else:
+                lo, hi = default_parameter_bounds(param.default, param.limits)
                 new_params[param.name] = {
                     'value': param.default,
-                    'min': param.limits[0] if param.limits[0] > -np.inf else 0,
-                    'max': param.limits[1] if param.limits[1] < np.inf else param.default * 10,
+                    'min': lo,
+                    'max': hi,
                     'vary': False,
                     'description': param.description,
                 }

@@ -152,7 +152,13 @@ class PolydispersityManager:
             if pd_config.get('vary', False)
         ]
 
-    def display(self) -> None:
+    def display(self, name_map: dict[str, str] | None = None) -> None:
+        """Print the polydispersity table.
+
+        Args:
+            name_map: Optional canonical-to-display name translation, used on
+                the ``set_models`` path where parameters carry alias names.
+        """
         if not self._param_names:
             print('No polydisperse parameters available for this model.')
             return
@@ -162,15 +168,16 @@ class PolydispersityManager:
         print(f'Polydispersity Status: {status}')
         print(f'{"=" * 90}')
         print(
-            f'{"Parameter":<15} {"Width":<10} {"N Points":<10} {"N Sigma":<10} {"Type":<12} {"Vary":<8}'
+            f'{"Parameter":<20} {"Width":<10} {"N Points":<10} {"N Sigma":<10} {"Type":<12} {"Vary":<8}'
         )
         print(f'{"-" * 90}')
 
         for param_name in self._param_names:
             pd_config = self._params[param_name]
+            display_name = (name_map or {}).get(param_name, param_name)
             vary_str = '✓' if pd_config.get('vary', False) else '✗'
             print(
-                f'{param_name:<15} {pd_config["pd"]:<10.4g} {pd_config["pd_n"]:<10} '
+                f'{display_name:<20} {pd_config["pd"]:<10.4g} {pd_config["pd_n"]:<10} '
                 f'{pd_config["pd_nsigma"]:<10.4g} {pd_config["pd_type"]:<12} {vary_str:<8}'
             )
         print(f'{"=" * 90}\n')
