@@ -14,6 +14,7 @@ A flexible, model-agnostic Python template for fitting Small-Angle Neutron Scatt
 - **Model-Agnostic Design**: Works with any model from the SasModels library (cylinder, sphere, core_shell, etc.)
 - **Multiple Fitting Engines**: Supports both BUMPS (default) and LMFit optimization engines
 - **Flexible Data Loading**: Reads CSV, XML, and HDF5 formats via sasdata
+- **Example Data Built In**: A curated set of ready-to-fit datasets plus a simulator that generates data  — `examples.load_fitter('silica_spheres')` or `examples.simulate('sphere', radius=50)`
 - **Q-Range Restriction**: Fit only a chosen [qmin, qmax] window (e.g. trim beam-stop or background-dominated points)
 - **Dataset Arithmetic**: Add, subtract, multiply, and divide datasets (or scale by constants) with propagated uncertainties via `data_ops` — e.g. background subtraction and transmission correction before fitting
 - **User-Friendly Parameter Management**: Easy-to-use interface for setting parameter values, bounds, and fitting flags
@@ -55,6 +56,28 @@ pixi run run-demo
 ```
 
 ## Quick Start
+
+No data of your own yet? Start from a bundled example:
+
+```python
+from sans_fitter import examples
+
+examples.describe()                              # see what's available
+fitter = examples.load_fitter('silica_spheres')  # data + model + parameters
+result = fitter.fit()
+fitter.plot_results()
+```
+
+Or simulate data, so you can check the fit recovers it:
+
+```python
+data = examples.simulate('sphere', radius=50, noise=0.02, seed=0)
+data.truth['radius']    # 50.0
+```
+
+See the [Example Data guide](docs/examples.md) for the full collection.
+
+With your own data:
 
 ```python
 from sans_fitter import SANSFitter

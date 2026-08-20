@@ -142,7 +142,7 @@ def fit_bumps(
         chisq=problem.chisq(),
         parameters=result_parameters,
         artifacts=FitArtifacts(
-            fitted_curve=np.asarray(problem.fitness.theory()),
+            fitted_curve=np.asarray(experiment.theory()),
             fit_index=extract_fit_index(experiment),
             raw_result=result,
             runtime_handle=problem,
@@ -355,7 +355,7 @@ def fit_bumps_dream(
     # whatever point DREAM evaluated last, not the best one.
     point_estimate = np.asarray(result.x, dtype=float)
     problem.setp(point_estimate)
-    fitted_curve = np.asarray(problem.fitness.theory())
+    fitted_curve = np.asarray(experiment.theory())
     chisq = problem.chisq()
 
     posterior = _extract_posterior(state, labels, point_estimate)

@@ -17,5 +17,6 @@ __all__ = [
     'get_all_models',
     'FitResultContract',
     'data_ops',
+    'examples',
     'PosteriorSummary',
 ]

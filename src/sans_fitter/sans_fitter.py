@@ -867,8 +867,8 @@ class SANSFitter:
                 chisq=self.fit_result['chisq'],
                 parameters=self.fit_result['parameters'],
                 artifacts=FitArtifacts(
-                    fitted_curve=np.asarray(self._fitted_model.fitness.theory()),
-                    fit_index=extract_fit_index(self._fitted_model.fitness),
+                    fitted_curve=np.asarray(self._fitted_model.active_model.theory()),
+                    fit_index=extract_fit_index(self._fitted_model.active_model),
                 ),
             )
 

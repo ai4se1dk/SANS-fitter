@@ -94,6 +94,27 @@ objects.
         - divide
 
 
+## examples
+
+Curated example datasets and a simulator for generating data.
+See the [Example Data](examples.md) guide for the full collection.
+
+::: sans_fitter.examples
+    options:
+      show_root_heading: true
+      show_source: true
+      members:
+        - list_examples
+        - describe
+        - get_example
+        - example_path
+        - load
+        - load_fitter
+        - simulate
+        - simulate_pair
+        - Example
+
+
 ## ParameterManager
 
 Internal class for managing model parameters and polydispersity settings.
