@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any
 
 PD_DEFAULTS = {
     'pd': 0.0,
@@ -18,7 +18,7 @@ class PolydispersityManager:
         self._param_names: list[str] = []
         self._params: dict[str, dict[str, Any]] = {}
         self._enabled = False
-        self._backup: Optional[dict[str, Any]] = None
+        self._backup: dict[str, Any] | None = None
 
     @property
     def param_names(self) -> list[str]:
@@ -45,11 +45,11 @@ class PolydispersityManager:
         self._enabled = value
 
     @property
-    def backup_state(self) -> Optional[dict[str, Any]]:
+    def backup_state(self) -> dict[str, Any] | None:
         return self._backup
 
     @backup_state.setter
-    def backup_state(self, value: Optional[dict[str, Any]]) -> None:
+    def backup_state(self, value: dict[str, Any] | None) -> None:
         self._backup = value
 
     def initialize(self, param_names: list[str]) -> None:
@@ -75,11 +75,11 @@ class PolydispersityManager:
     def set_param(
         self,
         base_param: str,
-        pd_width: Optional[float] = None,
-        pd_n: Optional[int] = None,
-        pd_nsigma: Optional[float] = None,
-        pd_type: Optional[str] = None,
-        vary: Optional[bool] = None,
+        pd_width: float | None = None,
+        pd_n: int | None = None,
+        pd_nsigma: float | None = None,
+        pd_type: str | None = None,
+        vary: bool | None = None,
     ) -> None:
         if base_param not in self._param_names:
             available = ', '.join(self._param_names)
@@ -152,7 +152,7 @@ class PolydispersityManager:
             if pd_config.get('vary', False)
         ]
 
-    def display(self, name_map: Optional[dict[str, str]] = None) -> None:
+    def display(self, name_map: dict[str, str] | None = None) -> None:
         """Print the polydispersity table.
 
         Args:

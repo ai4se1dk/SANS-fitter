@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 
 @dataclass(slots=True)
@@ -16,7 +16,7 @@ class ParameterStateSnapshot:
     polydisperse_params: dict[str, dict[str, Any]]
     pd_enabled: bool
     radius_effective_mode: str
-    structure_factor_name: Optional[str]
+    structure_factor_name: str | None
     varying_params: list[str]
     varying_pd_params: list[str]
     # Equality links (follower -> target), canonical names. Populated by

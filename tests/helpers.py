@@ -65,7 +65,9 @@ def create_decay_data_file(num_points=30):
     intensity = 0.1 * (1 / (1 + q_values**2)) + 0.01
     d_intensity = intensity * 0.1
 
-    for q_value, intensity_value, d_intensity_value in zip(q_values, intensity, d_intensity):
+    for q_value, intensity_value, d_intensity_value in zip(
+        q_values, intensity, d_intensity, strict=True
+    ):
         temp_file.write(f'{q_value},{intensity_value},{d_intensity_value}\n')
 
     temp_file.close()
@@ -85,7 +87,9 @@ def create_concentrated_sphere_data_file(num_points=30):
     intensity = np.maximum(intensity, 0.001)
     d_intensity = intensity * 0.1
 
-    for q_value, intensity_value, d_intensity_value in zip(q_values, intensity, d_intensity):
+    for q_value, intensity_value, d_intensity_value in zip(
+        q_values, intensity, d_intensity, strict=True
+    ):
         temp_file.write(f'{q_value},{intensity_value},{d_intensity_value}\n')
 
     temp_file.close()

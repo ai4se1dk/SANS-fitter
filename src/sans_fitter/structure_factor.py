@@ -1,5 +1,5 @@
 import warnings
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 
@@ -29,16 +29,16 @@ class StructureFactorManager:
     """Manage structure factor state and form-factor parameter backups."""
 
     def __init__(self) -> None:
-        self._name: Optional[str] = None
+        self._name: str | None = None
         self._radius_effective_mode = 'unconstrained'
         self._form_factor_params: dict[str, dict[str, Any]] = {}
 
     @property
-    def name(self) -> Optional[str]:
+    def name(self) -> str | None:
         return self._name
 
     @name.setter
-    def name(self, value: Optional[str]) -> None:
+    def name(self, value: str | None) -> None:
         self._name = value
 
     @property

@@ -10779,7 +10779,7 @@ packages:
 - pypi: ./
   name: sans-fitter
   requires_dist:
-  - numpy>=1.20
+  - numpy>=2.0
   - plotly>=5.0
   - scipy>=1.7
   - sasmodels>=1.0

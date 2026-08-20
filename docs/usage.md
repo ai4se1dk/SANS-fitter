@@ -186,6 +186,87 @@ normalizes it so it is fit-ready.
 See `examples/data_operations_example.py` and
 `notebooks/data_operations_demo.ipynb` for a complete walkthrough.
 
+### P(r) Inversion
+
+The `sans_fitter.pr_inversion` module recovers the real-space pair distance
+distribution function P(r) from I(q) by indirect Fourier transform (Moore's
+sine-basis expansion, as in SasView's Inversion perspective). It is
+**model-free** — no sasmodels kernel is involved — and operates directly on
+datasets (`fitter.data` or `data_ops` results). Typical use: monodisperse
+protein solutions, where P(r) yields D_max, Rg and I(0) without assuming a
+form factor.
+
+For buffer-subtracted data (the usual protein case), pass
+`fit_background=False` — the default fitted flat background can absorb I(0)
+and bias Rg on already-subtracted data. Explore D_max **before** trusting an
+inversion: every result is conditional on it.
+
+```python
+from sans_fitter import data_ops, pr_inversion
+
+data = data_ops.load('protein.csv')
+
+# 1. Find a stable D_max: look for the Rg/I(0) plateau and chi2 minimum
+scan = pr_inversion.explore_dmax(data, d_max=120.0, fit_background=False)
+scan.plot()                    # or scan.plot(quantity='all'), scan.format_summary()
+
+# 2. One-shot inversion with automatic selection of n_terms and alpha
+result = pr_inversion.auto_invert(data, d_max=120.0, fit_background=False)
+print(result.format_summary())  # Rg, I(0), oscillations, positivity, diagnostics
+
+# 3. Plots and export
+result.plot_pr()               # P(r) with its 1-sigma band
+result.plot_fit(data)          # data vs fit, residuals (data passed explicitly)
+result.save_csv('pr_result.csv')
+```
+
+Explicit control is available through the individual functions:
+
+| Function | Result |
+|---|---|
+| `invert(data, d_max, n_terms=10, alpha=0.0, fit_background=True, background=0.0, r_points=101, regularizer='corrected')` | Core inversion → `PrResult` |
+| `estimate_n_terms(data, d_max, fit_background=True, ..., background=0.0)` | `NTermsEstimate(n_terms, alpha, message)`; its `alpha` is authoritative — use it directly |
+| `estimate_alpha(data, d_max, n_terms, fit_background=True, ..., background=0.0)` | `AlphaEstimate(alpha, message)` |
+| `auto_invert(data, d_max, ...)` | `estimate_n_terms` → `invert`, silent |
+| `explore_dmax(data, d_max, ..., refit_alpha=False, background=0.0)` | `DmaxScan` over 0.9–1.1×d_max (25 points); raises when every point fails |
+
+When working with a known fixed background (`fit_background=False`), pass the
+same `background` value to the estimators and `explore_dmax` too — the
+selection and the scan then operate on exactly the problem the final
+inversion solves (`auto_invert` does this automatically).
+
+Things to know:
+
+- **P(r) can go negative.** The fit is unconstrained (unlike GNOM/ATSAS);
+  the `positive_fraction` diagnostics quantify how positive the result is.
+- **alpha and n_terms are heuristics, not physics.** `estimate_alpha`
+  descends from a norm-balance suggestion and stops at spurious structure or
+  the discrepancy principle (chi-squared per point near 1); `estimate_n_terms`
+  prefers the smallest N that fits the data with a significantly positive
+  P(r). Always inspect `format_summary()`.
+- **Missing dI** triggers fabricated uncertainties
+  (`max(0.05*|I|, 0.01*median|I|)`), a warning, and an
+  `uncertainties_fabricated` flag on the result — chi-squared diagnostics are
+  then not interpretable.
+- **Q range is honoured**: the inversion uses the same accepted-point rule as
+  the fit engines, so `fitter.set_q_range()` restricts it identically.
+- **Shannon limits are checked**: warnings fire when `d_max > pi/q_min` or
+  `n_terms` exceeds `q_max*d_max/pi` (the data cannot support either).
+- **Slit smearing is not supported** (a warning fires on slit-smeared data);
+  pinhole dQ resolution is ignored, as in SasView.
+- **`regularizer='sasview'`** reproduces SasView's exact smoothing operator
+  for comparison; the default `'corrected'` penalizes the true second
+  derivative on a resolved grid (validated against SasView — identical for
+  spheres, and it remains reliable above 20 terms where SasView's fixed
+  20-point penalty grid degrades).
+- **Uncertainties are conditional**: the covariance (and the P(r) band)
+  assumes known Gaussian errors at the chosen alpha and D_max, and is biased
+  by the regularization. The summary's "approx. chi2 per residual dof" uses
+  the regularization-aware effective dof, not the parameter count.
+
+See `examples/pr_inversion_example.py` and
+`notebooks/pr_inversion_demo.ipynb` for a complete walkthrough.
+
 ### Structure Factors
 
 You can combine a form factor with a structure factor to model interacting systems.

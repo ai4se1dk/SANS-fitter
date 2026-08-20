@@ -94,6 +94,29 @@ objects.
         - divide
 
 
+## pr_inversion
+
+Model-free P(r) inversion (indirect Fourier transform): recover the pair
+distance distribution function from I(q), with automatic parameter
+estimation and D_max exploration.
+
+::: sans_fitter.pr_inversion
+    options:
+      show_root_heading: true
+      show_source: true
+      members:
+        - invert
+        - auto_invert
+        - estimate_alpha
+        - estimate_n_terms
+        - explore_dmax
+        - PrResult
+        - DmaxScan
+        - AlphaEstimate
+        - NTermsEstimate
+        - InsufficientDataError
+        - PrEstimationError
+
 ## examples
 
 Curated example datasets and a simulator for generating data.

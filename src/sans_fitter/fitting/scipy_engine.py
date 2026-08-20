@@ -111,7 +111,7 @@ def fit_scipy(
             param_errors = np.zeros_like(fitted_params)
         chisq = np.sum(result.fun**2)
     elif method == 'differential_evolution':
-        bounds_list = list(zip(bounds_lower, bounds_upper))
+        bounds_list = list(zip(bounds_lower, bounds_upper, strict=True))
 
         def objective(x: np.ndarray) -> np.floating[Any]:
             return np.sum(residual(x) ** 2)
