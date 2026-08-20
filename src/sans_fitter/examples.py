@@ -7,9 +7,9 @@ Two complementary ways to get data without hunting for a file:
 with the model that fits each one and sensible starting parameters::
 
     >>> from sans_fitter import examples
-    >>> examples.describe()                  # what is available
-    >>> data = examples.load('cylinder')     # fit-ready Data1D
-    >>> fitter = examples.load_fitter('cylinder')   # data + model + parameters
+    >>> examples.describe()                        # what is available
+    >>> data = examples.load('silica_spheres')     # fit-ready Data1D
+    >>> fitter = examples.load_fitter('silica_spheres')  # data + model + parameters
     >>> result = fitter.fit()
 
 The files themselves are **not** vendored into this package. They live inside
@@ -410,7 +410,7 @@ def list_examples(tag: str | None = None) -> list[str]:
     Args:
         tag: Only return examples carrying this tag (e.g. ``'measured'``,
             ``'simulated'``, ``'structure-factor'``, ``'polydispersity'``,
-            ``'resolution'``, ``'fast'``).
+            ``'resolution'``).
 
     Returns:
         Sorted example names.
@@ -469,7 +469,7 @@ def load_fitter(name: str, quiet: bool = True) -> SANSFitter:
     suggested starting parameters — so a tutorial reaches ``fitter.fit()`` in
     one line::
 
-        >>> fitter = examples.load_fitter('cylinder')
+        >>> fitter = examples.load_fitter('silica_spheres')
         >>> result = fitter.fit()
 
     The starting parameters are coarse values chosen to put the model in the

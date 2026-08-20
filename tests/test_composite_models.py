@@ -542,8 +542,14 @@ class TestSharedParameters(unittest.TestCase):
         fitter.set_param('small_radius', value=20.0, vary=True)
         fitter.set_param('scale', value=0.1, vary=True)
         fitter.fit(engine='bumps', method='amoeba')
-        # The shared alias carries the fitted value.
+        # The shared alias carries the fitted value: it moved off its start
+        # and matches every canonical entry it drives.
         self.assertIn('sld', fitter.params)
+        fitted_sld = fitter.params['sld']['value']
+        self.assertNotEqual(fitted_sld, 4.0)
+        snap = fitter._param_manager.snapshot_fit_state()
+        self.assertEqual(snap.params['A_sld']['value'], fitted_sld)
+        self.assertEqual(snap.params['B_sld']['value'], fitted_sld)
 
 
 class TestSharedLinkInteraction(unittest.TestCase):
@@ -696,9 +702,89 @@ class TestCompositePlotting(unittest.TestCase):
         fitter.fit(engine='bumps', method='amoeba')
         with patch('plotly.graph_objects.Figure.show'):
             fig = fitter.plot_results(show_components=True, show=False)
-        # No component traces added for an atomic model.
-        names = [trace.name for trace in fig.data]
-        self.assertNotIn('sphere', [n for n in names if n and ':' in str(n)])
+        # No component traces added for an atomic model: the figure holds
+        # exactly the standard traces (excluded-point trace optional).
+        names = {trace.name for trace in fig.data if trace.name}
+        self.assertEqual(
+            names - {'Excluded Data'},
+            {'Experimental Data', 'Fitted Model', 'Residuals'},
+        )
+
+
+class TestCompositeGuards(unittest.TestCase):
+    """Guards against silent state corruption in the alias/link machinery."""
+
+    def setUp(self):
+        self.data = make_composite_data(expression='sphere+sphere')
+
+    def test_shared_global_scale_or_background_raises(self):
+        # shared=['scale'] would collapse the component scales onto the global
+        # entry and silently drop the global scale from the fit.
+        for name in ('scale', 'background'):
+            fitter = SANSFitter()
+            fitter.set_data(self.data)
+            with self.assertRaises(ValueError) as ctx:
+                fitter.set_models(small='sphere', large='sphere', shared=[name])
+            self.assertIn(name, str(ctx.exception))
+
+    def test_moniker_shadowing_canonical_prefix_raises(self):
+        # Monikers reusing sasmodels' A/B prefix letters in a different order
+        # make aliases shadow unrelated canonical names, which would
+        # cross-wire fitted values between components.
+        fitter = SANSFitter()
+        fitter.set_data(make_composite_data(expression='sphere+cylinder'))
+        with self.assertRaises(ValueError) as ctx:
+            fitter.set_models(B='sphere', A='cylinder')
+        self.assertIn('shadow', str(ctx.exception).lower())
+
+    def test_monikers_matching_prefix_order_allowed(self):
+        # Monikers equal to the canonical prefixes in the same order shadow
+        # nothing and stay valid.
+        fitter = SANSFitter()
+        fitter.set_data(make_composite_data(expression='sphere+cylinder'))
+        fitter.set_models(A='sphere', B='cylinder')
+        self.assertIn('A_radius', fitter.params)
+        self.assertIn('B_radius', fitter.params)
+
+    def test_stale_link_pruned_on_structure_factor_removal(self):
+        fitter = SANSFitter()
+        fitter.set_data(self.data)
+        fitter.set_model('sphere')
+        fitter.set_structure_factor('hardsphere')
+        fitter.link_params('radius_effective', to='radius')
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            fitter.remove_structure_factor()
+        self.assertTrue(any('link' in str(w.message).lower() for w in caught))
+        # The phantom link is gone and no longer blocks link-free engines.
+        self.assertEqual(fitter.get_links(), {})
+        snap = fitter._param_manager.snapshot_fit_state()
+        self.assertEqual(snap.linked_params, {})
+        with self.assertRaises(ValueError):
+            fitter.unlink_params('radius')
+
+    def test_unlink_then_refit(self):
+        fitter = SANSFitter()
+        fitter.set_data(self.data)
+        fitter.set_models(small='sphere', large='sphere')
+        fitter.link_params('large_sld', to='small_sld')
+        fitter.set_param('small_radius', value=20.0, vary=True)
+        fitter.fit(engine='bumps', method='amoeba')
+        fitter.unlink_params('large_sld')
+        self.assertEqual(fitter.get_links(), {})
+        result = fitter.fit(engine='bumps', method='amoeba')
+        self.assertIsNotNone(result)
+
+    def test_link_to_fixed_target_mirrors_value(self):
+        fitter = SANSFitter()
+        fitter.set_data(self.data)
+        fitter.set_models(small='sphere', large='sphere')
+        fitter.set_param('small_sld', value=3.5, vary=False)
+        fitter.link_params('large_sld', to='small_sld')
+        self.assertEqual(fitter.params['large_sld']['value'], 3.5)
+        fitter.set_param('small_radius', value=20.0, vary=True)
+        fitter.fit(engine='bumps', method='amoeba')
+        self.assertEqual(fitter.params['large_sld']['value'], fitter.params['small_sld']['value'])
 
 
 if __name__ == '__main__':

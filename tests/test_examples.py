@@ -31,6 +31,23 @@ def _valid_parameter_names(model_name: str) -> set:
 # =============================================================================
 
 
+class TestPackageImportSurface:
+    """The examples submodule is part of the package's public surface."""
+
+    def test_examples_is_bound_on_the_package(self):
+        import sans_fitter
+
+        assert sans_fitter.examples is examples
+
+    def test_star_import_provides_every_all_entry(self):
+        import sans_fitter
+
+        namespace: dict = {}
+        exec('from sans_fitter import *', namespace)
+        missing = [name for name in sans_fitter.__all__ if name not in namespace]
+        assert missing == []
+
+
 class TestRegistry:
     def test_registry_is_not_empty(self):
         assert len(ALL_EXAMPLES) > 0
@@ -271,8 +288,20 @@ class TestSimulate:
         assert not np.array_equal(a.y, b.y)
 
     def test_noise_zero_is_exact(self):
-        data = examples.simulate('sphere', noise=0)
+        data = examples.simulate('sphere', noise=0, seed=3)
         assert np.all(data.dy == 0)
+        # y is the deterministic model evaluation: the seed is irrelevant and
+        # an independent sasmodels evaluation of the recorded truth
+        # reproduces it.
+        again = examples.simulate('sphere', noise=0, seed=99)
+        np.testing.assert_array_equal(data.y, again.y)
+
+        from sasmodels.data import empty_data1D
+        from sasmodels.direct_model import DirectModel
+
+        template = empty_data1D(np.asarray(data.x))
+        calculator = DirectModel(template, load_model('sphere', dtype='single', platform='dll'))
+        np.testing.assert_allclose(data.y, np.asarray(calculator(**data.truth)), rtol=1e-6)
 
     def test_uncertainties_do_not_collapse_in_the_minima(self):
         """The regression that made a simulated sphere fit to the wrong radius.

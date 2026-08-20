@@ -345,13 +345,17 @@ class ParameterManager:
 
         Engine results carry canonical names; they are translated back through
         the reverse alias map before write-back so a fitted ``A_sld`` lands on
-        the user-facing ``sld`` entry.
+        the user-facing ``sld`` entry. The reverse map is consulted *before*
+        the raw ``params`` membership check: on the alias path ``params`` is
+        keyed by aliases, and an alias may equal an unrelated canonical name
+        (moniker shadowing a sasmodels prefix) — the canonical spelling of an
+        engine result must never be mistaken for such an alias.
         """
         for name, value in fitted_values.items():
-            if name in self.params:
-                self.set_param(name, value=value)
-            elif name in self._canonical_to_alias:
+            if name in self._canonical_to_alias:
                 self.set_param(self._canonical_to_alias[name], value=value)
+            elif name in self.params:
+                self.set_param(name, value=value)
             elif name.endswith('_pd'):
                 base_param = name[:-3]
                 # PD state is keyed by canonical names end-to-end; no reverse
@@ -430,7 +434,9 @@ class ParameterManager:
             KeyError: If the name does not exist.
             ValueError: If the parameter is not a follower.
         """
-        follower = self.resolve_name(name)
+        # Accept a raw link key first so a link can always be removed, even if
+        # its follower no longer resolves to a live parameter.
+        follower = name if name in self._links else self.resolve_name(name)
         if follower not in self._links:
             raise ValueError(f"Parameter '{name}' is not linked to another parameter.")
         del self._links[follower]
@@ -512,6 +518,20 @@ class ParameterManager:
                     'Choose distinct monikers.'
                 )
             alias_to_canonical[alias] = canonical
+
+        # Reject aliases that shadow an unrelated canonical name (e.g.
+        # set_models(B='sphere', A='cylinder') maps prefix A -> moniker "B",
+        # so the alias 'B_radius' equals the cylinder's canonical name).
+        # Such shadowing makes name resolution ambiguous and would cross-wire
+        # fitted values between components.
+        for alias, canonical in alias_to_canonical.items():
+            if alias in self.params and alias != canonical:
+                raise ValueError(
+                    f"Component moniker produces the alias '{alias}', which shadows "
+                    f"the canonical parameter '{alias}' of another component "
+                    f"(the alias maps to '{canonical}'). Choose monikers that do "
+                    "not reuse sasmodels' A/B/C prefix letters in a different order."
+                )
 
         # Shared parameters: one-to-many, must exist in >= 2 components.
         shared_to_canonicals: dict[str, list[str]] = {}
@@ -701,6 +721,19 @@ class ParameterManager:
             for name in sorted(shared_names):
                 if name in self.params:
                     print('  ' + entry_line(name, self.params[name]))
+        # Assign each parameter to the component with the longest matching
+        # moniker prefix, so 'sphere_big_radius' files under a 'sphere_big'
+        # moniker rather than also matching a plain 'sphere' moniker.
+        monikers_by_length = sorted(
+            (moniker for _prefix, moniker, _part in self._components), key=len, reverse=True
+        )
+
+        def owning_moniker(name: str) -> str | None:
+            for candidate in monikers_by_length:
+                if name.startswith(f'{candidate}_'):
+                    return candidate
+            return None
+
         for _prefix, moniker, part_name in self._components:
             label = moniker if moniker == part_name else f'{moniker} ({part_name})'
             print(f'{label}:')
@@ -711,7 +744,7 @@ class ParameterManager:
                 # after register_aliases, and moniker == prefix on the raw
                 # set_model path. Also matching the prefix would misfile
                 # params when one component's moniker equals another's prefix.
-                if name.startswith(f'{moniker}_'):
+                if owning_moniker(name) == moniker:
                     print('  ' + entry_line(name, info))
         print(f'{"=" * 80}\n')
 
@@ -783,6 +816,7 @@ class ParameterManager:
             re_mode=radius_effective_mode,
             current_params=self.params,
         )
+        self._prune_stale_links()
 
     def remove_structure_factor(self) -> str:
         """
@@ -797,7 +831,28 @@ class ParameterManager:
         sf_name, restored_params = self._sf_manager.remove()
         self.params = restored_params
         self.restore_pd_state()
+        self._prune_stale_links()
         return sf_name
+
+    def _prune_stale_links(self) -> None:
+        """Drop equality links whose follower or target left ``params``.
+
+        Called after every params rebuild (applying/removing a structure
+        factor). Without this, a stale link survives as a phantom entry that
+        cannot be unlinked and keeps blocking link-free engines.
+        """
+        stale = [
+            follower
+            for follower, target in self._links.items()
+            if follower not in self.params or target not in self.params
+        ]
+        for follower in stale:
+            target = self._links.pop(follower)
+            warnings.warn(
+                f"Removed parameter link '{follower}' -> '{target}': one of the "
+                'parameters no longer exists after the model change.',
+                stacklevel=3,
+            )
 
     def get_structure_factor(self) -> str | None:
         """

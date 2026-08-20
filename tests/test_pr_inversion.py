@@ -348,7 +348,13 @@ class TestSasViewCompatibility(unittest.TestCase):
     """The 'sasview' regularizer reproduces SasView's matrix, formula for formula."""
 
     def test_reg_block_matches_sasview_formula(self):
-        """In-process reimplementation of Invertor._get_matrix's penalty rows."""
+        """Pinned oracle for Invertor._get_matrix's penalty rows.
+
+        The expected values are frozen literals (computed once from SasView's
+        formula at d_max=120, 20 penalty rows), so this check is independent
+        of the implementation's own operator code — a formula change fails
+        against the pinned numbers rather than against a mirrored formula.
+        """
         d_max, n_terms = 120.0, 6
         q = np.geomspace(0.01, 0.2, 25)
         sigma = np.full(q.size, 0.5)
@@ -356,15 +362,45 @@ class TestSasViewCompatibility(unittest.TestCase):
             q, np.ones(q.size), sigma, d_max, n_terms, True, 'sasview'
         )
         n_reg = pri.SASVIEW_N_REG
-        expected = np.zeros((n_reg, n_terms + 1))
-        for m in range(n_reg):
-            r_m = d_max / n_reg * m
-            for j in range(n_terms):
-                k = np.pi * (j + 1) / d_max
-                expected[m, j + 1] = (
-                    2.0 * (d_max / n_reg) * k * (2.0 * np.cos(k * r_m) + k * r_m * np.sin(k * r_m))
-                )
-        np.testing.assert_allclose(reg_unit, expected, rtol=1e-12)
+        self.assertEqual(reg_unit.shape, (n_reg, n_terms + 1))
+        # The background column is never penalized.
+        np.testing.assert_allclose(reg_unit[:, 0], 0.0, atol=0.0)
+        expected_rows = {
+            0: [
+                0.628318530718,
+                1.25663706144,
+                1.88495559215,
+                2.51327412287,
+                3.14159265359,
+                3.76991118431,
+            ],
+            1: [
+                0.628302618393,
+                1.25613037565,
+                1.88113952896,
+                2.49737810996,
+                3.09379949403,
+                3.65314018047,
+            ],
+            7: [
+                0.593036510695,
+                0.379222144157,
+                -2.34809174057,
+                -6.03311329968,
+                -3.8850647056,
+                7.42824171218,
+            ],
+            19: [
+                -0.473907989929,
+                0.0361801805728,
+                2.1514964419,
+                -6.78455455071,
+                14.3533610051,
+                -25.0916994972,
+            ],
+        }
+        for m, values in expected_rows.items():
+            np.testing.assert_allclose(reg_unit[m, 1:], values, rtol=1e-9)
 
     def test_data_block_matches_sasview_formula(self):
         d_max, n_terms = 120.0, 4
@@ -880,6 +916,48 @@ class TestPlots(unittest.TestCase):
     def test_plot_dmax_scan_unknown_quantity(self):
         with self.assertRaises(ValueError):
             plot_dmax_scan(self.scan, quantity='bogus', show=False)
+
+
+class TestUncertaintyBand(unittest.TestCase):
+    """The P(r) 1-sigma band follows the closed form for a 1-term expansion."""
+
+    def test_band_matches_closed_form_for_one_term(self):
+        # With a single coefficient, P(r) = c1*Phi_1(r), so
+        # sigma_P(r) = sqrt(Var(c1)) * |Phi_1(r)| exactly.
+        data = make_synthetic_data('sphere', SPHERE_PARS, SPHERE_Q)
+        result = quiet_invert(data, SPHERE_D_MAX, n_terms=1, alpha=0.0)
+        variance = float(np.asarray(result.coefficient_covariance)[0, 0])
+        r = np.linspace(0.0, SPHERE_D_MAX, 37)
+        basis = 2.0 * r * np.sin(np.pi * r / SPHERE_D_MAX)
+        np.testing.assert_allclose(
+            result.evaluate_pr_err(r), np.sqrt(variance) * np.abs(basis), rtol=1e-10, atol=1e-30
+        )
+
+
+class TestAutoInvertMultimodalWarning(unittest.TestCase):
+    """auto_invert must warn audibly when no scanned N fits the data."""
+
+    def test_warns_on_bimodal_population(self):
+        # Two sphere populations (R=60 and R=15): the estimator's unimodal
+        # peak criterion over-smooths, no N passes the chi-squared gate, and
+        # the fallback pick must surface as a warning, not a debug log.
+        q = np.geomspace(0.005, 0.25, 120)
+        big = _clean_intensity('sphere', SPHERE_PARS, q)
+        # Weight the small population so it contributes comparably to I(q)
+        # (I(0) scales with volume squared, so an unweighted R=15 population
+        # would be invisible next to R=60).
+        small = _clean_intensity('sphere', dict(SPHERE_PARS, radius=15.0, scale=1000.0), q)
+        i_clean = np.asarray(big) + np.asarray(small)
+        rng = np.random.default_rng(7)
+        sigma = 0.02 * np.abs(i_clean)
+        data = normalize_sans_data(Data1D(x=q, y=i_clean + rng.normal(0.0, sigma), dy=sigma))
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            pri.auto_invert(data, d_max=SPHERE_D_MAX)
+        self.assertTrue(
+            any('fit the data' in str(w.message) for w in caught),
+            f'no fallback warning among: {[str(w.message) for w in caught]}',
+        )
 
 
 if __name__ == '__main__':

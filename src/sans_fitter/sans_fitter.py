@@ -350,7 +350,9 @@ class SANSFitter:
         Raises:
             ValueError: If fewer than 2 models are given, the operation is
                 invalid, a moniker is invalid, a shared name is missing from
-                enough components, the generated alias names collide, or an
+                enough components or names a global parameter
+                (``'scale'``/``'background'``), the generated alias names
+                collide or shadow a canonical name, or an
                 entry expands to more than one kernel component (e.g. a
                 nested ``'+'``/``'*'`` expression) — each entry must be a
                 single component so monikers map 1:1; use the raw
@@ -372,6 +374,16 @@ class SANSFitter:
         if len(components) < 2:
             raise ValueError(
                 "set_models() requires at least 2 models. For a single model use set_model('name')."
+            )
+
+        # The global scale/background are shared by every component natively;
+        # letting them through shared= would collapse the per-component
+        # scales onto the global entry and silently drop it from the fit.
+        conflicting = {'scale', 'background'} & set(shared)
+        if conflicting:
+            raise ValueError(
+                f'Cannot share the global parameter(s) {", ".join(sorted(conflicting))}: '
+                "'scale' and 'background' are already shared by every component."
             )
 
         # Validate monikers: valid identifiers and not reserved names.

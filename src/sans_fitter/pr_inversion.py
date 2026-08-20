@@ -5,9 +5,8 @@ Model-free analysis recovering the real-space pair distance distribution
 function P(r) from measured I(q), using Moore's sine-basis expansion
 (J. Appl. Cryst. 13 (1980) 168). This is a Moore-style IFT *inspired by*
 SasView's Inversion perspective, not a numeric port: the regularization
-operator, uncertainty semantics and heuristics are re-derived (see
-``57_Pr_DESIGN.md``), with SasView's exact operator available as
-``regularizer='sasview'`` for comparison.
+operator, uncertainty semantics and heuristics are re-derived, with SasView's
+exact operator available as ``regularizer='sasview'`` for comparison.
 
 Units and conventions: q in 1/Angstrom, r and d_max in Angstrom; intensity in
 whatever units the file uses. P(r) is defined by ``I(0) = 4*pi * integral(P dr)``
@@ -18,7 +17,7 @@ the ``positive_fraction`` diagnostics quantify this.
 Example:
     >>> from sans_fitter import data_ops, pr_inversion
     >>> data = data_ops.load('protein.csv')
-    >>> scan = pr_inversion.explore_dmax(data, d_max=120.0)
+    >>> scan = pr_inversion.explore_dmax(data, d_max=120.0, fit_background=False)
     >>> scan.plot()
     >>> result = pr_inversion.auto_invert(data, d_max=120.0, fit_background=False)
     >>> print(result.format_summary())
@@ -824,6 +823,7 @@ def invert(
         fractions).
 
     Raises:
+        TypeError: If the dataset is not 1D (2D or SESANS data).
         ValueError: For invalid arguments or unusable datasets.
         InsufficientDataError: When too few usable points remain.
     """
@@ -975,6 +975,7 @@ def estimate_alpha(
     regardless of the ``r_points`` used for the final inversion.
 
     Raises:
+        TypeError: If the dataset is not 1D (2D or SESANS data).
         PrEstimationError: When no alpha in the scan yields a solvable
             inversion.
     """
@@ -1076,6 +1077,14 @@ def _estimate_n_terms_prepared(
         median_osc = float(np.median([c[2] for c in bucket]))
         chosen = min(bucket, key=lambda c: (abs(c[2] - median_osc), c[0]))
         criterion = 'most typical oscillation level (no N fit the data)'
+        warnings.warn(
+            'No scanned number of terms fit the data '
+            f'(chi-squared <= {N_TERMS_CHI_FACTOR} per point). The data may not '
+            'support a smooth single-population P(r) at this D_max (for example '
+            'multimodal size distributions); the returned P(r) may fit the data '
+            'poorly. Inspect result.format_summary() and plot_fit() before use.',
+            stacklevel=3,
+        )
     n_chosen, alpha_chosen, osc_chosen, pos_chosen, chisq_chosen = chosen
     return NTermsEstimate(
         n_terms=n_chosen,
@@ -1109,6 +1118,7 @@ def estimate_n_terms(
     regardless of the ``r_points`` used for the final inversion.
 
     Raises:
+        TypeError: If the dataset is not 1D (2D or SESANS data).
         InsufficientDataError: When no N is admissible for the dataset.
         PrEstimationError: When the scan has no acceptable candidate.
     """
@@ -1231,7 +1241,14 @@ def explore_dmax(
     :func:`invert`/:func:`auto_invert`, so the scan explores the same problem
     the final inversion solves.
 
+    Note:
+        The scan suppresses the per-point Shannon-support warnings via the
+        process-global ``warnings`` filter, so it is not thread-safe:
+        inversions running concurrently in other threads may have those
+        warnings swallowed while a scan is in flight.
+
     Raises:
+        TypeError: If the dataset is not 1D (2D or SESANS data).
         ValueError: For an invalid scan range.
         InsufficientDataError / PrEstimationError: From the central estimation
             when ``n_terms``/``alpha`` are not supplied, or when every scan
