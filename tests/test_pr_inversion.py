@@ -20,6 +20,9 @@ from sasmodels.direct_model import DirectModel
 
 from sans_fitter import pr_inversion as pri
 from sans_fitter.data.loader import get_fit_index, normalize_sans_data
+from sans_fitter.inversion import basis as pr_basis
+from sans_fitter.inversion import estimate as pr_estimate
+from sans_fitter.inversion import solver as pr_solver
 from sans_fitter.plotting import plot_dmax_scan, plot_pr_distribution, plot_pr_fit
 
 SPHERE_RADIUS = 60.0
@@ -94,7 +97,7 @@ class TestBasisFunctions(unittest.TestCase):
 
     def test_basis_vanishes_at_endpoints(self):
         for n in (1, 3, 12):
-            values = pri._ortho(120.0, n, np.array([0.0, 120.0]))
+            values = pr_basis._ortho(120.0, n, np.array([0.0, 120.0]))
             np.testing.assert_allclose(values, 0.0, atol=1e-12)
 
     def test_transform_pole_limit(self):
@@ -102,17 +105,17 @@ class TestBasisFunctions(unittest.TestCase):
         for n in (1, 2, 5, 13):
             pole_q = np.pi * n / d_max
             expected = 4.0 * d_max**2 / n
-            at_pole = pri._ortho_transformed(d_max, n, np.array([pole_q]))[0]
+            at_pole = pr_basis._ortho_transformed(d_max, n, np.array([pole_q]))[0]
             self.assertAlmostEqual(at_pole, expected, places=8)
             for eps in (1e-6, -1e-6):
-                near = pri._ortho_transformed(d_max, n, np.array([pole_q * (1 + eps)]))[0]
+                near = pr_basis._ortho_transformed(d_max, n, np.array([pole_q * (1 + eps)]))[0]
                 self.assertAlmostEqual(near / expected, 1.0, places=4)
 
     def test_transform_q_zero_limit(self):
         d_max = 120.0
         for n in (1, 2, 7):
             expected = 8.0 * d_max**2 * (-1.0) ** (n + 1) / n
-            value = pri._ortho_transformed(d_max, n, np.array([0.0]))[0]
+            value = pr_basis._ortho_transformed(d_max, n, np.array([0.0]))[0]
             self.assertAlmostEqual(value, expected, places=8)
 
     def test_transform_vectorized_pole_mixture(self):
@@ -120,7 +123,7 @@ class TestBasisFunctions(unittest.TestCase):
         n = 3
         pole_q = np.pi * n / d_max
         q = np.array([0.0, 0.01, pole_q, 0.11, pole_q * (1 + 5e-9)])
-        values = pri._ortho_transformed(d_max, n, q)
+        values = pr_basis._ortho_transformed(d_max, n, q)
         self.assertTrue(np.all(np.isfinite(values)))
         self.assertAlmostEqual(values[2], 4.0 * d_max**2 / n, places=8)
         self.assertAlmostEqual(values[4], 4.0 * d_max**2 / n, places=6)
@@ -129,10 +132,10 @@ class TestBasisFunctions(unittest.TestCase):
         d_max = 120.0
         r = np.linspace(0.0, d_max, 20001)
         for n, q in ((1, 0.03), (3, 0.11), (6, 0.2)):
-            phi = pri._ortho(d_max, n, r)
+            phi = pr_basis._ortho(d_max, n, r)
             integrand = 4.0 * np.pi * phi * np.sinc(q * r / np.pi)
             numeric = np.trapezoid(integrand, r)
-            analytic = pri._ortho_transformed(d_max, n, np.array([q]))[0]
+            analytic = pr_basis._ortho_transformed(d_max, n, np.array([q]))[0]
             self.assertAlmostEqual(numeric / analytic, 1.0, places=6)
 
     def test_i0_identity_closed_form(self):
@@ -140,7 +143,7 @@ class TestBasisFunctions(unittest.TestCase):
         d_max = 120.0
         r = np.linspace(0.0, d_max, 200001)
         for n in (1, 2, 5, 9):
-            integral = 4.0 * np.pi * np.trapezoid(pri._ortho(d_max, n, r), r)
+            integral = 4.0 * np.pi * np.trapezoid(pr_basis._ortho(d_max, n, r), r)
             closed_form = 8.0 * d_max**2 * (-1.0) ** (n + 1) / n
             self.assertAlmostEqual(integral / closed_form, 1.0, places=6)
 
@@ -153,7 +156,7 @@ class TestExactSolve(unittest.TestCase):
         q = np.geomspace(0.004, 0.3, 50)
         intensity = np.zeros(q.size)
         for j, c in enumerate(coefficients):
-            intensity += c * pri._ortho_transformed(120.0, j + 1, q)
+            intensity += c * pr_basis._ortho_transformed(120.0, j + 1, q)
         data = normalize_sans_data(Data1D(x=q, y=intensity, dy=np.ones(q.size)))
         result = quiet_invert(data, 120.0, n_terms=4, alpha=0.0, fit_background=False)
         np.testing.assert_allclose(result.coefficients, coefficients, atol=1e-10)
@@ -161,8 +164,8 @@ class TestExactSolve(unittest.TestCase):
 
     def test_alpha_zero_reproduces_plain_lstsq(self):
         data = make_synthetic_data('sphere', SPHERE_PARS, SPHERE_Q, seed=3)
-        prep = pri._prepare_data(data)
-        a_data, b_data, _ = pri._build_blocks(
+        prep = pr_solver._prepare_data(data)
+        a_data, b_data, _ = pr_solver._build_blocks(
             prep.q, prep.intensity, prep.sigma, SPHERE_D_MAX, 8, True, 'corrected'
         )
         direct, *_ = np.linalg.lstsq(a_data, b_data, rcond=None)
@@ -299,8 +302,8 @@ class TestSphereRoundTrip(unittest.TestCase):
 
     def test_regularization_trend(self):
         """Over a wide alpha range, more smoothing does not increase oscillation."""
-        prep = pri._prepare_data(self.data)
-        alpha_ref = pri._alpha_suggestion(prep, SPHERE_D_MAX, 10, True, 'corrected')
+        prep = pr_solver._prepare_data(self.data)
+        alpha_ref = pr_estimate._alpha_suggestion(prep, SPHERE_D_MAX, 10, True, 'corrected')
         osc_smooth = quiet_invert(self.data, SPHERE_D_MAX, n_terms=10, alpha=alpha_ref).oscillations
         osc_loose = quiet_invert(
             self.data, SPHERE_D_MAX, n_terms=10, alpha=alpha_ref * 1e-9
@@ -312,7 +315,7 @@ class TestSphereRoundTrip(unittest.TestCase):
         r_fine = np.linspace(0.0, SPHERE_D_MAX, 4001)
         pr_second = np.zeros_like(r_fine)
         for j, c in enumerate(self.result.coefficients):
-            pr_second += c * pri._ortho_second_derivative(SPHERE_D_MAX, j + 1, r_fine)
+            pr_second += c * pr_basis._ortho_second_derivative(SPHERE_D_MAX, j + 1, r_fine)
         expected = self.result.alpha * np.trapezoid(pr_second**2, r_fine)
         self.assertAlmostEqual(self.result.regularization_penalty / expected, 1.0, delta=0.02)
 
@@ -358,7 +361,7 @@ class TestSasViewCompatibility(unittest.TestCase):
         d_max, n_terms = 120.0, 6
         q = np.geomspace(0.01, 0.2, 25)
         sigma = np.full(q.size, 0.5)
-        _, _, reg_unit = pri._build_blocks(
+        _, _, reg_unit = pr_solver._build_blocks(
             q, np.ones(q.size), sigma, d_max, n_terms, True, 'sasview'
         )
         n_reg = pri.SASVIEW_N_REG
@@ -407,12 +410,14 @@ class TestSasViewCompatibility(unittest.TestCase):
         q = np.geomspace(0.01, 0.2, 15)
         intensity = np.linspace(1.0, 2.0, 15)
         sigma = np.linspace(0.1, 0.3, 15)
-        a_data, b_data, _ = pri._build_blocks(q, intensity, sigma, d_max, n_terms, True, 'sasview')
+        a_data, b_data, _ = pr_solver._build_blocks(
+            q, intensity, sigma, d_max, n_terms, True, 'sasview'
+        )
         np.testing.assert_allclose(a_data[:, 0], 1.0 / sigma, rtol=1e-12)
         for j in range(n_terms):
             np.testing.assert_allclose(
                 a_data[:, j + 1],
-                pri._ortho_transformed(d_max, j + 1, q) / sigma,
+                pr_basis._ortho_transformed(d_max, j + 1, q) / sigma,
                 rtol=1e-12,
             )
         np.testing.assert_allclose(b_data, intensity / sigma, rtol=1e-12)
@@ -772,7 +777,7 @@ class TestExploreDmax(unittest.TestCase):
             self.assertEqual(getattr(scan, attr).size, n, msg=attr)
 
     def test_injected_failure_recorded_and_aligned(self):
-        original = pri._invert_prepared
+        original = pr_solver._invert_prepared
         failing_index = {'count': 0}
 
         def flaky(prep, d_max, *args, **kwargs):
@@ -783,7 +788,7 @@ class TestExploreDmax(unittest.TestCase):
 
         with warnings.catch_warnings():
             warnings.simplefilter('ignore')
-            with patch.object(pri, '_invert_prepared', side_effect=flaky):
+            with patch.object(pr_estimate, '_invert_prepared', side_effect=flaky):
                 scan = pri.explore_dmax(
                     self.data, SPHERE_D_MAX, n_terms=self.n_terms, alpha=self.alpha, n_points=6
                 )
@@ -796,7 +801,9 @@ class TestExploreDmax(unittest.TestCase):
         """An entirely failed scan raises instead of returning empty arrays."""
         with warnings.catch_warnings():
             warnings.simplefilter('ignore')
-            with patch.object(pri, '_invert_prepared', side_effect=ValueError('always broken')):
+            with patch.object(
+                pr_estimate, '_invert_prepared', side_effect=ValueError('always broken')
+            ):
                 with self.assertRaises(pri.PrEstimationError) as ctx:
                     pri.explore_dmax(
                         self.data,

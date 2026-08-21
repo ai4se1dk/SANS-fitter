@@ -721,7 +721,7 @@ def plot_trace(
 # P(r) inversion plots
 #
 # These functions are duck-typed on the PrResult / DmaxScan attributes and
-# must not import from pr_inversion (which imports this module for the
+# must not import from the inversion package (which imports this module for the
 # result-object plot wrappers).
 # ---------------------------------------------------------------------------
 

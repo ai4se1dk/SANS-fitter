@@ -96,7 +96,7 @@ class SANSFitter:
     - User-friendly parameter management
 
     For model-free P(r) inversion (pair distance distribution analysis), see
-    :mod:`sans_fitter.pr_inversion` — it operates directly on datasets
+    :mod:`sans_fitter.inversion` — it operates directly on datasets
     (``fitter.data`` or ``data_ops`` results) and needs no model setup.
 
     Example:

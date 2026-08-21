@@ -100,7 +100,7 @@ Model-free P(r) inversion (indirect Fourier transform): recover the pair
 distance distribution function from I(q), with automatic parameter
 estimation and D_max exploration.
 
-::: sans_fitter.pr_inversion
+::: sans_fitter.inversion
     options:
       show_root_heading: true
       show_source: true
