@@ -5,8 +5,8 @@ SANS Model Fitter - A flexible template for fitting SANS data with SasModels
 from . import examples, pr_inversion
 from .data import ops as data_ops
 from .fitter import SANSFitter, get_all_models
-from .parameter_manager import ParameterManager
-from .polydispersity import PD_DEFAULTS, PD_DISTRIBUTION_TYPES
+from .modeling.parameters import ParameterManager
+from .modeling.polydispersity import PD_DEFAULTS, PD_DISTRIBUTION_TYPES
 from .pr_inversion import InsufficientDataError, PrEstimationError, PrResult
 from .results import FitResultContract, PosteriorSummary
 

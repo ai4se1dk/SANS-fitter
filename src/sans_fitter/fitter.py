@@ -32,7 +32,7 @@ from .fitting import (
     fit_scipy,
 )
 from .fitting.base import extract_fit_index, pd_is_active
-from .parameter_manager import ParameterManager
+from .modeling.parameters import ParameterManager
 from .plotting import DEFAULT_POSTERIOR_PREDICTIVE_DRAWS, plot_fit
 from .results import FitArtifacts, FitResultContract, PosteriorSummary, save_fit_result
 

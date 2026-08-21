@@ -12,7 +12,7 @@ from typing import Any
 
 import numpy as np
 
-from .contracts import ParameterStateSnapshot
+from ..contracts import ParameterStateSnapshot
 from .polydispersity import PolydispersityManager
 from .structure_factor import StructureFactorManager, default_parameter_bounds
 

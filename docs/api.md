@@ -142,7 +142,7 @@ See the [Example Data](examples.md) guide for the full collection.
 
 Internal class for managing model parameters and polydispersity settings.
 
-::: sans_fitter.parameter_manager.ParameterManager
+::: sans_fitter.modeling.parameters.ParameterManager
     options:
       show_root_heading: true
       show_source: true
@@ -162,7 +162,7 @@ Internal class for managing model parameters and polydispersity settings.
 
 ## Polydispersity Constants
 
-The following constants are available in `sans_fitter.parameter_manager`:
+The following constants are available in `sans_fitter.modeling.parameters`:
 
 ### PD_DISTRIBUTION_TYPES
 
