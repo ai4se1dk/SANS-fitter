@@ -49,7 +49,7 @@ from sasmodels.direct_model import DirectModel
 
 from .data_loader import _has_real_data, load_sans_data, normalize_sans_data
 from .polydispersity import PD_DEFAULTS
-from .sans_fitter import SANSFitter
+from .fitter import SANSFitter
 
 __all__ = [
     'Example',

@@ -4,7 +4,7 @@
 
 The main class for SANS data fitting.
 
-::: sans_fitter.sans_fitter.SANSFitter
+::: sans_fitter.fitter.SANSFitter
     options:
       show_root_heading: true
       show_source: true
