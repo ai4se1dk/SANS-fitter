@@ -1,5 +1,5 @@
 """
-Example: Dataset arithmetic with sans_fitter.data_ops
+Example: Dataset arithmetic with sans_fitter.data.ops
 
 This script demonstrates how to:
 1. Generate a matched "sample" and "background" pair with examples.simulate_pair()

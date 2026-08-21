@@ -34,7 +34,7 @@ after subtraction.
 
 Both routes return a fit-ready ``Data1D`` — ``qmin``/``qmax``/``mask`` set —
 that can be handed straight to :meth:`SANSFitter.set_data` or to
-:mod:`sans_fitter.data_ops`.
+:mod:`sans_fitter.data.ops`.
 """
 
 from __future__ import annotations
@@ -424,7 +424,7 @@ def list_examples(tag: str | None = None) -> list[str]:
 def example_path(name: str) -> str:
     """Return the filesystem path of a bundled example file.
 
-    Useful when you want to pass the file to :func:`sans_fitter.data_ops.load`
+    Useful when you want to pass the file to :func:`sans_fitter.data.ops.load`
     or to any other reader yourself.
 
     Raises:
@@ -738,7 +738,7 @@ def simulate_pair(
     """Simulate a matched sample and background pair for dataset arithmetic.
 
     Both datasets land on an identical Q grid, which is what
-    :mod:`sans_fitter.data_ops` requires — the sample is *model + flat
+    :mod:`sans_fitter.data.ops` requires — the sample is *model + flat
     background*, and the background dataset is that flat level alone::
 
         >>> sample, background = simulate_pair('sphere', radius=50)

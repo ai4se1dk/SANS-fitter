@@ -1,5 +1,5 @@
 """
-Example: model-free P(r) inversion with sans_fitter.pr_inversion
+Example: model-free P(r) inversion with sans_fitter.inversion
 
 This script demonstrates how to:
 1. Simulate a protein-like sphere dataset (analytic form factor P(r)

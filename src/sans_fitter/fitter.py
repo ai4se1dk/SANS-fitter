@@ -155,7 +155,7 @@ class SANSFitter:
         Use an in-memory dataset for fitting.
 
         This is the injection point for datasets that were not loaded from a
-        file: results of dataset arithmetic (see :mod:`sans_fitter.data_ops`),
+        file: results of dataset arithmetic (see :mod:`sans_fitter.data.ops`),
         simulated data, or any sasdata ``Data1D`` built programmatically. The
         dataset is validated and normalized (``qmin``/``qmax``/``mask`` are
         recomputed as needed) so it is fit-ready.

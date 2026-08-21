@@ -215,6 +215,9 @@ def _finalize(result: Data1D, operation: str, a: Data1D, b: Operand) -> Data1D:
     result.title = operation
     result.filename = operation
     process = Process()
+    # Frozen provenance label: files saved before the 0.3 restructuring carry
+    # this name, so it stays 'sans_fitter.data_ops' even though the module is
+    # now sans_fitter.data.ops.
     process.name = 'sans_fitter.data_ops'
     process.description = f'Dataset arithmetic: {operation}'
     if getattr(result, 'process', None) is None:

@@ -61,13 +61,13 @@ class TestDataLoading(unittest.TestCase):
         finally:
             os.unlink(data_file)
 
-    def testhas_real_data_rejects_all_nan_arrays(self):
+    def test_has_real_data_rejects_all_nan_arrays(self):
         self.assertFalse(has_real_data(np.array([np.nan, np.nan])))
 
-    def testhas_real_data_rejects_zero_filled_arrays(self):
+    def test_has_real_data_rejects_zero_filled_arrays(self):
         self.assertFalse(has_real_data(np.zeros(3)))
 
-    def testhas_real_data_accepts_partial_values(self):
+    def test_has_real_data_accepts_partial_values(self):
         self.assertTrue(has_real_data(np.array([0.0, np.nan, 0.5])))
 
     def test_nan_masking_includes_dx(self):

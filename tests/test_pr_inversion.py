@@ -777,7 +777,7 @@ class TestExploreDmax(unittest.TestCase):
             self.assertEqual(getattr(scan, attr).size, n, msg=attr)
 
     def test_injected_failure_recorded_and_aligned(self):
-        original = pr_solver._invert_prepared
+        original = pr_estimate._invert_prepared
         failing_index = {'count': 0}
 
         def flaky(prep, d_max, *args, **kwargs):
