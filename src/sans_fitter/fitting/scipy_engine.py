@@ -4,8 +4,7 @@ from typing import Any
 import numpy as np
 from sasmodels.direct_model import DirectModel
 
-from ..contracts import ParameterStateSnapshot
-from ..results import FitArtifacts, FitResultContract
+from ..results import FitArtifacts, FitResultContract, ParameterStateSnapshot
 from .base import EngineFitOutput, extract_fit_index, link_radius_effective_dict, pd_is_active
 
 try:
