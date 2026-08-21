@@ -15,7 +15,7 @@ import pytest
 from sasmodels.core import load_model
 
 from sans_fitter import examples
-from sans_fitter.data_loader import _has_real_data
+from sans_fitter.data.loader import has_real_data
 
 ALL_EXAMPLES = examples.list_examples()
 
@@ -148,8 +148,8 @@ class TestCuratedClaims:
         plain = examples.load('sphere')
         smeared = examples.load('sphere_smeared')
         np.testing.assert_allclose(plain.x, smeared.x, rtol=1e-6)
-        assert not _has_real_data(plain.dx)
-        assert _has_real_data(smeared.dx)
+        assert not has_real_data(plain.dx)
+        assert has_real_data(smeared.dx)
 
     @pytest.mark.parametrize('name', examples.list_examples(tag='measured'))
     def test_measured_data_claims_no_truth(self, name):
@@ -223,7 +223,7 @@ class TestPresetsConverge:
     def test_cylinder_documents_its_engine_restriction(self):
         example = examples.get_example('cylinder')
         assert 'bumps' in example.notes
-        assert not _has_real_data(examples.load('cylinder').dy)
+        assert not has_real_data(examples.load('cylinder').dy)
 
 
 # =============================================================================
@@ -318,8 +318,8 @@ class TestSimulate:
     def test_resolution_is_attached_and_smears(self):
         sharp = examples.simulate('sphere', radius=50, noise=0, npoints=80)
         smeared = examples.simulate('sphere', radius=50, noise=0, npoints=80, dq=0.1)
-        assert _has_real_data(smeared.dx)
-        assert not _has_real_data(sharp.dx)
+        assert has_real_data(smeared.dx)
+        assert not has_real_data(sharp.dx)
         # Smearing fills in the form-factor minima, so the deepest dip rises.
         assert smeared.y.min() > sharp.y.min()
 

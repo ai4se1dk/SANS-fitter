@@ -20,7 +20,7 @@ from sasmodels.core import load_model
 from sasmodels.direct_model import DirectModel
 
 from . import plotting
-from .data_loader import _has_real_data, get_fit_index, load_sans_data, normalize_sans_data
+from .data.loader import get_fit_index, has_real_data, load_sans_data, normalize_sans_data
 from .fitting import (
     DEFAULT_DREAM_BURN,
     DEFAULT_DREAM_POP,
@@ -141,8 +141,8 @@ class SANSFitter:
         self.data = load_sans_data(filename)
         self._full_q_range = (self.data.qmin, self.data.qmax)
 
-        has_dy = _has_real_data(self.data.dy)
-        has_dx = _has_real_data(self.data.dx)
+        has_dy = has_real_data(self.data.dy)
+        has_dx = has_real_data(self.data.dx)
 
         print(f'✓ Loaded data from {filename}')
         print(f'  Q range: {self.data.qmin:.4f} to {self.data.qmax:.4f} Å⁻¹')
@@ -192,8 +192,8 @@ class SANSFitter:
         self.data = normalize_sans_data(data)
         self._full_q_range = (self.data.qmin, self.data.qmax)
 
-        has_dy = _has_real_data(self.data.dy)
-        has_dx = _has_real_data(self.data.dx)
+        has_dy = has_real_data(self.data.dy)
+        has_dx = has_real_data(self.data.dx)
         label = getattr(data, 'title', '') or getattr(data, 'filename', '') or 'in-memory dataset'
 
         print(f'✓ Data set: {label}')

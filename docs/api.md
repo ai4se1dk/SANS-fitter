@@ -82,7 +82,7 @@ Dataset arithmetic: add, subtract, multiply and divide datasets (or a dataset
 and a scalar) with propagated uncertainties, returning fit-ready `Data1D`
 objects.
 
-::: sans_fitter.data_ops
+::: sans_fitter.data.ops
     options:
       show_root_heading: true
       show_source: true

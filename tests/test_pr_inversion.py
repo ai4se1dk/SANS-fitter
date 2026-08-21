@@ -19,7 +19,7 @@ from sasmodels.data import empty_data1D
 from sasmodels.direct_model import DirectModel
 
 from sans_fitter import pr_inversion as pri
-from sans_fitter.data_loader import get_fit_index, normalize_sans_data
+from sans_fitter.data.loader import get_fit_index, normalize_sans_data
 from sans_fitter.plotting import plot_dmax_scan, plot_pr_distribution, plot_pr_fit
 
 SPHERE_RADIUS = 60.0

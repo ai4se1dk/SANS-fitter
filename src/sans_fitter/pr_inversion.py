@@ -40,7 +40,7 @@ from typing import Any
 
 import numpy as np
 
-from .data_loader import _has_real_data, get_fit_index
+from .data.loader import get_fit_index, has_real_data
 
 logger = logging.getLogger(__name__)
 
@@ -197,7 +197,7 @@ def _prepare_data(data: Any) -> _PreparedData:
         raise ValueError(f'Length mismatch: x has {x.size} points but y has {y.size}.')
 
     dy_raw = getattr(data, 'dy', None)
-    has_dy = _has_real_data(dy_raw)
+    has_dy = has_real_data(dy_raw)
     if has_dy and np.asarray(dy_raw).size != x.size:
         raise ValueError(
             f'Length mismatch: x has {x.size} points but dy has {np.asarray(dy_raw).size}.'
@@ -207,7 +207,7 @@ def _prepare_data(data: Any) -> _PreparedData:
         raise ValueError('Dataset contains negative q values; q must be non-negative.')
 
     for attr in ('dxl', 'dxw'):
-        if _has_real_data(getattr(data, attr, None)):
+        if has_real_data(getattr(data, attr, None)):
             warnings.warn(
                 'Dataset carries slit-smearing resolution columns (dxl/dxw); '
                 'P(r) inversion does not support smearing and will treat the '

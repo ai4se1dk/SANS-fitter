@@ -4,7 +4,7 @@ import unittest
 import numpy as np
 
 from sans_fitter import SANSFitter
-from sans_fitter.data_loader import _has_real_data
+from sans_fitter.data.loader import has_real_data
 from tests.helpers import (
     create_loading_test_data_file,
     create_loading_test_data_file_with_resolution,
@@ -47,7 +47,7 @@ class TestDataLoading(unittest.TestCase):
         data_file = create_loading_test_data_file_with_resolution()
         try:
             self.fitter.load_data(data_file)
-            self.assertTrue(_has_real_data(self.fitter.data.dx))
+            self.assertTrue(has_real_data(self.fitter.data.dx))
             self.assertEqual(len(self.fitter.data.dx), len(self.fitter.data.x))
         finally:
             os.unlink(data_file)
@@ -57,18 +57,18 @@ class TestDataLoading(unittest.TestCase):
         try:
             self.fitter.load_data(data_file)
             # sasdata zero-fills dx when the file has no dQ column
-            self.assertFalse(_has_real_data(self.fitter.data.dx))
+            self.assertFalse(has_real_data(self.fitter.data.dx))
         finally:
             os.unlink(data_file)
 
-    def test_has_real_data_rejects_all_nan_arrays(self):
-        self.assertFalse(_has_real_data(np.array([np.nan, np.nan])))
+    def testhas_real_data_rejects_all_nan_arrays(self):
+        self.assertFalse(has_real_data(np.array([np.nan, np.nan])))
 
-    def test_has_real_data_rejects_zero_filled_arrays(self):
-        self.assertFalse(_has_real_data(np.zeros(3)))
+    def testhas_real_data_rejects_zero_filled_arrays(self):
+        self.assertFalse(has_real_data(np.zeros(3)))
 
-    def test_has_real_data_accepts_partial_values(self):
-        self.assertTrue(_has_real_data(np.array([0.0, np.nan, 0.5])))
+    def testhas_real_data_accepts_partial_values(self):
+        self.assertTrue(has_real_data(np.array([0.0, np.nan, 0.5])))
 
     def test_nan_masking_includes_dx(self):
         data_file = create_loading_test_data_file_with_resolution()

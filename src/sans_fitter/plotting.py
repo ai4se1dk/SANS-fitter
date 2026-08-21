@@ -5,7 +5,7 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from .data_loader import _has_real_data
+from .data.loader import has_real_data
 from .results import (
     MIN_POSTERIOR_PARAMETER_COUNT,
     FitResultContract,
@@ -61,7 +61,7 @@ def _running_in_notebook() -> bool:
 
 def _error_bars(arr) -> dict | None:
     """Build a plotly error-bar spec, or None when the column carries no data."""
-    if not _has_real_data(arr):
+    if not has_real_data(arr):
         return None
     return {'type': 'data', 'array': arr, 'visible': True}
 

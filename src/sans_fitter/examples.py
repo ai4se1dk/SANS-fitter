@@ -47,9 +47,9 @@ from sasdata.dataloader.data_info import Data1D
 from sasmodels.core import load_model
 from sasmodels.direct_model import DirectModel
 
-from .data_loader import _has_real_data, load_sans_data, normalize_sans_data
-from .polydispersity import PD_DEFAULTS
+from .data.loader import has_real_data, load_sans_data, normalize_sans_data
 from .fitter import SANSFitter
+from .polydispersity import PD_DEFAULTS
 
 __all__ = [
     'Example',
@@ -571,8 +571,8 @@ def _describe_one(example: Example) -> None:
 
     print(f'  points            {len(data.x)}')
     print(f'  Q range           {data.qmin:.5g} to {data.qmax:.5g} 1/A')
-    print(f'  dI column         {"yes" if _has_real_data(data.dy) else "no"}')
-    print(f'  dQ column         {"yes" if _has_real_data(data.dx) else "no"}')
+    print(f'  dI column         {"yes" if has_real_data(data.dy) else "no"}')
+    print(f'  dQ column         {"yes" if has_real_data(data.dx) else "no"}')
 
     print()
     print('  suggested starting parameters:')

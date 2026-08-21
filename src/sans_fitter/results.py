@@ -3,7 +3,7 @@ from typing import Any
 
 import numpy as np
 
-from .data_loader import _has_real_data
+from .data.loader import has_real_data
 
 MIN_POSTERIOR_PARAMETER_COUNT = 2
 MIN_POSTERIOR_SAMPLE_COUNT = 2
@@ -180,7 +180,7 @@ class FitResultContract:
         are exported, so every row carries a fitted intensity and residual.
         """
         fitted_curve = self.require_fitted_curve()
-        has_dx = _has_real_data(data.dx)
+        has_dx = has_real_data(data.dx)
 
         index = resolve_fit_index(self.artifacts.fit_index, len(data.x))
         x = np.asarray(data.x)[index]
