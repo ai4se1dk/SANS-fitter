@@ -39,7 +39,7 @@ Limitations:
 import numbers
 import operator
 import warnings
-from typing import Any, Union
+from typing import Any
 
 import numpy as np
 from sasdata.dataloader.data_info import Data1D, Data2D, Process
@@ -48,7 +48,7 @@ from .data_loader import _has_real_data, load_sans_data, normalize_sans_data
 
 __all__ = ['load', 'add', 'subtract', 'multiply', 'divide']
 
-Operand = Union[Data1D, numbers.Number]
+Operand = Data1D | numbers.Number
 
 _OPERATORS = {
     '+': operator.add,

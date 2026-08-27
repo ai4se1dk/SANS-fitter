@@ -38,6 +38,7 @@ plugins:
 nav:
   - Home: index.md
   - Installation: installation.md
+  - Example Data: examples.md
   - User Guide: usage.md
   - Custom Models: custom_models.md
   - API Reference: api.md

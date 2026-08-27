@@ -1,5 +1,6 @@
+from collections.abc import Callable
 from copy import deepcopy
-from typing import Any, Callable, Optional
+from typing import Any
 
 import numpy as np
 from bumps.fitters import fit as bumps_fit
@@ -83,6 +84,31 @@ def _build_bumps_problem(
 
     link_radius_effective_model(model, fit_state.radius_effective_mode)
 
+    # Generic equality links (composite models / shared= / link_params):
+    # alias the follower's bumps parameter object to the target's, the exact
+    # mechanism the radius link uses. Followers are never in the varying set,
+    # so they don't appear in problem.labels(); their post-fit value comes
+    # from apply_fitted_values propagation, not from the engine.
+    # Precondition: the link graph has depth 1 — no target is itself a
+    # follower — so the aliasing below is independent of dict order.
+    # ParameterManager guarantees this (link_params rejects chains in both
+    # directions; snapshot_fit_state re-points shared followers to the one
+    # canonical target).
+    followers = set(fit_state.linked_params)
+    if followers & set(fit_state.linked_params.values()):
+        raise RuntimeError(
+            'Internal error: the link graph contains a chain (a target is '
+            'itself a follower), which the bumps aliasing mechanism does not '
+            'support. ParameterManager should have rejected this.'
+        )
+    for follower, target in fit_state.linked_params.items():
+        if follower == 'radius_effective' and fit_state.radius_effective_mode == 'link_radius':
+            raise ValueError(
+                "'radius_effective' is already linked to 'radius' by "
+                "radius_effective_mode='link_radius'. Remove one of the links."
+            )
+        setattr(model, follower, getattr(model, target))
+
     experiment = Experiment(data=data, model=model)
     problem = FitProblem(experiment)
     return problem, experiment
@@ -106,7 +132,7 @@ def fit_bumps(
     result_parameters: dict[str, dict[str, Any]] = {}
     fitted_values: dict[str, float] = {}
 
-    for name, value, stderr in zip(problem.labels(), result.x, result.dx):
+    for name, value, stderr in zip(problem.labels(), result.x, result.dx, strict=True):
         result_parameters[name] = {
             'value': value,
             'stderr': stderr,
@@ -120,7 +146,7 @@ def fit_bumps(
         chisq=problem.chisq(),
         parameters=result_parameters,
         artifacts=FitArtifacts(
-            fitted_curve=np.asarray(problem.fitness.theory()),
+            fitted_curve=np.asarray(experiment.theory()),
             fit_index=extract_fit_index(experiment),
             raw_result=result,
             runtime_handle=problem,
@@ -174,8 +200,8 @@ def _effective_sample_size(series: np.ndarray) -> float:
 
 
 def _compute_diagnostics(
-    state: Any, labels: list[str], chains: Optional[np.ndarray]
-) -> Optional[dict[str, dict[str, float]]]:
+    state: Any, labels: list[str], chains: np.ndarray | None
+) -> dict[str, dict[str, float]] | None:
     """Compute per-parameter r-hat/ESS, or None when unavailable."""
     if chains is None:
         return None
@@ -333,7 +359,7 @@ def fit_bumps_dream(
     # whatever point DREAM evaluated last, not the best one.
     point_estimate = np.asarray(result.x, dtype=float)
     problem.setp(point_estimate)
-    fitted_curve = np.asarray(problem.fitness.theory())
+    fitted_curve = np.asarray(experiment.theory())
     chisq = problem.chisq()
 
     posterior = _extract_posterior(state, labels, point_estimate)
@@ -344,7 +370,7 @@ def fit_bumps_dream(
 
     # For DREAM, result.dx is the posterior 68% credible half-width, so the
     # existing formatted-uncertainty convention carries over unchanged.
-    for name, value, stderr in zip(labels, result.x, result.dx):
+    for name, value, stderr in zip(labels, result.x, result.dx, strict=True):
         result_parameters[name] = {
             'value': value,
             'stderr': stderr,
