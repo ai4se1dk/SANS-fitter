@@ -127,7 +127,7 @@ the range it was fitted with.
 
 ### Dataset Operations
 
-The `sans_fitter.data_ops` module manipulates datasets with arithmetic
+The `sans_fitter.data.ops` module manipulates datasets with arithmetic
 operations — similar to SasView's *Data Operation* utility. Typical uses are
 background subtraction, rescaling to absolute units, and transmission
 correction.
@@ -188,7 +188,7 @@ See `examples/data_operations_example.py` and
 
 ### P(r) Inversion
 
-The `sans_fitter.pr_inversion` module recovers the real-space pair distance
+The `sans_fitter.inversion` module recovers the real-space pair distance
 distribution function P(r) from I(q) by indirect Fourier transform (Moore's
 sine-basis expansion, as in SasView's Inversion perspective). It is
 **model-free** — no sasmodels kernel is involved — and operates directly on

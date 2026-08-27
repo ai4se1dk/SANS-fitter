@@ -14,12 +14,12 @@ from sasmodels.bumps_model import Experiment
 from sasmodels.bumps_model import Model as BumpsModel
 from sasmodels.direct_model import DirectModel
 
-from ..contracts import ParameterStateSnapshot
 from ..results import (
     MIN_POSTERIOR_PARAMETER_COUNT,
     MIN_POSTERIOR_SAMPLE_COUNT,
     FitArtifacts,
     FitResultContract,
+    ParameterStateSnapshot,
     PosteriorSummary,
 )
 from .base import (

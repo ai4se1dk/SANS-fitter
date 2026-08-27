@@ -20,7 +20,7 @@ from sasmodels.core import load_model
 from sasmodels.direct_model import DirectModel
 
 from . import plotting
-from .data_loader import _has_real_data, get_fit_index, load_sans_data, normalize_sans_data
+from .data.loader import get_fit_index, has_real_data, load_sans_data, normalize_sans_data
 from .fitting import (
     DEFAULT_DREAM_BURN,
     DEFAULT_DREAM_POP,
@@ -32,7 +32,7 @@ from .fitting import (
     fit_scipy,
 )
 from .fitting.base import extract_fit_index, pd_is_active
-from .parameter_manager import ParameterManager
+from .modeling.parameters import ParameterManager
 from .plotting import DEFAULT_POSTERIOR_PREDICTIVE_DRAWS, plot_fit
 from .results import FitArtifacts, FitResultContract, PosteriorSummary, save_fit_result
 
@@ -96,7 +96,7 @@ class SANSFitter:
     - User-friendly parameter management
 
     For model-free P(r) inversion (pair distance distribution analysis), see
-    :mod:`sans_fitter.pr_inversion` — it operates directly on datasets
+    :mod:`sans_fitter.inversion` — it operates directly on datasets
     (``fitter.data`` or ``data_ops`` results) and needs no model setup.
 
     Example:
@@ -141,8 +141,8 @@ class SANSFitter:
         self.data = load_sans_data(filename)
         self._full_q_range = (self.data.qmin, self.data.qmax)
 
-        has_dy = _has_real_data(self.data.dy)
-        has_dx = _has_real_data(self.data.dx)
+        has_dy = has_real_data(self.data.dy)
+        has_dx = has_real_data(self.data.dx)
 
         print(f'✓ Loaded data from {filename}')
         print(f'  Q range: {self.data.qmin:.4f} to {self.data.qmax:.4f} Å⁻¹')
@@ -155,7 +155,7 @@ class SANSFitter:
         Use an in-memory dataset for fitting.
 
         This is the injection point for datasets that were not loaded from a
-        file: results of dataset arithmetic (see :mod:`sans_fitter.data_ops`),
+        file: results of dataset arithmetic (see :mod:`sans_fitter.data.ops`),
         simulated data, or any sasdata ``Data1D`` built programmatically. The
         dataset is validated and normalized (``qmin``/``qmax``/``mask`` are
         recomputed as needed) so it is fit-ready.
@@ -192,8 +192,8 @@ class SANSFitter:
         self.data = normalize_sans_data(data)
         self._full_q_range = (self.data.qmin, self.data.qmax)
 
-        has_dy = _has_real_data(self.data.dy)
-        has_dx = _has_real_data(self.data.dx)
+        has_dy = has_real_data(self.data.dy)
+        has_dx = has_real_data(self.data.dx)
         label = getattr(data, 'title', '') or getattr(data, 'filename', '') or 'in-memory dataset'
 
         print(f'✓ Data set: {label}')
@@ -760,8 +760,11 @@ class SANSFitter:
             List of parameter names (e.g., ['radius_pd']) that will vary during fitting
         """
         # ParameterManager returns base param names, we need to add _pd suffix
+        # and translate to user-facing aliases on the set_models path.
         varying_base = self._param_manager.get_varying_pd_params()
-        return [f'{param_name}_pd' for param_name in varying_base]
+        return [
+            self._param_manager.to_display_name(f'{param_name}_pd') for param_name in varying_base
+        ]
 
     def _finalize_fit(self, engine_output) -> dict[str, Any]:
         """Apply engine output to fitter state and return legacy-compatible results."""

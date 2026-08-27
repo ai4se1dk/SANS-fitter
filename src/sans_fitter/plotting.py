@@ -1,3 +1,4 @@
+import warnings
 from collections.abc import Callable
 from typing import Any
 
@@ -5,7 +6,7 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from .data_loader import _has_real_data
+from .data.loader import has_real_data
 from .results import (
     MIN_POSTERIOR_PARAMETER_COUNT,
     FitResultContract,
@@ -61,7 +62,7 @@ def _running_in_notebook() -> bool:
 
 def _error_bars(arr) -> dict | None:
     """Build a plotly error-bar spec, or None when the column carries no data."""
-    if not _has_real_data(arr):
+    if not has_real_data(arr):
         return None
     return {'type': 'data', 'array': arr, 'visible': True}
 
@@ -189,6 +190,12 @@ def plot_fit(
         for i, (label, curve) in enumerate(fit_result.artifacts.component_curves.items()):
             curve = np.asarray(curve)
             if len(curve) != len(q):
+                warnings.warn(
+                    f"Component curve '{label}' has {len(curve)} points but the fit "
+                    f'has {len(q)}; omitting it from the plot.',
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
                 continue
             component_traces.append(
                 go.Scatter(
@@ -721,7 +728,7 @@ def plot_trace(
 # P(r) inversion plots
 #
 # These functions are duck-typed on the PrResult / DmaxScan attributes and
-# must not import from pr_inversion (which imports this module for the
+# must not import from the inversion package (which imports this module for the
 # result-object plot wrappers).
 # ---------------------------------------------------------------------------
 

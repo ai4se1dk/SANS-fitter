@@ -3,8 +3,7 @@ from typing import Any, Protocol
 
 import numpy as np
 
-from ..contracts import ParameterStateSnapshot
-from ..results import FitResultContract
+from ..results import FitResultContract, ParameterStateSnapshot
 
 
 def pd_is_active(pd_config: dict[str, Any]) -> bool:

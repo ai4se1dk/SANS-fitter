@@ -44,7 +44,7 @@ from typing import Any
 import numpy as np
 from sasdata.dataloader.data_info import Data1D, Data2D, Process
 
-from .data_loader import _has_real_data, load_sans_data, normalize_sans_data
+from .loader import has_real_data, load_sans_data, normalize_sans_data
 
 __all__ = ['load', 'add', 'subtract', 'multiply', 'divide']
 
@@ -155,7 +155,7 @@ def _validate_operand(obj: Any, position: str, allow_scalar: bool) -> None:
             f'The {position} operand ({_dataset_label(obj)}) has no data: '
             'x and y must be populated.'
         )
-    if not _has_real_data(getattr(obj, 'dy', None)):
+    if not has_real_data(getattr(obj, 'dy', None)):
         warnings.warn(
             f'The {position} operand ({_dataset_label(obj)}) has no intensity '
             'uncertainties (dI); they are treated as zero in error propagation.',
@@ -167,7 +167,7 @@ def _has_resolution(data: Any) -> bool:
     """True when a dataset carries any resolution information."""
     if isinstance(data, numbers.Number):
         return False
-    return any(_has_real_data(getattr(data, attr, None)) for attr in ('dx', 'dxl', 'dxw'))
+    return any(has_real_data(getattr(data, attr, None)) for attr in ('dx', 'dxl', 'dxw'))
 
 
 def _masked_count(data: Any) -> int:
@@ -215,13 +215,16 @@ def _finalize(result: Data1D, operation: str, a: Data1D, b: Operand) -> Data1D:
     result.title = operation
     result.filename = operation
     process = Process()
+    # Frozen provenance label: files saved before the 0.3 restructuring carry
+    # this name, so it stays 'sans_fitter.data_ops' even though the module is
+    # now sans_fitter.data.ops.
     process.name = 'sans_fitter.data_ops'
     process.description = f'Dataset arithmetic: {operation}'
     if getattr(result, 'process', None) is None:
         result.process = []
     result.process.append(process)
 
-    if not _has_real_data(getattr(result, 'dy', None)):
+    if not has_real_data(getattr(result, 'dy', None)):
         warnings.warn(
             f"Result of '{operation}' has no intensity uncertainties (dI); "
             'fits will be unweighted.',
@@ -238,7 +241,7 @@ def _finalize(result: Data1D, operation: str, a: Data1D, b: Operand) -> Data1D:
         )
         for attr in ('dx', 'dxl', 'dxw'):
             values = getattr(result, attr, None)
-            if _has_real_data(values) and np.any(np.nan_to_num(np.asarray(values)) < 0):
+            if has_real_data(values) and np.any(np.nan_to_num(np.asarray(values)) < 0):
                 warnings.warn(
                     f"Result of '{operation}' has negative {attr} values — the "
                     'propagated resolution is not physical.',

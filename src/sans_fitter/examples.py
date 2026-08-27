@@ -34,7 +34,7 @@ after subtraction.
 
 Both routes return a fit-ready ``Data1D`` — ``qmin``/``qmax``/``mask`` set —
 that can be handed straight to :meth:`SANSFitter.set_data` or to
-:mod:`sans_fitter.data_ops`.
+:mod:`sans_fitter.data.ops`.
 """
 
 from __future__ import annotations
@@ -47,9 +47,9 @@ from sasdata.dataloader.data_info import Data1D
 from sasmodels.core import load_model
 from sasmodels.direct_model import DirectModel
 
-from .data_loader import _has_real_data, load_sans_data, normalize_sans_data
-from .polydispersity import PD_DEFAULTS
-from .sans_fitter import SANSFitter
+from .data.loader import has_real_data, load_sans_data, normalize_sans_data
+from .fitter import SANSFitter
+from .modeling.polydispersity import PD_DEFAULTS
 
 __all__ = [
     'Example',
@@ -424,7 +424,7 @@ def list_examples(tag: str | None = None) -> list[str]:
 def example_path(name: str) -> str:
     """Return the filesystem path of a bundled example file.
 
-    Useful when you want to pass the file to :func:`sans_fitter.data_ops.load`
+    Useful when you want to pass the file to :func:`sans_fitter.data.ops.load`
     or to any other reader yourself.
 
     Raises:
@@ -571,8 +571,8 @@ def _describe_one(example: Example) -> None:
 
     print(f'  points            {len(data.x)}')
     print(f'  Q range           {data.qmin:.5g} to {data.qmax:.5g} 1/A')
-    print(f'  dI column         {"yes" if _has_real_data(data.dy) else "no"}')
-    print(f'  dQ column         {"yes" if _has_real_data(data.dx) else "no"}')
+    print(f'  dI column         {"yes" if has_real_data(data.dy) else "no"}')
+    print(f'  dQ column         {"yes" if has_real_data(data.dx) else "no"}')
 
     print()
     print('  suggested starting parameters:')
@@ -738,7 +738,7 @@ def simulate_pair(
     """Simulate a matched sample and background pair for dataset arithmetic.
 
     Both datasets land on an identical Q grid, which is what
-    :mod:`sans_fitter.data_ops` requires — the sample is *model + flat
+    :mod:`sans_fitter.data.ops` requires — the sample is *model + flat
     background*, and the background dataset is that flat level alone::
 
         >>> sample, background = simulate_pair('sphere', radius=50)

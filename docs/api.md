@@ -4,7 +4,7 @@
 
 The main class for SANS data fitting.
 
-::: sans_fitter.sans_fitter.SANSFitter
+::: sans_fitter.fitter.SANSFitter
     options:
       show_root_heading: true
       show_source: true
@@ -82,7 +82,7 @@ Dataset arithmetic: add, subtract, multiply and divide datasets (or a dataset
 and a scalar) with propagated uncertainties, returning fit-ready `Data1D`
 objects.
 
-::: sans_fitter.data_ops
+::: sans_fitter.data.ops
     options:
       show_root_heading: true
       show_source: true
@@ -100,7 +100,7 @@ Model-free P(r) inversion (indirect Fourier transform): recover the pair
 distance distribution function from I(q), with automatic parameter
 estimation and D_max exploration.
 
-::: sans_fitter.pr_inversion
+::: sans_fitter.inversion
     options:
       show_root_heading: true
       show_source: true
@@ -142,7 +142,7 @@ See the [Example Data](examples.md) guide for the full collection.
 
 Internal class for managing model parameters and polydispersity settings.
 
-::: sans_fitter.parameter_manager.ParameterManager
+::: sans_fitter.modeling.parameters.ParameterManager
     options:
       show_root_heading: true
       show_source: true
@@ -162,7 +162,7 @@ Internal class for managing model parameters and polydispersity settings.
 
 ## Polydispersity Constants
 
-The following constants are available in `sans_fitter.parameter_manager`:
+The following constants are available in `sans_fitter.modeling.parameters`:
 
 ### PD_DISTRIBUTION_TYPES
 
