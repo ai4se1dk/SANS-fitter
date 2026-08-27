@@ -4,8 +4,7 @@ from typing import Any
 import numpy as np
 from sasmodels.direct_model import DirectModel
 
-from ..contracts import ParameterStateSnapshot
-from ..results import FitArtifacts, FitResultContract
+from ..results import FitArtifacts, FitResultContract, ParameterStateSnapshot
 from .base import EngineFitOutput, extract_fit_index, link_radius_effective_dict, pd_is_active
 
 try:
@@ -111,7 +110,7 @@ def fit_scipy(
             param_errors = np.zeros_like(fitted_params)
         chisq = np.sum(result.fun**2)
     elif method == 'differential_evolution':
-        bounds_list = list(zip(bounds_lower, bounds_upper))
+        bounds_list = list(zip(bounds_lower, bounds_upper, strict=True))
 
         def objective(x: np.ndarray) -> np.floating[Any]:
             return np.sum(residual(x) ** 2)

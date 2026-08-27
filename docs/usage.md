@@ -127,7 +127,7 @@ the range it was fitted with.
 
 ### Dataset Operations
 
-The `sans_fitter.data_ops` module manipulates datasets with arithmetic
+The `sans_fitter.data.ops` module manipulates datasets with arithmetic
 operations — similar to SasView's *Data Operation* utility. Typical uses are
 background subtraction, rescaling to absolute units, and transmission
 correction.
@@ -186,6 +186,87 @@ normalizes it so it is fit-ready.
 See `examples/data_operations_example.py` and
 `notebooks/data_operations_demo.ipynb` for a complete walkthrough.
 
+### P(r) Inversion
+
+The `sans_fitter.inversion` module recovers the real-space pair distance
+distribution function P(r) from I(q) by indirect Fourier transform (Moore's
+sine-basis expansion, as in SasView's Inversion perspective). It is
+**model-free** — no sasmodels kernel is involved — and operates directly on
+datasets (`fitter.data` or `data_ops` results). Typical use: monodisperse
+protein solutions, where P(r) yields D_max, Rg and I(0) without assuming a
+form factor.
+
+For buffer-subtracted data (the usual protein case), pass
+`fit_background=False` — the default fitted flat background can absorb I(0)
+and bias Rg on already-subtracted data. Explore D_max **before** trusting an
+inversion: every result is conditional on it.
+
+```python
+from sans_fitter import data_ops, pr_inversion
+
+data = data_ops.load('protein.csv')
+
+# 1. Find a stable D_max: look for the Rg/I(0) plateau and chi2 minimum
+scan = pr_inversion.explore_dmax(data, d_max=120.0, fit_background=False)
+scan.plot()                    # or scan.plot(quantity='all'), scan.format_summary()
+
+# 2. One-shot inversion with automatic selection of n_terms and alpha
+result = pr_inversion.auto_invert(data, d_max=120.0, fit_background=False)
+print(result.format_summary())  # Rg, I(0), oscillations, positivity, diagnostics
+
+# 3. Plots and export
+result.plot_pr()               # P(r) with its 1-sigma band
+result.plot_fit(data)          # data vs fit, residuals (data passed explicitly)
+result.save_csv('pr_result.csv')
+```
+
+Explicit control is available through the individual functions:
+
+| Function | Result |
+|---|---|
+| `invert(data, d_max, n_terms=10, alpha=0.0, fit_background=True, background=0.0, r_points=101, regularizer='corrected')` | Core inversion → `PrResult` |
+| `estimate_n_terms(data, d_max, fit_background=True, ..., background=0.0)` | `NTermsEstimate(n_terms, alpha, message)`; its `alpha` is authoritative — use it directly |
+| `estimate_alpha(data, d_max, n_terms, fit_background=True, ..., background=0.0)` | `AlphaEstimate(alpha, message)` |
+| `auto_invert(data, d_max, ...)` | `estimate_n_terms` → `invert`, silent |
+| `explore_dmax(data, d_max, ..., refit_alpha=False, background=0.0)` | `DmaxScan` over 0.9–1.1×d_max (25 points); raises when every point fails |
+
+When working with a known fixed background (`fit_background=False`), pass the
+same `background` value to the estimators and `explore_dmax` too — the
+selection and the scan then operate on exactly the problem the final
+inversion solves (`auto_invert` does this automatically).
+
+Things to know:
+
+- **P(r) can go negative.** The fit is unconstrained (unlike GNOM/ATSAS);
+  the `positive_fraction` diagnostics quantify how positive the result is.
+- **alpha and n_terms are heuristics, not physics.** `estimate_alpha`
+  descends from a norm-balance suggestion and stops at spurious structure or
+  the discrepancy principle (chi-squared per point near 1); `estimate_n_terms`
+  prefers the smallest N that fits the data with a significantly positive
+  P(r). Always inspect `format_summary()`.
+- **Missing dI** triggers fabricated uncertainties
+  (`max(0.05*|I|, 0.01*median|I|)`), a warning, and an
+  `uncertainties_fabricated` flag on the result — chi-squared diagnostics are
+  then not interpretable.
+- **Q range is honoured**: the inversion uses the same accepted-point rule as
+  the fit engines, so `fitter.set_q_range()` restricts it identically.
+- **Shannon limits are checked**: warnings fire when `d_max > pi/q_min` or
+  `n_terms` exceeds `q_max*d_max/pi` (the data cannot support either).
+- **Slit smearing is not supported** (a warning fires on slit-smeared data);
+  pinhole dQ resolution is ignored, as in SasView.
+- **`regularizer='sasview'`** reproduces SasView's exact smoothing operator
+  for comparison; the default `'corrected'` penalizes the true second
+  derivative on a resolved grid (validated against SasView — identical for
+  spheres, and it remains reliable above 20 terms where SasView's fixed
+  20-point penalty grid degrades).
+- **Uncertainties are conditional**: the covariance (and the P(r) band)
+  assumes known Gaussian errors at the chosen alpha and D_max, and is biased
+  by the regularization. The summary's "approx. chi2 per residual dof" uses
+  the regularization-aware effective dof, not the parameter count.
+
+See `examples/pr_inversion_example.py` and
+`notebooks/pr_inversion_demo.ipynb` for a complete walkthrough.
+
 ### Structure Factors
 
 You can combine a form factor with a structure factor to model interacting systems.
@@ -209,6 +290,116 @@ When using a structure factor, you often need to define an effective radius. You
 # Link effective radius to the sphere radius
 fitter.set_structure_factor('hardsphere', radius_effective_mode='link_radius')
 ```
+
+### Combining Models (Composite Models)
+
+Datasets with several distinct features — for example a low-Q diffuse
+scattering contribution plus a high-Q correlation peak — are often best
+described by *several models fitted simultaneously* against the same data.
+`set_models()` combines any sasmodels models into one fit:
+
+```python
+fitter = SANSFitter()
+fitter.load_data('data.csv')
+
+fitter.set_models('dab', 'peak_lorentz')
+fitter.set_param('dab_cor_length', value=50, min=1, max=500, vary=True)
+fitter.set_param('dab_scale', value=10, min=0.1, max=100, vary=True)
+fitter.set_param('peak_lorentz_peak_pos', value=0.1, min=0.01, max=0.5, vary=True)
+fitter.set_param('peak_lorentz_peak_hwhm', value=0.01, min=0.001, max=0.1, vary=True)
+fitter.set_param('background', value=0.001, min=0, max=0.1, vary=True)
+
+result = fitter.fit(engine='bumps')
+fitter.plot_results(show_components=True)
+```
+
+**How the combination works.** With the default `operation='+'` the combined
+intensity is
+
+```text
+I(q) = scale · [dab_scale·I_dab(q) + peak_lorentz_scale·I_peak(q)] + background
+```
+
+The global `scale` and `background` are shared by every component natively
+(sasmodels' mixture semantics), while each component carries its own
+`<name>_scale`. Varying the global `scale` together with a component scale is
+degenerate — only their product is fitted — so `fit()` warns when both are
+free. With `operation='*'` the part intensities multiply instead.
+
+**Friendly parameter names.** Every component parameter is prefixed with the
+model name (`dab_cor_length`, `peak_lorentz_peak_pos`). Give components custom
+names (monikers) with keyword arguments — useful for long model names,
+duplicates, or physics labels:
+
+```python
+fitter.set_models(small='sphere', large='sphere', shared=['sld', 'sld_solvent'])
+fitter.set_param('small_radius', value=20, min=5, max=100, vary=True)
+fitter.set_param('large_radius', value=200, min=50, max=1000, vary=True)
+fitter.set_param('sld', value=4.0, vary=True)   # one knob drives both spheres
+```
+
+**Sharing parameters.** Each name in `shared=[...]` must exist in at least
+two components; it becomes a single unprefixed parameter driving all of them
+(the per-component versions disappear from the parameter list). This is the
+one-line answer to "share SLD across models". Note that polydispersity
+configuration stays per-component: after `shared=['radius']`,
+`set_pd_param('small_radius', ...)` and `set_pd_param('large_radius', ...)`
+still configure the two components independently.
+
+**One component per entry.** Each `set_models()` entry must be a single
+component (optionally with `@`, see below). An entry that is itself a
+composite expression — e.g. `set_models(diffuse='dab+peak_lorentz',
+particle='sphere')` — raises an error, because the two entries would expand
+to three kernel components and the monikers could not map 1:1. Pass each
+component separately, or use the raw string path
+(`set_model('dab+peak_lorentz+sphere')`) with canonical `A_`/`B_`/`C_` names.
+
+**Structure factors on one part.** A component entry may itself contain `@`,
+applying a structure factor to that part only:
+
+```python
+fitter.set_models('sphere@hardsphere', 'peak_lorentz')
+```
+
+(`@` binds tighter than `+`, so this is `(sphere@hardsphere) + peak_lorentz`.)
+Applying `set_structure_factor()` to an already-composite model raises an
+error — sasmodels cannot express `(A+B)@S`.
+
+**Component curves.** After fitting a `'+'` mixture,
+`plot_results(show_components=True)` overlays one dashed curve per component,
+each drawn as `scale · part_scale · I_part(q)` (background excluded, shown
+implicitly in the total curve). For `'*'` mixtures and atomic models the flag
+is a documented no-op.
+
+**Equality links.** For sharing that `shared=` cannot express — linking only
+some components, or parameters with different names — use explicit links:
+
+```python
+fitter.link_params('large_sld', to='small_sld')      # follower mirrors target
+fitter.link_params('shell_sld_core', to='small_sld') # different names work too
+fitter.unlink_params('large_sld')                    # escape hatch
+```
+
+A follower is forced `vary=False` and mirrors the target's value before,
+during, and after the fit; writing it directly raises. Link chains are not
+supported.
+
+**Raw string syntax (advanced).** `set_model()` accepts sasmodels' native
+composite expressions directly and keeps the canonical `A_`/`B_` parameter
+names — zero magic when following sasmodels documentation:
+
+```python
+fitter.set_model('dab+peak_lorentz')   # A_scale, A_cor_length, B_scale, ...
+```
+
+Every atomic name in the expression is validated before loading, with a
+nearest-match suggestion for typos.
+
+**Engine support.** Composite models and parameter links currently work with
+the `bumps` engine only; `fit(engine='lmfit')` and `fit_bayesian()` raise
+`NotImplementedError` when either is active.
+
+See `examples/composite_model_example.py` for a complete runnable example.
 
 ## Polydispersity
 

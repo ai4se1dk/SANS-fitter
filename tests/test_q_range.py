@@ -4,7 +4,7 @@ import unittest
 import numpy as np
 
 from sans_fitter import SANSFitter
-from sans_fitter.data_loader import get_fit_index
+from sans_fitter.data.loader import get_fit_index
 from tests.helpers import create_decay_data_file
 
 

@@ -4,7 +4,7 @@ import numpy as np
 from sasdata.dataloader.loader import Loader
 
 
-def _has_real_data(arr) -> bool:
+def has_real_data(arr) -> bool:
     """Return True when *arr* contains at least one finite, non-zero value.
 
     sasdata zero-fills optional columns (dI, dQ) that are absent from the input
@@ -36,7 +36,7 @@ def normalize_sans_data(data: Any) -> Any:
     Both fit engines rely on ``qmin``, ``qmax`` and ``mask`` being present on
     the dataset. Loaded files get them here via :func:`load_sans_data`;
     datasets built in memory (arithmetic results, simulations) get them via
-    :meth:`SANSFitter.set_data` or :mod:`sans_fitter.data_ops`.
+    :meth:`SANSFitter.set_data` or :mod:`sans_fitter.data.ops`.
 
     ``qmin``/``qmax`` are only computed when absent (explicit ``is None``
     check, so a legitimate limit of ``0.0`` is preserved). The mask is the
@@ -53,9 +53,9 @@ def normalize_sans_data(data: Any) -> Any:
         existing_mask = np.zeros_like(data.y, dtype=bool)
     existing_mask = np.asarray(existing_mask, dtype=bool)
     nan_mask = np.isnan(data.x) | np.isnan(data.y)
-    if _has_real_data(data.dy):
+    if has_real_data(data.dy):
         nan_mask |= np.isnan(data.dy)
-    if _has_real_data(data.dx):
+    if has_real_data(data.dx):
         nan_mask |= np.isnan(data.dx)
     data.mask = existing_mask | nan_mask
     return data

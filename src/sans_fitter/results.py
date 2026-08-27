@@ -1,12 +1,37 @@
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 
-from .data_loader import _has_real_data
+from .data.loader import has_real_data
 
 MIN_POSTERIOR_PARAMETER_COUNT = 2
 MIN_POSTERIOR_SAMPLE_COUNT = 2
+
+
+@dataclass(slots=True)
+class ParameterStateSnapshot:
+    """Read-only parameter state passed into fitting engines.
+
+    All parameter names carried by the snapshot are **canonical sasmodels
+    names** (e.g. ``A_sld`` under a composite model). Any user-facing alias
+    layer is translated away before the snapshot is built.
+    """
+
+    params: dict[str, dict[str, Any]]
+    polydisperse_param_names: list[str]
+    polydisperse_params: dict[str, dict[str, Any]]
+    pd_enabled: bool
+    radius_effective_mode: str
+    structure_factor_name: str | None
+    varying_params: list[str]
+    varying_pd_params: list[str]
+    # Equality links (follower -> target), canonical names. Populated by
+    # link_params() and by the shared= sugar of set_models().
+    linked_params: dict[str, str] = field(default_factory=dict)
+    # Composite-model components as (prefix, moniker, part_model_name)
+    # triples; empty for atomic models.
+    components: tuple[tuple[str, str, str], ...] = ()
 
 
 def _validate_export_lengths(**arrays: Any) -> None:
@@ -43,15 +68,15 @@ class PosteriorSummary:
 
     labels: list[str]
     samples: np.ndarray  # [n_samples, n_params]
-    logp: Optional[np.ndarray] = None  # [n_samples]
-    chains: Optional[np.ndarray] = None  # [n_generations, n_chains, n_params]
+    logp: np.ndarray | None = None  # [n_samples]
+    chains: np.ndarray | None = None  # [n_generations, n_chains, n_params]
     best: dict[str, float] = field(default_factory=dict)
     mean: dict[str, float] = field(default_factory=dict)
     median: dict[str, float] = field(default_factory=dict)
     std: dict[str, float] = field(default_factory=dict)
     ci_68: dict[str, tuple[float, float]] = field(default_factory=dict)
     ci_95: dict[str, tuple[float, float]] = field(default_factory=dict)
-    diagnostics: Optional[dict[str, dict[str, float]]] = None
+    diagnostics: dict[str, dict[str, float]] | None = None
 
     @property
     def n_samples(self) -> int:
@@ -117,14 +142,18 @@ class PosteriorSummary:
 class FitArtifacts:
     """Engine-specific runtime data needed after fitting."""
 
-    fitted_curve: Optional[np.ndarray] = None
-    fit_index: Optional[np.ndarray] = None
+    fitted_curve: np.ndarray | None = None
+    fit_index: np.ndarray | None = None
     raw_result: Any = None
     runtime_handle: Any = None
-    runtime_key: Optional[str] = None
-    posterior: Optional[PosteriorSummary] = None
+    runtime_key: str | None = None
+    posterior: PosteriorSummary | None = None
     posterior_data: Any = None
     posterior_model_eval: Any = None
+    # Per-component curves for '+' mixture models: label -> I(q) evaluated on
+    # the same fit_index points as fitted_curve. None for atomic models and
+    # '*' mixtures (where part curves would not stack to the total).
+    component_curves: dict[str, np.ndarray] | None = None
 
 
 @dataclass(slots=True)
@@ -176,7 +205,7 @@ class FitResultContract:
         are exported, so every row carries a fitted intensity and residual.
         """
         fitted_curve = self.require_fitted_curve()
-        has_dx = _has_real_data(data.dx)
+        has_dx = has_real_data(data.dx)
 
         index = resolve_fit_index(self.artifacts.fit_index, len(data.x))
         x = np.asarray(data.x)[index]
@@ -224,11 +253,15 @@ class FitResultContract:
 
             if has_dx:
                 f.write('Q,dQ,I_exp,dI_exp,I_fit,Residuals\n')
-                for q, dq, i_exp, di_exp, i_fit, res in zip(x, dx, y, dy, fitted_curve, residuals):
+                for q, dq, i_exp, di_exp, i_fit, res in zip(
+                    x, dx, y, dy, fitted_curve, residuals, strict=True
+                ):
                     f.write(f'{q:.6e},{dq:.6e},{i_exp:.6e},{di_exp:.6e},{i_fit:.6e},{res:.6e}\n')
             else:
                 f.write('Q,I_exp,dI_exp,I_fit,Residuals\n')
-                for q, i_exp, di_exp, i_fit, res in zip(x, y, dy, fitted_curve, residuals):
+                for q, i_exp, di_exp, i_fit, res in zip(
+                    x, y, dy, fitted_curve, residuals, strict=True
+                ):
                     f.write(f'{q:.6e},{i_exp:.6e},{di_exp:.6e},{i_fit:.6e},{res:.6e}\n')
 
 
