@@ -39,6 +39,7 @@ nav:
   - Home: index.md
   - Installation: installation.md
   - User Guide: usage.md
+  - Custom Models: custom_models.md
   - API Reference: api.md
   - Developer Guide: developer.md
 

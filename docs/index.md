@@ -9,6 +9,7 @@ SANS Fitter provides a unified interface for fitting SANS data using different o
 ## Key Features
 
 - **Model-Agnostic Design**: Works with any model from the SasModels library (cylinder, sphere, core_shell, etc.)
+- **Custom Models**: Loads your own SasModels plugin models by path, `custom.` prefix, or `SAS_MODELPATH` (see [Custom Models](custom_models.md))
 - **Multiple Fitting Engines**: Supports both BUMPS (default) and LMFit optimization engines
 - **Flexible Data Loading**: Reads CSV, XML, and HDF5 formats via sasdata
 - **User-Friendly Parameter Management**: Easy-to-use interface for setting parameter values, bounds, and fitting flags
