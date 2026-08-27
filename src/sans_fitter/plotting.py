@@ -1,3 +1,4 @@
+import warnings
 from collections.abc import Callable
 from typing import Any
 
@@ -189,6 +190,12 @@ def plot_fit(
         for i, (label, curve) in enumerate(fit_result.artifacts.component_curves.items()):
             curve = np.asarray(curve)
             if len(curve) != len(q):
+                warnings.warn(
+                    f"Component curve '{label}' has {len(curve)} points but the fit "
+                    f'has {len(q)}; omitting it from the plot.',
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
                 continue
             component_traces.append(
                 go.Scatter(

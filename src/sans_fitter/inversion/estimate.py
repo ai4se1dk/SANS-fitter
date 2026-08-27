@@ -143,9 +143,16 @@ def _estimate_alpha_prepared(
             continue
         n_peaks = _count_peaks(result.pr)
         if n_peaks > 1:
-            chosen = previous_alpha if previous_alpha is not None else alpha_step
+            if previous_alpha is None:
+                # Even the first solvable (largest) alpha shows structure, so
+                # there is no structure-free alpha to fall back on.
+                return AlphaEstimate(
+                    alpha=alpha_step,
+                    message='No alpha in the scan was free of spurious structure; '
+                    f'returning alpha={alpha_step:g} despite {n_peaks} peaks.',
+                )
             return AlphaEstimate(
-                alpha=chosen,
+                alpha=previous_alpha,
                 message=f'Largest alpha before spurious structure ({n_peaks} peaks '
                 f'at alpha={alpha_step:g}).',
             )

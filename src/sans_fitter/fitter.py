@@ -760,8 +760,11 @@ class SANSFitter:
             List of parameter names (e.g., ['radius_pd']) that will vary during fitting
         """
         # ParameterManager returns base param names, we need to add _pd suffix
+        # and translate to user-facing aliases on the set_models path.
         varying_base = self._param_manager.get_varying_pd_params()
-        return [f'{param_name}_pd' for param_name in varying_base]
+        return [
+            self._param_manager.to_display_name(f'{param_name}_pd') for param_name in varying_base
+        ]
 
     def _finalize_fit(self, engine_output) -> dict[str, Any]:
         """Apply engine output to fitter state and return legacy-compatible results."""

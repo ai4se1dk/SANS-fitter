@@ -661,6 +661,18 @@ class TestEstimators(unittest.TestCase):
         self.assertGreater(estimate.alpha, 0.0)
         self.assertTrue(estimate.message)
 
+    def test_alpha_message_honest_when_first_alpha_shows_structure(self):
+        """When even the largest scanned alpha shows spurious structure, the
+        message must say so instead of claiming an alpha 'before' it."""
+        data = make_synthetic_data('sphere', SPHERE_PARS, SPHERE_Q, seed=2)
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')
+            with patch.object(pr_estimate, '_count_peaks', return_value=3):
+                estimate = pri.estimate_alpha(data, SPHERE_D_MAX, n_terms=10)
+        self.assertGreater(estimate.alpha, 0.0)
+        self.assertNotIn('before spurious structure', estimate.message)
+        self.assertIn('No alpha in the scan was free of spurious structure', estimate.message)
+
     def test_pure_noise_raises_estimation_error(self):
         rng = np.random.default_rng(7)
         q = np.geomspace(0.005, 0.25, 60)

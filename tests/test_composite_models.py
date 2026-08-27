@@ -354,6 +354,16 @@ class TestComponentCurves(unittest.TestCase):
         fitted = self.fitter._fit_contract.require_fitted_curve()
         np.testing.assert_allclose(total, fitted, rtol=1e-3, atol=1e-6)
 
+    def test_mismatched_component_curve_warns_and_is_skipped(self):
+        curves = self.fitter._fit_contract.artifacts.component_curves
+        curves['dab'] = np.asarray(curves['dab'])[:-1]
+        with self.assertWarns(RuntimeWarning) as ctx:
+            fig = self.fitter.plot_results(show_components=True, show=False)
+        self.assertIn("'dab'", str(ctx.warning))
+        trace_names = {trace.name for trace in fig.data}
+        self.assertNotIn('dab', trace_names)
+        self.assertIn('peak_lorentz', trace_names)
+
     def test_product_mixture_has_no_component_curves(self):
         fitter = SANSFitter()
         fitter.set_data(make_composite_data(expression='dab*peak_lorentz'))
@@ -404,6 +414,23 @@ class TestPolydispersityOnComponent(unittest.TestCase):
         self.assertEqual(alias_cfg['pd'], canonical_cfg['pd'])
         self.assertEqual(alias_cfg['pd'], 0.15)
         self.assertEqual(alias_cfg['pd_n'], 25)
+
+    def test_varying_pd_width_displays_alias_names(self):
+        """A varying PD width reports under the friendly alias, consistent with
+        how its base parameter displays in the same result table."""
+        fitter = SANSFitter()
+        fitter.set_data(make_composite_data(expression='sphere+peak_lorentz'))
+        fitter.set_models('sphere', 'peak_lorentz')
+        fitter.set_pd_param('sphere_radius', pd_width=0.1, vary=True)
+        fitter.enable_polydispersity(True)
+        fitter.set_param('sphere_radius', value=20.0, vary=True)
+
+        self.assertEqual(fitter._param_manager.to_display_name('A_radius_pd'), 'sphere_radius_pd')
+        self.assertEqual(fitter.get_varying_pd_params(), ['sphere_radius_pd'])
+
+        fitter.fit(engine='bumps', method='amoeba')
+        self.assertIn('sphere_radius_pd', fitter._fit_contract.parameters)
+        self.assertNotIn('A_radius_pd', fitter._fit_contract.parameters)
 
     def test_pd_on_product_part_inside_mixture(self):
         # PD on A_radius of (sphere@hardsphere) + peak_lorentz: the product

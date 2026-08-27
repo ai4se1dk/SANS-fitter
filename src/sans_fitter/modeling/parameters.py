@@ -599,9 +599,16 @@ class ParameterManager:
 
         Used for engine results, saved CSVs, and plot labels on the
         ``set_models`` path. On the raw ``set_model`` path the alias map is
-        empty and names pass through unchanged.
+        empty and names pass through unchanged. Polydispersity width names
+        (``A_radius_pd``) translate through their base parameter's alias.
         """
-        return self._canonical_to_alias.get(canonical_name, canonical_name)
+        if canonical_name in self._canonical_to_alias:
+            return self._canonical_to_alias[canonical_name]
+        if canonical_name.endswith('_pd'):
+            base = canonical_name.removesuffix('_pd')
+            if base in self._canonical_to_alias:
+                return f'{self._canonical_to_alias[base]}_pd'
+        return canonical_name
 
     def set_param(
         self,
