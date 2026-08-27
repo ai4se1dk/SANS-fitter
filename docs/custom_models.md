@@ -1,9 +1,9 @@
 # Custom Models
 
-SANS Fitter is not limited to the models shipped with SasModels. `set_model()` passes the
-model string straight to `sasmodels.core.load_model()` without checking it against the
-built-in list, so any SasModels *plugin model* you write can be loaded and fitted exactly
-like a built-in one.
+SANS Fitter is not limited to the models shipped with SasModels. `set_model()` only
+validates bare model names (e.g. `'sphere'`) against the built-in list; a file path or a
+`custom.`-prefixed name is passed straight through to `sasmodels.core.load_model()`, so any
+SasModels *plugin model* you write can be loaded and fitted exactly like a built-in one.
 
 ## Writing a Plugin Model
 
@@ -46,8 +46,7 @@ support.
 
 ## Loading a Custom Model
 
-There are three ways to reach your file. All of them are just a string passed to
-`set_model()`.
+There are two ways to reach your file. Both are just a string passed to `set_model()`.
 
 ### By file path
 
@@ -67,20 +66,7 @@ Place the file in the SasModels custom-model directory
 on Windows) and refer to it by file name:
 
 ```python
-fitter.set_model('custom.MyPowerLaw')     # loads MyPowerLaw.py
-```
-
-### Via `SAS_MODELPATH`
-
-If the `SAS_MODELPATH` environment variable points at a directory of plugin files, a bare
-model name resolves against it:
-
-```bash
-export SAS_MODELPATH=/path/to/my/models
-```
-
-```python
-fitter.set_model('my_power_law')
+fitter.set_model('custom.my_power_law')     # loads my_power_law.py
 ```
 
 ## Fitting a Custom Model
@@ -122,7 +108,7 @@ source = ["my_fast_model.c"]     # C file sitting next to the .py file
 
 !!! warning "Structure factors need extra model attributes"
 
-    `apply_structure_factor()` builds the product model as `'<model_name>@<structure_factor>'`,
+    `set_structure_factor()` builds the product model as `'<model_name>@<structure_factor>'`,
     which parses correctly for custom models. However, SasModels requires a form factor used
     in a product model to define `form_volume` and an effective radius (`radius_effective`).
     A custom model without them cannot be combined with a structure factor.
