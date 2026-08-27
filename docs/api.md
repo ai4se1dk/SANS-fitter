@@ -21,11 +21,13 @@ The main class for SANS data fitting.
         - get_links
         - get_components
         - set_structure_factor
+        - get_structure_factor
+        - remove_structure_factor
         - get_params
         - set_param
         - fit
         - fit_bayesian
-        - get_posteriors
+        - get_posterior
         - plot_results
         - plot_posterior_pairs
         - plot_param_distribution
@@ -116,6 +118,10 @@ estimation and D_max exploration.
         - NTermsEstimate
         - InsufficientDataError
         - PrEstimationError
+        - DEFAULT_N_TERMS
+        - DEFAULT_R_POINTS
+        - REGULARIZERS
+        - SASVIEW_N_REG
 
 ## examples
 
@@ -159,6 +165,51 @@ Internal class for managing model parameters and polydispersity settings.
         - is_pd_enabled
         - get_pd_params_for_fitting
         - display_pd_params
+
+## PolydispersityManager
+
+Internal class for managing per-parameter polydispersity state.
+
+::: sans_fitter.modeling.polydispersity.PolydispersityManager
+    options:
+      show_root_heading: true
+      show_source: true
+      members:
+        - initialize
+        - get_parameters
+        - has_parameters
+        - set_param
+        - get_param
+        - set_enabled
+        - is_enabled
+        - get_fitting_params
+        - get_varying_params
+        - display
+        - backup
+        - restore
+        - has_backup
+        - clear
+
+## StructureFactorManager
+
+Internal class for managing structure factor selection and parameter backup/restore.
+
+::: sans_fitter.modeling.structure_factor.StructureFactorManager
+    options:
+      show_root_heading: true
+      show_source: true
+      members:
+        - apply
+        - remove
+        - backup_params
+        - restore_params
+        - has_backup
+        - clear
+
+::: sans_fitter.modeling.structure_factor.default_parameter_bounds
+    options:
+      show_root_heading: true
+      show_source: true
 
 ## Polydispersity Constants
 
