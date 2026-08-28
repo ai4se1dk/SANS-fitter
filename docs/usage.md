@@ -22,6 +22,24 @@ fitter = SANSFitter()
 fitter.load_data('path/to/data.csv')
 ```
 
+Some files contain **more than one dataset** (e.g. a CanSAS XML with several
+`SASentry` blocks, or an NXcanSAS file with multiple entries). In that case
+`load_data()` (and `data_ops.load()`) print a warning listing all available
+datasets and load the first one. Select a specific dataset by 0-based index
+or by name (title, run id, or filename):
+
+```python
+# Pick the second dataset by index
+fitter.load_data('multi_dataset.xml', dataset=1)
+
+# Or by name (title, run id, or filename)
+fitter.load_data('multi_dataset.xml', dataset='beta sample')
+
+# data_ops.load accepts the same argument
+import sans_fitter.data_ops as data_ops
+sample = data_ops.load('multi_dataset.xml', dataset='beta sample')
+```
+
 ### 2. Selecting a Model
 
 You can use any model available in the [SasModels library](https://www.sasview.org/docs/user/models/index.html).

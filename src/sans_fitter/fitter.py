@@ -121,7 +121,7 @@ class SANSFitter:
         # Parameter management delegated to ParameterManager
         self._param_manager = ParameterManager()
 
-    def load_data(self, filename: str) -> None:
+    def load_data(self, filename: str, dataset: int | str = 0) -> None:
         """
         Load SANS data from a file.
 
@@ -131,14 +131,22 @@ class SANSFitter:
         its uncertainties and resolution swapped. Check the column summary
         printed after loading.
 
+        Files may hold several datasets (e.g. CanSAS XML with multiple
+        ``SASentry`` blocks). Pass *dataset* to select one by 0-based index or
+        by name (title, run id or filename); the first dataset is used by
+        default. If the file contains more than one dataset, a warning lists
+        them all.
+
         Args:
             filename: Path to the data file
+            dataset: Which dataset to load — a 0-based index or a name (title,
+                run id or filename). Defaults to the first dataset.
 
         Raises:
             FileNotFoundError: If the file doesn't exist
             ValueError: If the data cannot be loaded or is invalid
         """
-        self.data = load_sans_data(filename)
+        self.data = load_sans_data(filename, dataset=dataset)
         self._full_q_range = (self.data.qmin, self.data.qmax)
 
         has_dy = has_real_data(self.data.dy)
