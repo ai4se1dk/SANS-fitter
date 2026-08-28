@@ -34,6 +34,48 @@ def create_loading_test_data_file_with_resolution(num_points=10):
     return temp_file.name
 
 
+def create_multi_dataset_xml_file(num_points=3):
+    """Write a CanSAS XML containing two datasets and return its path.
+
+    Dataset 0 has title "alpha sample" and run id "alpha_run"; dataset 1 has
+    title "beta sample" and run id "beta_run". Both share the same Q grid.
+    """
+    points = '\n'.join(
+        f'<Idata><Q unit="1/A">{q}</Q><I unit="1/cm">{i}</I>'
+        f'<Idev unit="1/cm">{di}</Idev></Idata>'
+        for q, i, di in (
+            ('0.01', '100', '10'),
+            ('0.02', '50', '5'),
+            ('0.03', '20', '2'),
+        )[:num_points]
+    )
+    xml = f'''<?xml version="1.0"?>
+<SASroot version="1.0"
+    xmlns="cansas1d/1.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="cansas1d/1.0 http://svn.smallangles.net/svn/canSAS/1dwg/trunk/cansas1d.xsd">
+<SASentry>
+  <Title>alpha sample</Title>
+  <Run>alpha_run</Run>
+  <SASdata>
+    {points}
+  </SASdata>
+</SASentry>
+<SASentry>
+  <Title>beta sample</Title>
+  <Run>beta_run</Run>
+  <SASdata>
+    {points}
+  </SASdata>
+</SASentry>
+</SASroot>
+'''
+    temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.xml', delete=False)
+    temp_file.write(xml)
+    temp_file.close()
+    return temp_file.name
+
+
 def create_background_data_file(num_points=10):
     """Flat background on the same Q grid as create_loading_test_data_file."""
     temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False)
