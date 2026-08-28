@@ -276,11 +276,19 @@ fitter.set_model('sphere')
 fitter.set_structure_factor('hardsphere')
 ```
 
-Supported structure factors include:
--   `hardsphere`
--   `hayter_msa`
--   `squarewell`
--   `stickyhardsphere`
+The available structure factors are **queried from sasmodels at runtime** (not
+hardcoded), so new ones added upstream are picked up automatically. List them
+with `get_structure_factors()`:
+
+```python
+from sans_fitter import get_structure_factors
+
+get_structure_factors()
+# e.g. ('hardsphere', 'hayter_msa', 'squarewell', 'stickyhardsphere', 'two_yukawa')
+```
+
+As of the current sasmodels install this includes `hardsphere`, `hayter_msa`,
+`squarewell`, `stickyhardsphere`, and `two_yukawa`.
 
 ### Effective Radius
 

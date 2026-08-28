@@ -1,8 +1,46 @@
 import os
 import unittest
 
-from sans_fitter import SANSFitter
+from sasmodels import core
+
+from sans_fitter import SANSFitter, get_structure_factors
 from tests.helpers import create_concentrated_sphere_data_file
+
+
+class TestStructureFactorDiscovery(unittest.TestCase):
+    """Structure factors are derived from sasmodels, not a hardcoded whitelist."""
+
+    def test_includes_previously_hardcoded_names(self):
+        names = get_structure_factors()
+        for expected in ('hardsphere', 'hayter_msa', 'squarewell', 'stickyhardsphere'):
+            self.assertIn(expected, names)
+
+    def test_every_name_is_a_real_structure_factor(self):
+        names = get_structure_factors()
+        self.assertTrue(names)  # non-empty
+        self.assertEqual(sorted(names), list(names))  # sorted
+        for name in names:
+            self.assertTrue(core.load_model_info(name).structure_factor, name)
+
+    def test_is_subset_of_sasmodels_models(self):
+        self.assertTrue(set(get_structure_factors()) <= set(core.list_models()))
+
+    def test_matches_sasmodels_source_of_truth(self):
+        # Guards against regressing to a stale hardcoded list: the function
+        # must equal exactly what sasmodels reports today.
+        expected = {
+            name for name in core.list_models() if core.load_model_info(name).structure_factor
+        }
+        self.assertEqual(set(get_structure_factors()), expected)
+
+    def test_newly_supported_structure_factor_is_usable(self):
+        if 'two_yukawa' not in get_structure_factors():
+            self.skipTest('two_yukawa not available in this sasmodels')
+        fitter = SANSFitter()
+        fitter.set_model('sphere')
+        fitter.set_structure_factor('two_yukawa')
+        self.assertEqual(fitter.get_structure_factor(), 'two_yukawa')
+        self.assertIn('volfraction', fitter.params)
 
 
 class TestStructureFactorSetup(unittest.TestCase):

@@ -1,5 +1,10 @@
 # API Reference
 
+## Module-level helpers
+
+::: sans_fitter.fitter.get_all_models
+::: sans_fitter.fitter.get_structure_factors
+
 ## SANSFitter
 
 The main class for SANS data fitting.
