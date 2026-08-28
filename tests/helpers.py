@@ -41,15 +41,14 @@ def create_multi_dataset_xml_file(num_points=3):
     title "beta sample" and run id "beta_run". Both share the same Q grid.
     """
     points = '\n'.join(
-        f'<Idata><Q unit="1/A">{q}</Q><I unit="1/cm">{i}</I>'
-        f'<Idev unit="1/cm">{di}</Idev></Idata>'
+        f'<Idata><Q unit="1/A">{q}</Q><I unit="1/cm">{i}</I><Idev unit="1/cm">{di}</Idev></Idata>'
         for q, i, di in (
             ('0.01', '100', '10'),
             ('0.02', '50', '5'),
             ('0.03', '20', '2'),
         )[:num_points]
     )
-    xml = f'''<?xml version="1.0"?>
+    xml = f"""<?xml version="1.0"?>
 <SASroot version="1.0"
     xmlns="cansas1d/1.0"
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -69,7 +68,7 @@ def create_multi_dataset_xml_file(num_points=3):
   </SASdata>
 </SASentry>
 </SASroot>
-'''
+"""
     temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.xml', delete=False)
     temp_file.write(xml)
     temp_file.close()

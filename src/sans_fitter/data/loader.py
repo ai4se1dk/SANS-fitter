@@ -148,8 +148,7 @@ def _select_dataset(data_list: list[Any], filename: str, dataset: int | str) -> 
         if not matches:
             available = ', '.join(f'{i}: {_dataset_label(d, i)}' for i, d in enumerate(data_list))
             raise ValueError(
-                f'No dataset named {dataset!r} in {filename}. '
-                f'Available datasets: {available}.'
+                f'No dataset named {dataset!r} in {filename}. Available datasets: {available}.'
             )
         if len(matches) > 1:
             raise ValueError(
