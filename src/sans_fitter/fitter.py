@@ -33,6 +33,7 @@ from .fitting import (
 )
 from .fitting.base import extract_fit_index, pd_is_active
 from .modeling.parameters import ParameterManager
+from .modeling.structure_factor import validate_radius_effective_mode
 from .plotting import DEFAULT_POSTERIOR_PREDICTIVE_DRAWS, plot_fit
 from .results import FitArtifacts, FitResultContract, PosteriorSummary, save_fit_result
 
@@ -580,7 +581,10 @@ class SANSFitter:
                 - 'link_radius': 'radius_effective' is constrained to the form factor's 'radius'.
 
         Raises:
-            ValueError: If no form factor model is set, or if the structure factor is invalid
+            ValueError: If no form factor model is set, or if the structure
+                factor name or radius_effective_mode is invalid. Every check
+                runs before any state is touched, so a rejected call leaves the
+                fitter exactly as it was.
         """
         if self.kernel is None or self.model_name is None:
             raise ValueError('No form factor model loaded. Use set_model() first.')
@@ -602,17 +606,26 @@ class SANSFitter:
                 f'Supported: {", ".join(supported_sf)}'
             )
 
+        # Validate the mode here, before anything is swapped. Leaving it to
+        # update_for_product_model would abort *after* self.kernel had become
+        # the product model while params still described the form factor — a
+        # desynchronized state in which the next fit silently evaluates the
+        # product kernel with default structure-factor parameters.
+        validate_radius_effective_mode(radius_effective_mode)
+
         # Create product model name
         full_model_name = f'{self.model_name}@{structure_factor_name}'
 
         try:
-            # Load the product model
-            self.kernel = load_model(full_model_name, dtype='single', platform='dll')
+            # Load the product model. Held locally until the parameter manager
+            # has accepted it, so a failure cannot desynchronize the two.
+            product_kernel = load_model(full_model_name, dtype='single', platform='dll')
 
             # Delegate parameter management to ParameterManager
             self._param_manager.update_for_product_model(
-                self.kernel, structure_factor_name, radius_effective_mode
+                product_kernel, structure_factor_name, radius_effective_mode
             )
+            self.kernel = product_kernel
 
             if radius_effective_mode == 'link_radius':
                 print("  Note: 'radius_effective' linked to 'radius' value")
@@ -634,12 +647,15 @@ class SANSFitter:
         if self._structure_factor_name is None:
             raise ValueError('No structure factor is currently set.')
 
-        # Reload the original form factor model
+        # Reload the original form factor model. Held locally until the
+        # parameter manager has restored its side, for the same reason as in
+        # set_structure_factor: kernel and params must never disagree.
         try:
-            self.kernel = load_model(self.model_name, dtype='single', platform='dll')
+            form_factor_kernel = load_model(self.model_name, dtype='single', platform='dll')
 
             # Delegate to ParameterManager - this restores params and PD state
             sf_name = self._param_manager.remove_structure_factor()
+            self.kernel = form_factor_kernel
 
             print(f"✓ Structure factor '{sf_name}' removed")
             print(f'  Reverted to form factor: {self.model_name}')

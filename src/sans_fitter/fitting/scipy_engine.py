@@ -14,6 +14,18 @@ try:
 except ImportError:
     SCIPY_AVAILABLE = False
 
+# Relative accuracy of the model curve. SANSFitter compiles sasmodels kernels
+# in single precision (``load_model(..., dtype='single')``), so two evaluations
+# agree to about 1e-7 and no further.
+KERNEL_PRECISION = float(np.finfo(np.float32).eps)
+# Forward-difference step for the numerical Jacobian, as a fraction of each
+# parameter. scipy defaults to sqrt(double eps) ~= 1.5e-8, which is *below* the
+# kernel's own resolution: the perturbed curve comes back bit-identical, the
+# Jacobian is exactly zero, and the optimizer stops at the starting point while
+# reporting success. Sizing the step to the kernel's precision instead makes
+# the derivative observable.
+JACOBIAN_STEP = float(np.sqrt(KERNEL_PRECISION))
+
 
 def fit_scipy(
     data: Any,
@@ -91,6 +103,9 @@ def fit_scipy(
     print(f'\nFitting with scipy.optimize (method: {method})...')
 
     if method == 'leastsq':
+        # epsfcn is the assumed relative error in the function; leastsq derives
+        # its step as sqrt(epsfcn)*x. See KERNEL_PRECISION.
+        kwargs.setdefault('epsfcn', KERNEL_PRECISION)
         result = leastsq(residual, x0, full_output=True, **kwargs)
         fitted_params = result[0]
         cov_matrix = result[1]
@@ -100,6 +115,8 @@ def fit_scipy(
             param_errors = np.zeros_like(fitted_params)
         chisq = np.sum(residual(fitted_params) ** 2)
     elif method == 'least_squares':
+        # diff_step is the relative step itself, not its square.
+        kwargs.setdefault('diff_step', JACOBIAN_STEP)
         result = least_squares(residual, x0, bounds=(bounds_lower, bounds_upper), **kwargs)
         fitted_params = result.x
         try:

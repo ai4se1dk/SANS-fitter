@@ -814,15 +814,18 @@ class ParameterManager:
         Raises:
             ValueError: If radius_effective_mode is invalid
         """
-        # Backup polydispersity state if not already done
-        if not self._backed_up_pd_state:
-            self.backup_pd_state()
-        self.params = self._sf_manager.apply(
+        # Build the new parameter set first: a rejected apply must not leave a
+        # polydispersity backup behind, which would later restore stale PD
+        # state on the next legitimate remove_structure_factor().
+        new_params = self._sf_manager.apply(
             kernel=kernel,
             sf_name=structure_factor_name,
             re_mode=radius_effective_mode,
             current_params=self.params,
         )
+        if not self._backed_up_pd_state:
+            self.backup_pd_state()
+        self.params = new_params
         self._prune_stale_links()
 
     def remove_structure_factor(self) -> str:
