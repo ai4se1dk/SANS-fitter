@@ -10785,16 +10785,16 @@ packages:
   - sasmodels>=1.0
   - sasdata>=0.8
   - bumps>=1.0
-  - jupyter>=1.0
-  - notebook>=7.0
-  - ipykernel>=6.0
-  - ipywidgets>=8.0
   - pytest>=7.0 ; extra == 'dev'
   - pytest-cov>=4.0 ; extra == 'dev'
   - pandas>=2.0.0 ; extra == 'dev'
   - mkdocs>=1.5 ; extra == 'docs'
   - mkdocs-material>=9.5 ; extra == 'docs'
   - mkdocstrings[python]>=0.25 ; extra == 'docs'
+  - jupyter>=1.0 ; extra == 'notebooks'
+  - notebook>=7.0 ; extra == 'notebooks'
+  - ipykernel>=6.0 ; extra == 'notebooks'
+  - ipywidgets>=8.0 ; extra == 'notebooks'
   requires_python: '>=3.10'
 - pypi: https://files.pythonhosted.org/packages/a1/36/587c2521cf23a2cd6c9c22108aa7528f683a1f195ed7ccd23a4b1786ad36/lxml-6.1.1-cp313-cp313-macosx_10_13_x86_64.whl
   name: lxml
