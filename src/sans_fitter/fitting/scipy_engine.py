@@ -5,7 +5,13 @@ import numpy as np
 from sasmodels.direct_model import DirectModel
 
 from ..results import FitArtifacts, FitResultContract, ParameterStateSnapshot
-from .base import EngineFitOutput, extract_fit_index, link_radius_effective_dict, pd_is_active
+from .base import (
+    EngineFitOutput,
+    build_result_parameters,
+    extract_fit_index,
+    link_radius_effective_dict,
+    pd_is_active,
+)
 
 try:
     from scipy.optimize import differential_evolution, least_squares, leastsq
@@ -124,11 +130,11 @@ def fit_scipy(
             f"Unknown method '{method}'. Use 'leastsq', 'least_squares', or 'differential_evolution'."
         )
 
-    result_parameters: dict[str, dict[str, Any]] = {}
+    varied: dict[str, dict[str, Any]] = {}
     fitted_values: dict[str, float] = {}
 
     for index, name in enumerate(param_names):
-        result_parameters[name] = {
+        varied[name] = {
             'value': fitted_params[index],
             'stderr': param_errors[index],
             'formatted': f'{fitted_params[index]:.6g} ± {param_errors[index]:.6g}'
@@ -137,19 +143,11 @@ def fit_scipy(
         }
         fitted_values[name] = fitted_params[index]
 
-    for name, info in fit_state.params.items():
-        if name not in param_names:
-            result_parameters[name] = {
-                'value': info['value'],
-                'stderr': 0.0,
-                'formatted': f'{info["value"]:.6g} (fixed)',
-            }
-
     contract = FitResultContract(
         engine='lmfit',
         method=method,
         chisq=chisq,
-        parameters=result_parameters,
+        parameters=build_result_parameters(fit_state, varied),
         artifacts=FitArtifacts(
             fitted_curve=np.asarray(calculator(**build_parameter_dict(fitted_params))),
             fit_index=extract_fit_index(calculator),
