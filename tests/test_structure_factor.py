@@ -1,5 +1,6 @@
 import os
 import unittest
+import warnings
 
 from sans_fitter import SANSFitter
 from tests.helpers import create_concentrated_sphere_data_file
@@ -92,6 +93,55 @@ class TestStructureFactorLinkRadius(unittest.TestCase):
         self.assertEqual(self.fitter.params['radius_effective']['value'], 60.0)
         self.assertTrue(self.fitter.params['radius_effective']['vary'])
 
+    def test_link_radius_mode_registers_an_ordinary_link(self):
+        # link_radius is not a special case: it is reported by get_links() and
+        # reaches the engines through the snapshot like any other link.
+        self.fitter.set_structure_factor('hardsphere', radius_effective_mode='link_radius')
+
+        self.assertEqual(self.fitter.get_links(), {'radius_effective': 'radius'})
+        snapshot = self.fitter._param_manager.snapshot_fit_state()
+        self.assertEqual(snapshot.linked_params, {'radius_effective': 'radius'})
+        self.assertNotIn('radius_effective', snapshot.varying_params)
+
+    def test_unconstrained_mode_registers_no_link(self):
+        self.fitter.set_structure_factor('hardsphere', radius_effective_mode='unconstrained')
+        self.assertEqual(self.fitter.get_links(), {})
+
+    def test_link_radius_mode_rejects_direct_writes(self):
+        self.fitter.set_structure_factor('hardsphere', radius_effective_mode='link_radius')
+
+        with self.assertRaises(ValueError):
+            self.fitter.set_param('radius_effective', value=60.0)
+        with self.assertRaises(ValueError):
+            self.fitter.set_param('radius_effective', vary=True)
+
+    def test_link_radius_mode_rejects_a_duplicate_manual_link(self):
+        self.fitter.set_structure_factor('hardsphere', radius_effective_mode='link_radius')
+
+        with self.assertRaises(ValueError) as context:
+            self.fitter.link_params('radius_effective', to='radius')
+        self.assertIn('already linked', str(context.exception))
+
+    def test_switching_mode_drops_the_previous_link(self):
+        self.fitter.set_structure_factor('hardsphere', radius_effective_mode='link_radius')
+        self.fitter.set_structure_factor('squarewell', radius_effective_mode='unconstrained')
+
+        self.assertEqual(self.fitter.get_links(), {})
+        self.fitter.set_param('radius_effective', value=60.0, vary=True)
+        self.assertEqual(self.fitter.params['radius_effective']['value'], 60.0)
+
+    def test_removing_structure_factor_retires_the_link_silently(self):
+        self.fitter.set_structure_factor('hardsphere', radius_effective_mode='link_radius')
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            self.fitter.remove_structure_factor()
+
+        self.assertEqual(self.fitter.get_links(), {})
+        # The mode-owned link retires with its structure factor; only a link the
+        # user made themselves is reported as stale.
+        self.assertFalse([w for w in caught if 'link' in str(w.message).lower()])
+
 
 class TestStructureFactorRemoval(unittest.TestCase):
     """Test structure factor removal functionality."""
@@ -177,6 +227,47 @@ class TestStructureFactorFitting(unittest.TestCase):
 
         self.assertIsNotNone(result)
         self.assertIn('volfraction', result['parameters'])
+        # radius varies, so this only holds if the link was applied during the
+        # fit rather than merely at setup time.
+        self.assertEqual(
+            self.fitter.params['radius_effective']['value'],
+            self.fitter.params['radius']['value'],
+        )
+
+    def test_fit_with_hardsphere_link_radius_lmfit(self):
+        self.fitter.set_structure_factor('hardsphere', radius_effective_mode='link_radius')
+        self.fitter.set_param('volfraction', value=0.2, min=0.01, max=0.6, vary=True)
+
+        try:
+            result = self.fitter.fit(engine='lmfit', method='least_squares')
+        except ValueError as error:
+            if 'scipy is not installed' in str(error):
+                self.skipTest('scipy not installed')
+            raise
+
+        self.assertIsNotNone(result)
+        self.assertEqual(
+            self.fitter.params['radius_effective']['value'],
+            self.fitter.params['radius']['value'],
+        )
+        self.assertEqual(
+            result['parameters']['radius_effective']['value'],
+            result['parameters']['radius']['value'],
+        )
+
+    def test_fit_bayesian_with_link_radius(self):
+        self.fitter.set_structure_factor('hardsphere', radius_effective_mode='link_radius')
+        self.fitter.set_param('volfraction', value=0.2, min=0.0, max=0.6, vary=True)
+
+        result = self.fitter.fit_bayesian(samples=200, burn=10)
+
+        self.assertIsNotNone(result)
+        # The follower is constrained away, so it never enters the chain.
+        self.assertNotIn('radius_effective', self.fitter.get_posterior().labels)
+        self.assertEqual(
+            self.fitter.params['radius_effective']['value'],
+            self.fitter.params['radius']['value'],
+        )
 
     def test_fit_with_hardsphere_lmfit(self):
         self.fitter.set_structure_factor('hardsphere')

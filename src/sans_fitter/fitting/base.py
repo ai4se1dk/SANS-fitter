@@ -24,24 +24,20 @@ def extract_fit_index(source: Any) -> np.ndarray | None:
     return np.asarray(index, dtype=bool)
 
 
-def link_radius_effective_model(model: Any, radius_effective_mode: str) -> None:
-    """Link radius_effective to radius on mutable model objects when requested."""
-    if (
-        radius_effective_mode == 'link_radius'
-        and hasattr(model, 'radius_effective')
-        and hasattr(model, 'radius')
-    ):
-        model.radius_effective = model.radius
+def apply_parameter_links(parameters: dict[str, Any], linked_params: dict[str, str]) -> None:
+    """Force every link follower to its target's value in a parameter dict.
 
+    The dict-level counterpart of the bumps engine's parameter-object aliasing,
+    used by evaluation paths that speak plain sasmodels kwargs (the scipy
+    residual, the DREAM posterior evaluator). It must run on *every* evaluation:
+    followers carry a stale value once the optimizer moves their target.
 
-def link_radius_effective_dict(parameters: dict[str, Any], radius_effective_mode: str) -> None:
-    """Link radius_effective to radius in parameter dictionaries when requested."""
-    if (
-        radius_effective_mode == 'link_radius'
-        and 'radius' in parameters
-        and 'radius_effective' in parameters
-    ):
-        parameters['radius_effective'] = parameters['radius']
+    The link graph has depth 1 (no target is itself a follower), so the order of
+    assignment does not matter. ``ParameterManager`` guarantees that invariant.
+    """
+    for follower, target in linked_params.items():
+        if follower in parameters and target in parameters:
+            parameters[follower] = parameters[target]
 
 
 @dataclass(slots=True)

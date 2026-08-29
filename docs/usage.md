@@ -291,6 +291,11 @@ When using a structure factor, you often need to define an effective radius. You
 fitter.set_structure_factor('hardsphere', radius_effective_mode='link_radius')
 ```
 
+This is an ordinary parameter link (see [Linking parameters](#combining-models-composite-models)):
+`get_links()` reports it as `{'radius_effective': 'radius'}`, `radius_effective`
+is held at `radius` throughout the fit, and writing to it directly raises. Pass
+`radius_effective_mode='unconstrained'` (the default) to fit it independently.
+
 ### Combining Models (Composite Models)
 
 Datasets with several distinct features — for example a low-Q diffuse
@@ -395,9 +400,9 @@ fitter.set_model('dab+peak_lorentz')   # A_scale, A_cor_length, B_scale, ...
 Every atomic name in the expression is validated before loading, with a
 nearest-match suggestion for typos.
 
-**Engine support.** Composite models and parameter links currently work with
-the `bumps` engine only; `fit(engine='lmfit')` and `fit_bayesian()` raise
-`NotImplementedError` when either is active.
+**Engine support.** Composite models currently work with the `bumps` engine
+only; `fit(engine='lmfit')` and `fit_bayesian()` raise `NotImplementedError`
+when one is active. Parameter links themselves work with every engine.
 
 See `examples/composite_model_example.py` for a complete runnable example.
 
