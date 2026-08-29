@@ -118,7 +118,6 @@ addopts = [
     "--tb=short",                  # Shorter traceback format
     "--strict-markers",            # Strict marker usage
     "-ra",                         # Show summary of all test outcomes
-    "--disable-warnings",          # Disable warnings display
 ]
 
 # Markers
