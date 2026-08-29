@@ -124,16 +124,18 @@ class StructureFactorManager:
                     'description': 'Constant background level',
                 }
 
-        if re_mode == 'link_radius':
-            if 'radius' in new_params and 'radius_effective' in new_params:
-                new_params['radius_effective']['value'] = new_params['radius']['value']
-                new_params['radius_effective']['vary'] = False
-            else:
-                warnings.warn(
-                    'Cannot link radius_effective to radius: one or both parameters not found. Using unconstrained mode.',
-                    stacklevel=3,
-                )
-                self._radius_effective_mode = 'unconstrained'
+        # The link itself is an ordinary equality link, established by
+        # ParameterManager after this rebuild; all that is decided here is
+        # whether the requested mode is achievable at all.
+        if re_mode == 'link_radius' and not (
+            'radius' in new_params and 'radius_effective' in new_params
+        ):
+            warnings.warn(
+                'Cannot link radius_effective to radius: one or both parameters '
+                'not found. Using unconstrained mode.',
+                stacklevel=3,
+            )
+            self._radius_effective_mode = 'unconstrained'
 
         return new_params
 

@@ -457,6 +457,11 @@ class SANSFitter:
         parameters, including cross-component ones (``'large_sld'`` following
         ``'small_sld'``) and differently named ones.
 
+        This is the same mechanism as
+        ``set_structure_factor(..., radius_effective_mode='link_radius')``,
+        which links ``'radius_effective'`` to ``'radius'``; ``get_links()``
+        reports both alike.
+
         Args:
             name: The follower parameter name.
             to: The target parameter name.
@@ -925,8 +930,8 @@ class SANSFitter:
 
         Raises:
             ValueError: If data or model not loaded, or invalid engine
-            NotImplementedError: If a composite model or parameter links are
-                used with an engine other than 'bumps'.
+            NotImplementedError: If a composite model is used with an engine
+                other than 'bumps'.
         """
         if self.data is None:
             raise ValueError('No data loaded. Use load_data() first.')
@@ -947,20 +952,17 @@ class SANSFitter:
         return self._fit_lmfit(method or 'leastsq', **kwargs)
 
     def _check_composite_engine_support(self, engine: str) -> None:
-        """Gate composite models and parameter links to the bumps engine.
+        """Gate composite models to the bumps engine.
 
         The scipy path would probably work for composites (DirectModel accepts
         prefixed kwargs) but it is untested; failing loudly beats silently
-        unvalidated results. A model using shared= always presents non-empty
-        linked_params, so no separate gate is needed for it.
+        unvalidated results. Parameter links are *not* gated: both engines apply
+        them on every model evaluation. shared= needs no gate of its own — it
+        only exists on composite models, which this check already covers.
         """
         if engine == 'bumps':
             return
         snapshot = self._param_manager.snapshot_fit_state()
-        if snapshot.linked_params:
-            raise NotImplementedError(
-                "Parameter links are currently supported by the 'bumps' engine only."
-            )
         if snapshot.components:
             raise NotImplementedError(
                 "Composite models are currently supported by the 'bumps' engine only."
@@ -1086,8 +1088,8 @@ class SANSFitter:
 
         Raises:
             ValueError: If data or model is not loaded, or no parameter varies.
-            NotImplementedError: If a composite model or parameter links are
-                used — the DREAM path does not support them yet.
+            NotImplementedError: If a composite model is used — the DREAM path
+                does not support them yet.
         """
         if self.data is None:
             raise ValueError('No data loaded. Use load_data() first.')
@@ -1095,10 +1097,10 @@ class SANSFitter:
             raise ValueError('No model loaded. Use set_model() first.')
 
         snapshot = self._param_manager.snapshot_fit_state()
-        if snapshot.linked_params or snapshot.components:
+        if snapshot.components:
             raise NotImplementedError(
-                'Composite models and parameter links are currently supported '
-                "by the 'bumps' point-estimate engine only (fit(engine='bumps'))."
+                "Composite models are currently supported by the 'bumps' "
+                "point-estimate engine only (fit(engine='bumps'))."
             )
         self._check_scale_degeneracy()
 
