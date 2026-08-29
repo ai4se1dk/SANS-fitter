@@ -76,6 +76,37 @@ LMFit provides access to SciPy's optimization algorithms.
 result = fitter.fit(engine='lmfit', method='leastsq')
 ```
 
+#### Reading the result
+
+Both engines return the same structure, so code written against one works
+against the other:
+
+```python
+result['engine']      # 'bumps' or 'lmfit'
+result['method']      # the optimization method used
+result['chisq']       # goodness of fit
+result['parameters']  # one entry per model parameter
+```
+
+Each entry in `result['parameters']` carries the same five fields:
+
+| Field | Meaning |
+|---|---|
+| `value` | Fitted value, or the value the parameter was held at |
+| `stderr` | Uncertainty on a fitted value; `0.0` for anything not fitted |
+| `formatted` | Display string, e.g. `45.041(46)`, `2 (fixed)`, `45.041 (linked)` |
+| `fixed` | `False` for the parameters the optimizer varied, `True` otherwise |
+| `linked_to` | Name of the parameter this one follows, or `None` |
+
+```python
+fitted = {name: info['value'] for name, info in result['parameters'].items()
+          if not info['fixed']}
+```
+
+A parameter that follows another one — through `link_params()` or
+`radius_effective_mode='link_radius'` — reports its target's *fitted* value and
+names that target in `linked_to`.
+
 ### 5. Visualization and Export
 
 After fitting, you can plot the results and save them.

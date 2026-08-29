@@ -774,8 +774,10 @@ class SANSFitter:
         # Translate engine result names (canonical) back to user-facing names
         # so saved results and displays never expose A_/B_ on the set_models
         # path (Boundary 2 of the alias layer).
+        to_display = self._param_manager.to_display_name
         self._fit_contract.parameters = {
-            self._param_manager.to_display_name(name): dict(info)
+            to_display(name): dict(info)
+            | {'linked_to': to_display(info['linked_to']) if info['linked_to'] else None}
             for name, info in self._fit_contract.parameters.items()
         }
 
@@ -921,7 +923,12 @@ class SANSFitter:
             **kwargs: Additional arguments passed to the fitting engine
 
         Returns:
-            Dictionary with fit results including chi-squared and parameter values
+            Dictionary with ``engine``, ``method``, ``chisq`` and
+            ``parameters``. The ``parameters`` block is engine-independent:
+            one entry per model parameter, each carrying ``value``, ``stderr``,
+            ``formatted``, a ``fixed`` flag (``False`` only for the parameters
+            the optimizer varied) and ``linked_to`` (the parameter it follows,
+            or ``None``). A follower reports its target's fitted value.
 
         Raises:
             ValueError: If data or model not loaded, or invalid engine

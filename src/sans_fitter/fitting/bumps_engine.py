@@ -24,6 +24,7 @@ from ..results import (
 )
 from .base import (
     EngineFitOutput,
+    build_result_parameters,
     extract_fit_index,
     link_radius_effective_dict,
     link_radius_effective_model,
@@ -129,11 +130,11 @@ def fit_bumps(
 
     result = bumps_fit(problem, method=method, **kwargs)
 
-    result_parameters: dict[str, dict[str, Any]] = {}
+    varied: dict[str, dict[str, Any]] = {}
     fitted_values: dict[str, float] = {}
 
     for name, value, stderr in zip(problem.labels(), result.x, result.dx, strict=True):
-        result_parameters[name] = {
+        varied[name] = {
             'value': value,
             'stderr': stderr,
             'formatted': format_uncertainty(value, stderr),
@@ -144,7 +145,7 @@ def fit_bumps(
         engine='bumps',
         method=method,
         chisq=problem.chisq(),
-        parameters=result_parameters,
+        parameters=build_result_parameters(fit_state, varied),
         artifacts=FitArtifacts(
             fitted_curve=np.asarray(experiment.theory()),
             fit_index=extract_fit_index(experiment),
@@ -365,13 +366,13 @@ def fit_bumps_dream(
     posterior = _extract_posterior(state, labels, point_estimate)
     posterior_data, posterior_model_eval = _build_posterior_evaluator(data, kernel, fit_state)
 
-    result_parameters: dict[str, dict[str, Any]] = {}
+    varied: dict[str, dict[str, Any]] = {}
     fitted_values: dict[str, float] = {}
 
     # For DREAM, result.dx is the posterior 68% credible half-width, so the
     # existing formatted-uncertainty convention carries over unchanged.
     for name, value, stderr in zip(labels, result.x, result.dx, strict=True):
-        result_parameters[name] = {
+        varied[name] = {
             'value': value,
             'stderr': stderr,
             'formatted': format_uncertainty(value, stderr),
@@ -382,7 +383,7 @@ def fit_bumps_dream(
         engine='bumps',
         method=method,
         chisq=chisq,
-        parameters=result_parameters,
+        parameters=build_result_parameters(fit_state, varied),
         artifacts=FitArtifacts(
             fitted_curve=fitted_curve,
             fit_index=extract_fit_index(experiment),
