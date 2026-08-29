@@ -301,12 +301,17 @@ class TestFitBayesian(unittest.TestCase):
         before = self.fitter.plot_posterior_predictive(n_draws=5, show=False)
         best_before = np.asarray(before.data[-2].y)
         original_background = self.fitter.params['background']['value']
+        original_max = self.fitter.params['background']['max']
         try:
-            self.fitter.set_param('background', value=original_background + 1.0)
+            # The perturbation deliberately leaves the fitted range, so the
+            # bound has to move with it (set_param validates the end state).
+            self.fitter.set_param(
+                'background', value=original_background + 1.0, max=original_max + 1.0
+            )
             after = self.fitter.plot_posterior_predictive(n_draws=5, show=False)
             np.testing.assert_allclose(after.data[-2].y, best_before)
         finally:
-            self.fitter.set_param('background', value=original_background)
+            self.fitter.set_param('background', value=original_background, max=original_max)
 
     def test_plot_results_after_bayesian_fit(self):
         fig = self.fitter.plot_results(show=False)

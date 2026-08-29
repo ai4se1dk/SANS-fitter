@@ -8,7 +8,8 @@ optimization engines (BUMPS, LMFit) with any model from the SasModels library.
 import difflib
 import re
 import warnings
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from types import MappingProxyType
 from typing import Any, Literal
 
 import numpy as np
@@ -503,23 +504,36 @@ class SANSFitter:
 
     @property
     def model_name(self) -> str | None:
-        """Get the current model name."""
+        """The current model name. Read-only; ``set_model()`` changes it."""
         return self._param_manager.model_name
 
     @model_name.setter
     def model_name(self, value: str | None) -> None:
-        """Set the model name (used internally)."""
-        self._param_manager.model_name = value
+        raise AttributeError(
+            'SANSFitter.model_name is read-only. Use set_model() or set_models() '
+            'to load a different model.'
+        )
 
     @property
-    def params(self) -> dict[str, dict[str, Any]]:
-        """Get the parameter dictionary."""
-        return self._param_manager.params
+    def params(self) -> Mapping[str, Mapping[str, Any]]:
+        """Read-only view of the parameter configuration.
+
+        Both the mapping and its entries are read-only: writing through them
+        (``fitter.params['radius']['vary'] = True``) would bypass every
+        invariant :meth:`set_param` maintains — bounds validation, equality-link
+        propagation and the ``link_radius`` sync — leaving state the engines
+        then silently override. Use :meth:`set_param` instead.
+        """
+        return MappingProxyType(
+            {name: MappingProxyType(info) for name, info in self._param_manager.params.items()}
+        )
 
     @params.setter
     def params(self, value: dict[str, dict[str, Any]]) -> None:
-        """Set the parameter dictionary (used internally)."""
-        self._param_manager.params = value
+        raise AttributeError(
+            'SANSFitter.params is read-only. Use set_param(name, ...) to change a '
+            'parameter, or set_model()/set_models() to load a different model.'
+        )
 
     @property
     def _structure_factor_name(self) -> str | None:
@@ -553,8 +567,16 @@ class SANSFitter:
             max: Maximum bound (optional)
             vary: Whether to vary during fit (optional)
 
+        Bounds are validated against the *resulting* state, so a value and
+        the bounds that admit it can be set in one call.
+
         Raises:
             KeyError: If parameter name doesn't exist for the current model
+            ValueError: If the resulting bounds are inverted (min > max), if the
+                resulting value falls outside them, or if the parameter follows
+                another one (via ``link_params`` or
+                ``radius_effective_mode='link_radius'``) and ``value``/
+                ``vary=True`` is written.
         """
         self._param_manager.set_param(name, value=value, min=min, max=max, vary=vary)
 

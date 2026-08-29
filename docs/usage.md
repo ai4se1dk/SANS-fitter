@@ -51,6 +51,19 @@ fitter.set_param('length', value=400, vary=False)  # Fix this parameter
 -   `min` / `max`: The lower and upper bounds for the fit.
 -   `vary`: Set to `True` to fit this parameter, `False` to keep it fixed.
 
+`set_param` validates the state the call would leave behind: `min` must not
+exceed `max`, and `value` must lie between them. Move a value outside its
+current bounds and the widened bounds in the *same* call:
+
+```python
+fitter.set_param('radius', value=1000, max=2000)   # accepted
+fitter.set_param('radius', value=1000)             # ValueError if max is 550
+```
+
+`fitter.params` is a read-only view for inspection. Writing into it
+(`fitter.params['radius']['vary'] = True`) raises, because it would bypass the
+checks above along with parameter links; use `set_param` instead.
+
 ### 4. Fitting
 
 SANS Fitter supports two fitting engines: **BUMPS** and **LMFit**.
@@ -290,6 +303,12 @@ When using a structure factor, you often need to define an effective radius. You
 # Link effective radius to the sphere radius
 fitter.set_structure_factor('hardsphere', radius_effective_mode='link_radius')
 ```
+
+While linked, `radius_effective` follows `radius`, so `set_param` rejects a
+`value` or `vary=True` for it — both engines recompute it from `radius` on
+every evaluation, making a fitted `radius_effective` a wasted optimizer
+dimension. Configure `radius` instead, or re-apply the structure factor with
+`radius_effective_mode='unconstrained'` to fit it independently.
 
 ### Combining Models (Composite Models)
 

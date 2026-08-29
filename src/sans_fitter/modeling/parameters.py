@@ -353,9 +353,9 @@ class ParameterManager:
         """
         for name, value in fitted_values.items():
             if name in self._canonical_to_alias:
-                self.set_param(self._canonical_to_alias[name], value=value)
+                self._set_value(self.resolve_name(self._canonical_to_alias[name]), value)
             elif name in self.params:
-                self.set_param(name, value=value)
+                self._set_value(name, value)
             elif name.endswith('_pd'):
                 base_param = name[:-3]
                 # PD state is keyed by canonical names end-to-end; no reverse
@@ -631,7 +631,9 @@ class ParameterManager:
         Raises:
             KeyError: If parameter name doesn't exist
             ValueError: If the parameter is a link follower and value/vary is
-                written, or if vary=True is requested for a follower.
+                written, or if vary=True is requested for a follower; if the
+                resulting bounds are inverted (min > max); or if the resulting
+                value falls outside the resulting bounds.
         """
         resolved = self.resolve_name(name)
         if resolved not in self.params:
@@ -646,25 +648,85 @@ class ParameterManager:
                     'set directly. Configure the target, or unlink_params() first.'
                 )
 
+        # The link_radius mode is not routed through _links, so it needs the
+        # same guard: the engines overwrite radius_effective from radius on
+        # every evaluation, making a varying radius_effective either a wasted
+        # optimizer dimension (scipy) or a silently discarded range (bumps).
+        if (
+            resolved == 'radius_effective'
+            and self._radius_effective_mode == 'link_radius'
+            and (value is not None or vary is True)
+        ):
+            raise ValueError(
+                "Parameter 'radius_effective' follows 'radius' under "
+                "radius_effective_mode='link_radius' and cannot be set "
+                "directly. Configure 'radius' instead, or re-apply the "
+                "structure factor with radius_effective_mode='unconstrained'."
+            )
+
+        self._validate_bounds(name, self.params[resolved], value, min, max)
+
         if value is not None:
-            self.params[resolved]['value'] = value
-            # Sync radius_effective when radius is updated in link_radius mode
-            if (
-                resolved == 'radius'
-                and self._radius_effective_mode == 'link_radius'
-                and 'radius_effective' in self.params
-            ):
-                self.params['radius_effective']['value'] = value
-            # Propagate to equality-link followers of this parameter.
-            for follower, link_target in self._links.items():
-                if link_target == resolved:
-                    self.params[follower]['value'] = value
+            self._set_value(resolved, value)
         if min is not None:
             self.params[resolved]['min'] = min
         if max is not None:
             self.params[resolved]['max'] = max
         if vary is not None:
             self.params[resolved]['vary'] = vary
+
+    def _set_value(self, resolved: str, value: float) -> None:
+        """Write a value and propagate it to everything that follows it.
+
+        Shared by :meth:`set_param` (which validates first) and
+        :meth:`apply_fitted_values` (which must not validate: the ``leastsq``
+        method ignores bounds, so a successful fit can legitimately return a
+        value outside them, and rejecting it here would discard the fit).
+        """
+        self.params[resolved]['value'] = value
+        # Sync radius_effective when radius is updated in link_radius mode
+        if (
+            resolved == 'radius'
+            and self._radius_effective_mode == 'link_radius'
+            and 'radius_effective' in self.params
+        ):
+            self.params['radius_effective']['value'] = value
+        # Propagate to equality-link followers of this parameter.
+        for follower, link_target in self._links.items():
+            if link_target == resolved:
+                self.params[follower]['value'] = value
+
+    @staticmethod
+    def _validate_bounds(
+        name: str,
+        entry: dict[str, Any],
+        value: float | None,
+        min: float | None,
+        max: float | None,
+    ) -> None:
+        """Reject a ``set_param`` call that would leave the parameter inconsistent.
+
+        The check is on the *resulting* state rather than on the arguments
+        alone, so widening and moving in one call works
+        (``set_param('radius', value=1000, max=2000)``) while moving out of the
+        current bounds does not (``set_param('radius', value=1000)`` against a
+        max of 550). Without it an inverted range surfaces much later, as a
+        cryptic optimizer failure.
+        """
+        new_min = entry['min'] if min is None else min
+        new_max = entry['max'] if max is None else max
+        new_value = entry['value'] if value is None else value
+
+        if new_min > new_max:
+            raise ValueError(
+                f"Invalid bounds for '{name}': min ({new_min:g}) is greater than max ({new_max:g})."
+            )
+        if not new_min <= new_value <= new_max:
+            raise ValueError(
+                f"Value {new_value:g} for '{name}' is outside its bounds "
+                f'[{new_min:g}, {new_max:g}]. Pass min= and/or max= in the same '
+                'call to widen them.'
+            )
 
     def validate_param(self, name: str) -> bool:
         """
