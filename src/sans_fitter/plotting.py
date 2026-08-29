@@ -6,6 +6,7 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+from .console import logger
 from .data.loader import has_real_data
 from .results import (
     MIN_POSTERIOR_PARAMETER_COUNT,
@@ -102,7 +103,7 @@ def plot_fit(
     error_x = _error_bars(data.dx)
 
     if fit_result is None:
-        print('No fit results available. Plotting data only.')
+        logger.warning('No fit results available. Plotting data only.')
         fig = go.Figure()
         fig.add_trace(
             go.Scatter(
