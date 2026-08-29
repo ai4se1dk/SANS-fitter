@@ -14,6 +14,7 @@ from sasmodels.bumps_model import Experiment
 from sasmodels.bumps_model import Model as BumpsModel
 from sasmodels.direct_model import DirectModel
 
+from ..console import CHI_SQUARED, logger
 from ..results import (
     MIN_POSTERIOR_PARAMETER_COUNT,
     MIN_POSTERIOR_SAMPLE_COUNT,
@@ -124,8 +125,9 @@ def fit_bumps(
     """Fit using the BUMPS engine."""
     problem, experiment = _build_bumps_problem(data, kernel, fit_state)
 
-    print(f'\nInitial χ² = {problem.chisq():.4f}')
-    print(f'Fitting with BUMPS (method: {method})...')
+    logger.info(
+        f'\nInitial {CHI_SQUARED} = {problem.chisq():.4f}\nFitting with BUMPS (method: {method})...'
+    )
 
     result = bumps_fit(problem, method=method, **kwargs)
 
@@ -346,8 +348,10 @@ def fit_bumps_dream(
             'Use set_param(..., vary=True) before fit_bayesian().'
         )
 
-    print(f'\nInitial χ² = {problem.chisq():.4f}')
-    print(f'Sampling posterior with BUMPS DREAM (samples={samples}, burn={burn} generations)...')
+    logger.info(
+        f'\nInitial {CHI_SQUARED} = {problem.chisq():.4f}\n'
+        f'Sampling posterior with BUMPS DREAM (samples={samples}, burn={burn} generations)...'
+    )
 
     result = bumps_fit(
         problem, method=method, samples=samples, burn=burn, thin=thin, pop=pop, **kwargs

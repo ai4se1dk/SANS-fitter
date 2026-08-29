@@ -12,6 +12,7 @@ from typing import Any
 
 import numpy as np
 
+from ..console import ARROW, NO, YES
 from ..results import ParameterStateSnapshot
 from .polydispersity import PolydispersityManager
 from .structure_factor import StructureFactorManager, default_parameter_bounds
@@ -705,11 +706,11 @@ class ParameterManager:
         shared_names = set(self._shared_to_canonicals.keys())
 
         def entry_line(name: str, info: dict[str, Any]) -> str:
-            vary_str = '✓' if info['vary'] else '✗'
+            vary_str = YES if info['vary'] else NO
             if name == 'radius_effective' and self._radius_effective_mode == 'link_radius':
-                vary_str = '→radius'
+                vary_str = f'{ARROW}radius'
             if name in self._links:
-                vary_str = f'→{self._links[name]}'
+                vary_str = f'{ARROW}{self._links[name]}'
             return (
                 f'{name:<28} {info["value"]:<12.4g} {info["min"]:<12.4g} '
                 f'{info["max"]:<12.4g} {vary_str:<8}'
@@ -760,12 +761,12 @@ class ParameterManager:
         print(f'{"Parameter":<20} {"Value":<12} {"Min":<12} {"Max":<12} {"Vary":<8}')
         print(f'{"-" * 80}')
         for name, info in params.items():
-            vary_str = '✓' if info['vary'] else '✗'
+            vary_str = YES if info['vary'] else NO
             # Show linked indicator for radius_effective in link_radius mode
             if name == 'radius_effective' and self._radius_effective_mode == 'link_radius':
-                vary_str = '→radius'
+                vary_str = f'{ARROW}radius'
             if name in self._links:
-                vary_str = f'→{self._links[name]}'
+                vary_str = f'{ARROW}{self._links[name]}'
             print(
                 f'{name:<20} {info["value"]:<12.4g} {info["min"]:<12.4g} '
                 f'{info["max"]:<12.4g} {vary_str:<8}'

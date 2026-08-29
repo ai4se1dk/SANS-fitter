@@ -144,6 +144,30 @@ See the [Example Data](examples.md) guide for the full collection.
         - Example
 
 
+## Console output
+
+Methods such as `load_data`, `set_model` and `fit` report what they did through
+the `sans_fitter` logger rather than with `print`, so the running commentary can
+be turned off:
+
+```python
+import sans_fitter
+
+sans_fitter.set_verbosity('quiet')   # keep warnings, drop the progress messages
+sans_fitter.set_verbosity('info')    # back to the default
+```
+
+Tables you ask for explicitly — `get_params()`, `get_pd_params()`,
+`examples.describe()` — are printed either way; they are the result of the call
+rather than a side effect of it.
+
+::: sans_fitter.console
+    options:
+      show_root_heading: true
+      show_source: true
+      members:
+        - set_verbosity
+
 ## ParameterManager
 
 Internal class for managing model parameters and polydispersity settings.

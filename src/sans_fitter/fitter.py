@@ -20,6 +20,7 @@ from sasmodels.core import load_model
 from sasmodels.direct_model import DirectModel
 
 from . import plotting
+from .console import ARROW, CHI_SQUARED, INVERSE_ANGSTROM, OK, logger
 from .data.loader import get_fit_index, has_real_data, load_sans_data, normalize_sans_data
 from .fitting import (
     DEFAULT_DREAM_BURN,
@@ -43,13 +44,13 @@ def get_all_models() -> list[str]:
 
     Returns:
         List of model names
+
+    Raises:
+        Exception: Whatever ``sasmodels.core.list_models()`` raises. A broken
+            sasmodels installation surfaces as an error rather than as an
+            empty model list.
     """
-    try:
-        all_models = core.list_models()
-        return sorted(all_models)
-    except Exception as e:
-        print(f'Error fetching models: {str(e)}')
-        return []
+    return sorted(core.list_models())
 
 
 def _validate_model_expression(model_name: str) -> None:
@@ -144,11 +145,13 @@ class SANSFitter:
         has_dy = has_real_data(self.data.dy)
         has_dx = has_real_data(self.data.dx)
 
-        print(f'✓ Loaded data from {filename}')
-        print(f'  Q range: {self.data.qmin:.4f} to {self.data.qmax:.4f} Å⁻¹')
-        print(f'  Data points: {len(self.data.x)}')
-        print(f'  Error (dI) column: {"yes" if has_dy else "no"}')
-        print(f'  Resolution (dQ) column: {"yes" if has_dx else "no"}')
+        logger.info(
+            f'{OK} Loaded data from {filename}\n'
+            f'  Q range: {self.data.qmin:.4f} to {self.data.qmax:.4f} {INVERSE_ANGSTROM}\n'
+            f'  Data points: {len(self.data.x)}\n'
+            f'  Error (dI) column: {"yes" if has_dy else "no"}\n'
+            f'  Resolution (dQ) column: {"yes" if has_dx else "no"}'
+        )
 
     def set_data(self, data: Any) -> None:
         """
@@ -196,11 +199,13 @@ class SANSFitter:
         has_dx = has_real_data(self.data.dx)
         label = getattr(data, 'title', '') or getattr(data, 'filename', '') or 'in-memory dataset'
 
-        print(f'✓ Data set: {label}')
-        print(f'  Q range: {self.data.qmin:.4f} to {self.data.qmax:.4f} Å⁻¹')
-        print(f'  Data points: {len(self.data.x)}')
-        print(f'  Error (dI) column: {"yes" if has_dy else "no"}')
-        print(f'  Resolution (dQ) column: {"yes" if has_dx else "no"}')
+        logger.info(
+            f'{OK} Data set: {label}\n'
+            f'  Q range: {self.data.qmin:.4f} to {self.data.qmax:.4f} {INVERSE_ANGSTROM}\n'
+            f'  Data points: {len(self.data.x)}\n'
+            f'  Error (dI) column: {"yes" if has_dy else "no"}\n'
+            f'  Resolution (dQ) column: {"yes" if has_dx else "no"}'
+        )
 
     def set_q_range(self, qmin: float | None = None, qmax: float | None = None) -> None:
         """
@@ -245,8 +250,10 @@ class SANSFitter:
                 f'No data points in Q range [{new_qmin:g}, {new_qmax:g}]. Range unchanged.'
             )
 
-        print(f'✓ Q range for fitting: {new_qmin:.6g} to {new_qmax:.6g} Å⁻¹')
-        print(f'  Points in fit: {n_points} of {len(index)}')
+        logger.info(
+            f'{OK} Q range for fitting: {new_qmin:.6g} to {new_qmax:.6g} {INVERSE_ANGSTROM}\n'
+            f'  Points in fit: {n_points} of {len(index)}'
+        )
 
     def reset_q_range(self) -> None:
         """
@@ -260,8 +267,10 @@ class SANSFitter:
 
         self.data.qmin, self.data.qmax = self._full_q_range
         n_points = int(get_fit_index(self.data).sum())
-        print(f'✓ Q range reset to {self.data.qmin:.6g} to {self.data.qmax:.6g} Å⁻¹')
-        print(f'  Points in fit: {n_points}')
+        logger.info(
+            f'{OK} Q range reset to {self.data.qmin:.6g} to {self.data.qmax:.6g} '
+            f'{INVERSE_ANGSTROM}\n  Points in fit: {n_points}'
+        )
 
     def get_q_range(self) -> tuple[float, float] | None:
         """
@@ -306,8 +315,10 @@ class SANSFitter:
             # string (robust against nested mixture plugins).
             self._param_manager.initialize_from_kernel(self.kernel, model_name)
 
-            print(f"✓ Model '{model_name}' loaded successfully")
-            print(f'  Available parameters: {len(self._param_manager.params)}')
+            logger.info(
+                f"{OK} Model '{model_name}' loaded successfully\n"
+                f'  Available parameters: {len(self._param_manager.params)}'
+            )
 
         except Exception as e:
             raise ValueError(f"Failed to load model '{model_name}': {str(e)}") from e
@@ -441,11 +452,14 @@ class SANSFitter:
         # full alias map, not by ad-hoc string rules).
         self._param_manager.register_aliases(components, list(shared))
 
-        print(f'✓ Combined {len(components)} models: {expression}')
-        print(f'  Components: {", ".join(m for m, _n in components)}')
+        lines = [
+            f'{OK} Combined {len(components)} models: {expression}',
+            f'  Components: {", ".join(m for m, _n in components)}',
+        ]
         if shared:
-            print(f'  Shared parameters: {", ".join(shared)}')
-        print(f'  Available parameters: {len(self._param_manager.params)}')
+            lines.append(f'  Shared parameters: {", ".join(shared)}')
+        lines.append(f'  Available parameters: {len(self._param_manager.params)}')
+        logger.info('\n'.join(lines))
 
     def link_params(self, name: str, to: str) -> None:
         """
@@ -466,7 +480,7 @@ class SANSFitter:
             ValueError: On self-links, link chains, or conflicting links.
         """
         self._param_manager.link_params(name, to)
-        print(f'✓ Linked {name} → {to}')
+        logger.info(f'{OK} Linked {name} {ARROW} {to}')
 
     def unlink_params(self, name: str) -> None:
         """
@@ -480,7 +494,7 @@ class SANSFitter:
             ValueError: If the parameter is not linked.
         """
         self._param_manager.unlink_params(name)
-        print(f'✓ Unlinked {name}')
+        logger.info(f'{OK} Unlinked {name}')
 
     def get_links(self) -> dict[str, str]:
         """Return the active parameter equality links (follower -> target)."""
@@ -614,12 +628,15 @@ class SANSFitter:
                 self.kernel, structure_factor_name, radius_effective_mode
             )
 
+            lines = []
             if radius_effective_mode == 'link_radius':
-                print("  Note: 'radius_effective' linked to 'radius' value")
-
-            print(f"✓ Structure factor '{structure_factor_name}' applied to '{self.model_name}'")
-            print(f'  Product model: {full_model_name}')
-            print(f'  Total parameters: {len(self.params)}')
+                lines.append("  Note: 'radius_effective' linked to 'radius' value")
+            lines.append(
+                f"{OK} Structure factor '{structure_factor_name}' applied to '{self.model_name}'"
+            )
+            lines.append(f'  Product model: {full_model_name}')
+            lines.append(f'  Total parameters: {len(self.params)}')
+            logger.info('\n'.join(lines))
 
         except Exception as e:
             raise ValueError(f"Failed to load model '{full_model_name}': {str(e)}") from e
@@ -641,8 +658,10 @@ class SANSFitter:
             # Delegate to ParameterManager - this restores params and PD state
             sf_name = self._param_manager.remove_structure_factor()
 
-            print(f"✓ Structure factor '{sf_name}' removed")
-            print(f'  Reverted to form factor: {self.model_name}')
+            logger.info(
+                f"{OK} Structure factor '{sf_name}' removed\n"
+                f'  Reverted to form factor: {self.model_name}'
+            )
 
         except Exception as e:
             raise ValueError(f'Failed to reload form factor model: {str(e)}') from e
@@ -787,16 +806,19 @@ class SANSFitter:
         self.fit_result = self._fit_contract.to_legacy_dict()
         self._fitted_model = engine_output.runtime_model
 
-        print('\n✓ Fit completed!')
-        print(f'Final χ² = {self.fit_result["chisq"]:.4f}')
-        print('\nFitted parameters:')
+        lines = [
+            f'\n{OK} Fit completed!',
+            f'Final {CHI_SQUARED} = {self.fit_result["chisq"]:.4f}',
+            '\nFitted parameters:',
+        ]
         for name, info in self.fit_result['parameters'].items():
-            print(f'  {name}: {info["formatted"]}')
+            lines.append(f'  {name}: {info["formatted"]}')
 
         posterior = self._fit_contract.artifacts.posterior
         if posterior is not None:
-            print()
-            print(posterior.format_summary())
+            lines.append('')
+            lines.append(posterior.format_summary())
+        logger.info('\n'.join(lines))
 
         return self.fit_result
 
@@ -1303,4 +1325,4 @@ class SANSFitter:
             fit_result=fit_contract,
         )
 
-        print(f'✓ Results saved to {filename}')
+        logger.info(f'{OK} Results saved to {filename}')
