@@ -15,6 +15,25 @@ def has_real_data(arr) -> bool:
     return bool(np.any(np.nan_to_num(np.asarray(arr, dtype=float)) != 0))
 
 
+def validate_q_grid(q: Any) -> np.ndarray:
+    """Return *q* as a float array, rejecting grids sasmodels cannot evaluate.
+
+    A Q grid must be 1D, non-empty, finite, positive and strictly increasing.
+    Shared by :func:`sans_fitter.examples.simulate` and the theory-evaluation
+    helpers so both reject the same grids with the same messages.
+    """
+    q_values = np.asarray(q, dtype=float)
+    if q_values.ndim != 1 or q_values.size == 0:
+        raise ValueError('q must be a non-empty 1D array.')
+    if not np.all(np.isfinite(q_values)):
+        raise ValueError('Q values must be finite.')
+    if np.any(q_values <= 0):
+        raise ValueError('Q values must be positive.')
+    if np.any(np.diff(q_values) <= 0):
+        raise ValueError('Q values must be strictly increasing.')
+    return q_values
+
+
 def get_fit_index(data: Any) -> np.ndarray:
     """Return the boolean index of points included in the fit.
 

@@ -8,6 +8,10 @@ from .data.loader import has_real_data
 MIN_POSTERIOR_PARAMETER_COUNT = 2
 MIN_POSTERIOR_SAMPLE_COUNT = 2
 
+# Engine name carried by contracts built from a theory preview rather than a
+# fit (SANSFitter.plot_model). Plotting branches on it for titles and labels.
+PREVIEW_ENGINE = 'preview'
+
 
 @dataclass(slots=True)
 class ParameterStateSnapshot:
@@ -165,6 +169,11 @@ class FitResultContract:
     chisq: float
     parameters: dict[str, dict[str, Any]]
     artifacts: FitArtifacts = field(default_factory=FitArtifacts)
+
+    @property
+    def is_preview(self) -> bool:
+        """True for a theory preview (model at current values, no fit)."""
+        return self.engine == PREVIEW_ENGINE
 
     def to_legacy_dict(self) -> dict[str, Any]:
         """Expose the historical dict-based result shape for public compatibility."""

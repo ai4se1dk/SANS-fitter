@@ -391,6 +391,50 @@ class ParameterManager:
         available = ', '.join(self.params.keys())
         raise KeyError(f"Parameter '{name}' not found. Available: {available}")
 
+    def canonical_overrides(self, overrides: dict[str, float]) -> dict[str, float]:
+        """Translate user-facing parameter overrides to canonical names.
+
+        Accepts everything ``set_param``/``set_pd_param`` accept: aliases,
+        canonical names, shared names (which expand to every canonical name
+        they drive) and polydispersity widths (``radius_pd``). Used for
+        what-if evaluation (``SANSFitter.compare``) without touching state.
+
+        Raises:
+            KeyError: If a name is not a known parameter, or a ``_pd`` name
+                does not belong to a polydisperse parameter.
+            ValueError: If the parameter is a link follower, whose value is
+                dictated by its target.
+        """
+        canonical: dict[str, float] = {}
+        for name, value in overrides.items():
+            if name.endswith('_pd'):
+                base = self._resolve_canonical(name.removesuffix('_pd'))
+                if base not in self._pd_manager.get_parameters():
+                    available = ', '.join(self._pd_manager.get_parameters())
+                    raise KeyError(
+                        f"'{name}' is not a polydispersity width. "
+                        f'Polydisperse parameters: {available}'
+                    )
+                canonical[f'{base}_pd'] = value
+                continue
+
+            resolved = self.resolve_name(name)
+            if resolved in self._links:
+                raise ValueError(
+                    f"Parameter '{name}' is linked to '{self._links[resolved]}' and cannot "
+                    'be set directly. Override the target, or unlink_params() first.'
+                )
+            if resolved == 'radius_effective' and self._radius_effective_mode == 'link_radius':
+                raise ValueError(
+                    "'radius_effective' is linked to 'radius' and cannot be set "
+                    "directly. Override 'radius' instead."
+                )
+            for target in self._shared_to_canonicals.get(
+                resolved, [self._resolve_canonical(resolved)]
+            ):
+                canonical[target] = value
+        return canonical
+
     def link_params(self, name: str, to: str) -> None:
         """Create an equality link: *name* (follower) mirrors *to* (target).
 

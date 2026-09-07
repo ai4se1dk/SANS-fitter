@@ -30,6 +30,8 @@ POSTERIOR_POINT_ESTIMATE_TRACE_NAME = 'Best posterior sample'
 POSTERIOR_PREDICTIVE_INTERVAL_TRACE_NAME = '95% credible interval'
 MARGINAL_DENSITY_TRACE_NAME = 'Marginal density'
 MEASURED_TRACE_NAME = 'Measured'
+PREVIEW_MODEL_TRACE_NAME = 'Model (current parameters)'
+PREVIEW_TITLE_PREFIX = 'Model preview'
 
 # Qualitative color cycle for per-component curves (plotly's default palette).
 COMPONENT_CURVE_COLORS = [
@@ -74,6 +76,15 @@ def _subset(arr, index):
 
 def _resolve_show(show: bool | None) -> bool:
     return not _running_in_notebook() if show is None else show
+
+
+def format_chisq(chisq: float) -> str:
+    """Format a chi-squared value for titles and printed summaries.
+
+    A NaN means the value could not be computed because the data carries no
+    usable intensity uncertainties; say so rather than printing 'nan'.
+    """
+    return 'χ² n/a (no dI)' if not np.isfinite(chisq) else f'χ² = {chisq:.4f}'
 
 
 def plot_fit(
@@ -139,8 +150,18 @@ def plot_fit(
     y = _subset(data.y, index)
     dy = _subset(data.dy, index)
     dx = _subset(data.dx, index)
-    residuals = (y - i_fit) / dy
     excluded = ~index
+
+    # Residuals are in sigma units, so they need real uncertainties. A theory
+    # preview can be plotted against data without dI (no fit can be), in which
+    # case the residual panel stays empty rather than dividing by nothing.
+    has_dy = has_real_data(dy)
+    if has_dy:
+        # Individual zero-dI points still give inf/NaN; plotly drops them.
+        with np.errstate(divide='ignore', invalid='ignore'):
+            residuals = (y - i_fit) / dy
+    else:
+        residuals = None
 
     if show_residuals:
         fig = make_subplots(
@@ -181,7 +202,7 @@ def plot_fit(
         x=q,
         y=i_fit,
         mode='lines',
-        name='Fitted Model',
+        name=PREVIEW_MODEL_TRACE_NAME if fit_result.is_preview else 'Fitted Model',
         line={'color': 'red', 'width': 2},
     )
 
@@ -218,19 +239,20 @@ def plot_fit(
         fig.add_trace(fit_trace, row=1, col=1)
         for trace in component_traces:
             fig.add_trace(trace, row=1, col=1)
-        fig.add_trace(
-            go.Scatter(
-                x=q,
-                y=residuals,
-                mode='markers',
-                name='Residuals',
-                marker={'size': 6},
-                opacity=0.6,
-                showlegend=False,
-            ),
-            row=2,
-            col=1,
-        )
+        if residuals is not None:
+            fig.add_trace(
+                go.Scatter(
+                    x=q,
+                    y=residuals,
+                    mode='markers',
+                    name='Residuals',
+                    marker={'size': 6},
+                    opacity=0.6,
+                    showlegend=False,
+                ),
+                row=2,
+                col=1,
+            )
         fig.add_hline(y=0, line_dash='dash', line_color='gray', row=2, col=1)
         fig.update_xaxes(
             title_text='Q (Å⁻¹)',
@@ -244,7 +266,9 @@ def plot_fit(
             row=1,
             col=1,
         )
-        fig.update_yaxes(title_text='Residuals (σ)', row=2, col=1)
+        fig.update_yaxes(
+            title_text='Residuals (σ)' if has_dy else 'Residuals (no dI)', row=2, col=1
+        )
         fig.update_xaxes(type='log' if log_scale else 'linear', row=1, col=1)
     else:
         fig.add_trace(data_trace)
@@ -262,10 +286,82 @@ def plot_fit(
             type='log' if log_scale else 'linear',
         )
 
+    title_prefix = PREVIEW_TITLE_PREFIX if fit_result.is_preview else 'SANS Fit'
     fig.update_layout(
-        title=f'SANS Fit: {model_name} (χ² = {fit_result.chisq:.4f})',
+        title=f'{title_prefix}: {model_name} ({format_chisq(fit_result.chisq)})',
         template='plotly_white',
         height=800 if show_residuals else 500,
+        width=900,
+    )
+
+    if _resolve_show(show):
+        fig.show()
+    return fig
+
+
+def plot_model_comparison(
+    x,
+    curves: dict[str, np.ndarray],
+    data=None,
+    model_name: str | None = None,
+    log_scale: bool = True,
+    show: bool | None = None,
+) -> go.Figure:
+    """Overlay several theory curves, optionally over the measured data.
+
+    Args:
+        x: Q values every curve is evaluated on.
+        curves: Label -> intensity curve, each of ``len(x)``.
+        data: Optional dataset to draw as points. When the curves were
+            evaluated on their own Q grid, this is a second grid on the same
+            axis — the usual "measured points, smooth theory" picture.
+        model_name: Model name for the title.
+        log_scale: Use log axes.
+        show: Same display convention as plot_fit.
+    """
+    x = np.asarray(x)
+    fig = go.Figure()
+
+    if data is not None:
+        fig.add_trace(
+            go.Scatter(
+                x=data.x,
+                y=data.y,
+                error_y=_error_bars(data.dy),
+                mode='markers',
+                name='Experimental Data',
+                opacity=0.6,
+                marker={'size': 6, 'color': 'rgb(50, 50, 50)'},
+            )
+        )
+
+    for position, (label, curve) in enumerate(curves.items()):
+        curve = np.asarray(curve)
+        if len(curve) != len(x):
+            raise ValueError(
+                f"Curve '{label}' has {len(curve)} points but the Q vector has {len(x)}."
+            )
+        fig.add_trace(
+            go.Scatter(
+                x=x,
+                y=curve,
+                mode='lines',
+                name=label,
+                line={
+                    'width': 2,
+                    'color': COMPONENT_CURVE_COLORS[position % len(COMPONENT_CURVE_COLORS)],
+                },
+            )
+        )
+
+    fig.update_layout(
+        title=f'Model comparison: {model_name}',
+        xaxis_title='Q (Å⁻¹)',
+        yaxis_title='I(Q)',
+        xaxis_type='log' if log_scale else 'linear',
+        yaxis_type='log' if log_scale else 'linear',
+        template='plotly_white',
+        height=600,
         width=900,
     )
 
