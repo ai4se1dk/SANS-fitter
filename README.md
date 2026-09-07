@@ -37,6 +37,9 @@ pip install -e .
 
 # Or install with development dependencies
 pip install -e ".[dev]"
+
+# The Jupyter stack is optional - only needed to run notebooks/
+pip install -e ".[notebooks]"
 ```
 
 ### Option 2: Using Pixi (recommended for development)

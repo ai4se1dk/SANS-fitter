@@ -1,3 +1,4 @@
+import builtins
 import os
 import unittest
 from unittest.mock import patch
@@ -6,6 +7,46 @@ import numpy as np
 
 from sans_fitter import SANSFitter
 from tests.helpers import create_decay_data_file, create_loading_test_data_file_with_resolution
+
+
+class TestNotebookDetectionWithoutIPython(unittest.TestCase):
+    """IPython is an optional extra, so the import guard is load-bearing."""
+
+    def test_running_in_notebook_is_false_when_ipython_is_absent(self):
+        from sans_fitter import plotting
+
+        real_import = builtins.__import__
+
+        def without_ipython(name, *args, **kwargs):
+            if name.startswith('IPython'):
+                raise ImportError(f'No module named {name!r}')
+            return real_import(name, *args, **kwargs)
+
+        with patch.object(builtins, '__import__', side_effect=without_ipython):
+            self.assertFalse(plotting._running_in_notebook())
+
+    def test_plot_still_returns_a_figure_when_ipython_is_absent(self):
+        from sans_fitter import plotting
+
+        real_import = builtins.__import__
+
+        def without_ipython(name, *args, **kwargs):
+            if name.startswith('IPython'):
+                raise ImportError(f'No module named {name!r}')
+            return real_import(name, *args, **kwargs)
+
+        fitter = SANSFitter()
+        data_file = create_decay_data_file(num_points=20)
+        try:
+            fitter.load_data(data_file)
+            with (
+                patch.object(builtins, '__import__', side_effect=without_ipython),
+                patch('plotly.graph_objects.Figure.show'),
+            ):
+                self.assertIsNotNone(fitter.plot_results(show=False))
+        finally:
+            if os.path.exists(data_file):
+                os.unlink(data_file)
 
 
 class TestVisualization(unittest.TestCase):
