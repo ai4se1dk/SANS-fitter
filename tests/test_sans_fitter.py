@@ -36,6 +36,16 @@ class TestGetAllModels(unittest.TestCase):
         models = get_all_models()
         self.assertEqual(models, sorted(models))
 
+    def test_get_all_models_propagates_sasmodels_failures(self):
+        """A broken sasmodels must not masquerade as 'no models installed'."""
+        from unittest.mock import patch
+
+        from sans_fitter import fitter as fitter_module
+
+        with patch.object(fitter_module.core, 'list_models', side_effect=RuntimeError('boom')):
+            with self.assertRaises(RuntimeError):
+                fitter_module.get_all_models()
+
 
 class TestSANSFitterInitialization(unittest.TestCase):
     """Test SANSFitter initialization."""

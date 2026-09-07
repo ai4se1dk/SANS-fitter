@@ -4,12 +4,14 @@ from typing import Any
 import numpy as np
 from sasmodels.direct_model import DirectModel
 
+from ..console import logger
 from ..results import FitArtifacts, FitResultContract, ParameterStateSnapshot
 from .base import (
     EngineFitOutput,
     build_result_parameters,
     extract_fit_index,
     link_radius_effective_dict,
+    apply_parameter_links,
     pd_is_active,
 )
 
@@ -87,14 +89,14 @@ def fit_scipy(
                     par_dict[f'{base_param}_pd_nsigma'] = pd_config['pd_nsigma']
                     par_dict[f'{base_param}_pd_type'] = pd_config['pd_type']
 
-        link_radius_effective_dict(par_dict, fit_state.radius_effective_mode)
+        apply_parameter_links(par_dict, fit_state.linked_params)
         return par_dict
 
     def residual(x: np.ndarray) -> np.ndarray:
         i_calc = calculator(**build_parameter_dict(x))
         return (y_fit - i_calc) / dy_fit
 
-    print(f'\nFitting with scipy.optimize (method: {method})...')
+    logger.info(f'\nFitting with scipy.optimize (method: {method})...')
 
     if method == 'leastsq':
         result = leastsq(residual, x0, full_output=True, **kwargs)
@@ -131,6 +133,11 @@ def fit_scipy(
         )
 
     varied: dict[str, dict[str, Any]] = {}
+    # The parameter set the fit actually landed on: link followers carry their
+    # target's fitted value here, which their stale fit_state entry does not.
+    final_pars = build_parameter_dict(fitted_params)
+
+    result_parameters: dict[str, dict[str, Any]] = {}
     fitted_values: dict[str, float] = {}
 
     for index, name in enumerate(param_names):
@@ -143,13 +150,27 @@ def fit_scipy(
         }
         fitted_values[name] = fitted_params[index]
 
+    for name, info in fit_state.params.items():
+        if name not in param_names:
+            value = final_pars.get(name, info['value'])
+            label = (
+                f'{value:.6g} (= {fit_state.linked_params[name]})'
+                if name in fit_state.linked_params
+                else f'{value:.6g} (fixed)'
+            )
+            result_parameters[name] = {
+                'value': value,
+                'stderr': 0.0,
+                'formatted': label,
+            }
+
     contract = FitResultContract(
         engine='lmfit',
         method=method,
         chisq=chisq,
         parameters=build_result_parameters(fit_state, varied),
         artifacts=FitArtifacts(
-            fitted_curve=np.asarray(calculator(**build_parameter_dict(fitted_params))),
+            fitted_curve=np.asarray(calculator(**final_pars)),
             fit_index=extract_fit_index(calculator),
             raw_result=result,
         ),

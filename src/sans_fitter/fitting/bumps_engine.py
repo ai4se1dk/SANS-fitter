@@ -14,6 +14,7 @@ from sasmodels.bumps_model import Experiment
 from sasmodels.bumps_model import Model as BumpsModel
 from sasmodels.direct_model import DirectModel
 
+from ..console import CHI_SQUARED, logger
 from ..results import (
     MIN_POSTERIOR_PARAMETER_COUNT,
     MIN_POSTERIOR_SAMPLE_COUNT,
@@ -25,9 +26,8 @@ from ..results import (
 from .base import (
     EngineFitOutput,
     build_result_parameters,
+    apply_parameter_links,
     extract_fit_index,
-    link_radius_effective_dict,
-    link_radius_effective_model,
     pd_is_active,
 )
 
@@ -83,13 +83,11 @@ def _build_bumps_problem(
             if pd_is_active(pd_config) and pd_config.get('vary', False):
                 getattr(model, f'{param_name}_pd').range(0, 1)
 
-    link_radius_effective_model(model, fit_state.radius_effective_mode)
-
-    # Generic equality links (composite models / shared= / link_params):
-    # alias the follower's bumps parameter object to the target's, the exact
-    # mechanism the radius link uses. Followers are never in the varying set,
-    # so they don't appear in problem.labels(); their post-fit value comes
-    # from apply_fitted_values propagation, not from the engine.
+    # Equality links (radius_effective_mode='link_radius' / composite shared= /
+    # link_params): alias the follower's bumps parameter object to the target's.
+    # Followers are never in the varying set, so they don't appear in
+    # problem.labels(); their post-fit value comes from apply_fitted_values
+    # propagation, not from the engine.
     # Precondition: the link graph has depth 1 — no target is itself a
     # follower — so the aliasing below is independent of dict order.
     # ParameterManager guarantees this (link_params rejects chains in both
@@ -103,11 +101,6 @@ def _build_bumps_problem(
             'support. ParameterManager should have rejected this.'
         )
     for follower, target in fit_state.linked_params.items():
-        if follower == 'radius_effective' and fit_state.radius_effective_mode == 'link_radius':
-            raise ValueError(
-                "'radius_effective' is already linked to 'radius' by "
-                "radius_effective_mode='link_radius'. Remove one of the links."
-            )
         setattr(model, follower, getattr(model, target))
 
     experiment = Experiment(data=data, model=model)
@@ -125,8 +118,9 @@ def fit_bumps(
     """Fit using the BUMPS engine."""
     problem, experiment = _build_bumps_problem(data, kernel, fit_state)
 
-    print(f'\nInitial χ² = {problem.chisq():.4f}')
-    print(f'Fitting with BUMPS (method: {method})...')
+    logger.info(
+        f'\nInitial {CHI_SQUARED} = {problem.chisq():.4f}\nFitting with BUMPS (method: {method})...'
+    )
 
     result = bumps_fit(problem, method=method, **kwargs)
 
@@ -314,7 +308,7 @@ def _build_posterior_evaluator(
     def model_eval(sample: dict[str, float]) -> np.ndarray:
         pars = dict(base_pars)
         pars.update(sample)
-        link_radius_effective_dict(pars, fit_state.radius_effective_mode)
+        apply_parameter_links(pars, fit_state.linked_params)
         return np.asarray(calculator(**pars))
 
     return posterior_data, model_eval
@@ -347,8 +341,10 @@ def fit_bumps_dream(
             'Use set_param(..., vary=True) before fit_bayesian().'
         )
 
-    print(f'\nInitial χ² = {problem.chisq():.4f}')
-    print(f'Sampling posterior with BUMPS DREAM (samples={samples}, burn={burn} generations)...')
+    logger.info(
+        f'\nInitial {CHI_SQUARED} = {problem.chisq():.4f}\n'
+        f'Sampling posterior with BUMPS DREAM (samples={samples}, burn={burn} generations)...'
+    )
 
     result = bumps_fit(
         problem, method=method, samples=samples, burn=burn, thin=thin, pop=pop, **kwargs

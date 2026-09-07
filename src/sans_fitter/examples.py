@@ -587,11 +587,14 @@ def _describe_one(example: Example) -> None:
 
 
 class _maybe_silenced:
-    """Context manager that optionally swallows ``print`` output.
+    """Context manager that optionally swallows stdout.
 
-    ``SANSFitter`` reports progress with ``print``; a preset builder that calls
-    four of those methods would otherwise emit a wall of text before the user
-    has done anything.
+    ``SANSFitter`` reports progress through the package logger, which writes to
+    stdout; a preset builder that calls four of those methods would otherwise
+    emit a wall of text before the user has done anything. Redirecting stdout
+    rather than raising the logger level also covers anything sasmodels prints,
+    and leaves the caller's own :func:`~sans_fitter.set_verbosity` choice
+    untouched.
     """
 
     def __init__(self, active: bool):

@@ -22,6 +22,24 @@ fitter = SANSFitter()
 fitter.load_data('path/to/data.csv')
 ```
 
+Some files contain **more than one dataset** (e.g. a CanSAS XML with several
+`SASentry` blocks, or an NXcanSAS file with multiple entries). In that case
+`load_data()` (and `data_ops.load()`) print a warning listing all available
+datasets and load the first one. Select a specific dataset by 0-based index
+or by name (title, run id, or filename):
+
+```python
+# Pick the second dataset by index
+fitter.load_data('multi_dataset.xml', dataset=1)
+
+# Or by name (title, run id, or filename)
+fitter.load_data('multi_dataset.xml', dataset='beta sample')
+
+# data_ops.load accepts the same argument
+import sans_fitter.data_ops as data_ops
+sample = data_ops.load('multi_dataset.xml', dataset='beta sample')
+```
+
 ### 2. Selecting a Model
 
 You can use any model available in the [SasModels library](https://www.sasview.org/docs/user/models/index.html).
@@ -307,11 +325,19 @@ fitter.set_model('sphere')
 fitter.set_structure_factor('hardsphere')
 ```
 
-Supported structure factors include:
--   `hardsphere`
--   `hayter_msa`
--   `squarewell`
--   `stickyhardsphere`
+The available structure factors are **queried from sasmodels at runtime** (not
+hardcoded), so new ones added upstream are picked up automatically. List them
+with `get_structure_factors()`:
+
+```python
+from sans_fitter import get_structure_factors
+
+get_structure_factors()
+# e.g. ('hardsphere', 'hayter_msa', 'squarewell', 'stickyhardsphere', 'two_yukawa')
+```
+
+As of the current sasmodels install this includes `hardsphere`, `hayter_msa`,
+`squarewell`, `stickyhardsphere`, and `two_yukawa`.
 
 ### Effective Radius
 
@@ -321,6 +347,11 @@ When using a structure factor, you often need to define an effective radius. You
 # Link effective radius to the sphere radius
 fitter.set_structure_factor('hardsphere', radius_effective_mode='link_radius')
 ```
+
+This is an ordinary parameter link (see [Linking parameters](#combining-models-composite-models)):
+`get_links()` reports it as `{'radius_effective': 'radius'}`, `radius_effective`
+is held at `radius` throughout the fit, and writing to it directly raises. Pass
+`radius_effective_mode='unconstrained'` (the default) to fit it independently.
 
 ### Combining Models (Composite Models)
 
@@ -426,9 +457,9 @@ fitter.set_model('dab+peak_lorentz')   # A_scale, A_cor_length, B_scale, ...
 Every atomic name in the expression is validated before loading, with a
 nearest-match suggestion for typos.
 
-**Engine support.** Composite models and parameter links currently work with
-the `bumps` engine only; `fit(engine='lmfit')` and `fit_bayesian()` raise
-`NotImplementedError` when either is active.
+**Engine support.** Composite models currently work with the `bumps` engine
+only; `fit(engine='lmfit')` and `fit_bayesian()` raise `NotImplementedError`
+when one is active. Parameter links themselves work with every engine.
 
 See `examples/composite_model_example.py` for a complete runnable example.
 
