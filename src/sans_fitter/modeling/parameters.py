@@ -2,9 +2,10 @@
 Parameter Manager - Handles model parameter management for SANS fitting.
 
 This module encapsulates all parameter-related operations including initialization,
-validation, bounds management, structure factor parameter linking, polydispersity,
-composite-model component metadata, the friendly-name alias layer, and generic
-parameter equality links.
+validation, bounds management, polydispersity, composite-model component metadata,
+the friendly-name alias layer, and parameter equality links — including the
+'radius_effective' -> 'radius' constraint of radius_effective_mode='link_radius',
+which is an ordinary link rather than a special case.
 """
 
 import warnings
@@ -88,7 +89,7 @@ class ParameterManager:
     Manages model parameters for SANS fitting.
 
     Handles parameter initialization, validation, bounds management,
-    special logic for structure factor parameter linking, and polydispersity support.
+    equality links between parameters, and polydispersity support.
 
     Attributes:
         params: Dictionary of parameter configurations
@@ -111,7 +112,9 @@ class ParameterManager:
         self._components: list[tuple[str, str, str]] = []
         # _links: equality links, follower -> target, stored under whatever
         # names self.params uses (aliases on the set_models path, canonical
-        # names on the raw set_model path).
+        # names on the raw set_model path). Sources: link_params(), the shared=
+        # sugar of set_models(), and radius_effective_mode='link_radius' (which
+        # owns its 'radius_effective' entry — see update_for_product_model).
         self._links: dict[str, str] = {}
         # Alias layer (set_models path only): alias -> canonical name. Shared
         # parameters additionally map one alias to several canonical names.
@@ -648,14 +651,9 @@ class ParameterManager:
 
         if value is not None:
             self.params[resolved]['value'] = value
-            # Sync radius_effective when radius is updated in link_radius mode
-            if (
-                resolved == 'radius'
-                and self._radius_effective_mode == 'link_radius'
-                and 'radius_effective' in self.params
-            ):
-                self.params['radius_effective']['value'] = value
-            # Propagate to equality-link followers of this parameter.
+            # Propagate to equality-link followers of this parameter. In
+            # link_radius mode 'radius_effective' is one of them, so the
+            # structure-factor link needs no special case here.
             for follower, link_target in self._links.items():
                 if link_target == resolved:
                     self.params[follower]['value'] = value
@@ -706,8 +704,6 @@ class ParameterManager:
 
         def entry_line(name: str, info: dict[str, Any]) -> str:
             vary_str = '✓' if info['vary'] else '✗'
-            if name == 'radius_effective' and self._radius_effective_mode == 'link_radius':
-                vary_str = '→radius'
             if name in self._links:
                 vary_str = f'→{self._links[name]}'
             return (
@@ -761,9 +757,6 @@ class ParameterManager:
         print(f'{"-" * 80}')
         for name, info in params.items():
             vary_str = '✓' if info['vary'] else '✗'
-            # Show linked indicator for radius_effective in link_radius mode
-            if name == 'radius_effective' and self._radius_effective_mode == 'link_radius':
-                vary_str = '→radius'
             if name in self._links:
                 vary_str = f'→{self._links[name]}'
             print(
@@ -817,13 +810,26 @@ class ParameterManager:
         # Backup polydispersity state if not already done
         if not self._backed_up_pd_state:
             self.backup_pd_state()
+        previous_mode = self._radius_effective_mode
         self.params = self._sf_manager.apply(
             kernel=kernel,
             sf_name=structure_factor_name,
             re_mode=radius_effective_mode,
             current_params=self.params,
         )
+        # radius_effective_mode owns the 'radius_effective' -> 'radius' link:
+        # drop the outgoing mode's link before the incoming mode re-establishes
+        # it, so switching modes cannot leave a phantom behind. Dropping it here
+        # rather than in _prune_stale_links() keeps it silent — it is an
+        # expected consequence of the mode change, not a stale link.
+        if 'link_radius' in (previous_mode, self._radius_effective_mode):
+            self._links.pop('radius_effective', None)
         self._prune_stale_links()
+        # _sf_manager.apply() downgrades the mode to 'unconstrained' when either
+        # parameter is missing, so both are present whenever it still reads
+        # 'link_radius'.
+        if self._radius_effective_mode == 'link_radius':
+            self.link_params('radius_effective', 'radius')
 
     def remove_structure_factor(self) -> str:
         """
@@ -835,8 +841,14 @@ class ParameterManager:
         Raises:
             ValueError: If no structure factor is currently set
         """
+        was_linked = self._radius_effective_mode == 'link_radius'
         sf_name, restored_params = self._sf_manager.remove()
         self.params = restored_params
+        # The mode-owned link retires with the structure factor that created
+        # it; a link the user made themselves is left to _prune_stale_links(),
+        # which reports it.
+        if was_linked:
+            self._links.pop('radius_effective', None)
         self.restore_pd_state()
         self._prune_stale_links()
         return sf_name

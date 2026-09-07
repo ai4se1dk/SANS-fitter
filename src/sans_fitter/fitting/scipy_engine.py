@@ -5,7 +5,7 @@ import numpy as np
 from sasmodels.direct_model import DirectModel
 
 from ..results import FitArtifacts, FitResultContract, ParameterStateSnapshot
-from .base import EngineFitOutput, extract_fit_index, link_radius_effective_dict, pd_is_active
+from .base import EngineFitOutput, apply_parameter_links, extract_fit_index, pd_is_active
 
 try:
     from scipy.optimize import differential_evolution, least_squares, leastsq
@@ -81,7 +81,7 @@ def fit_scipy(
                     par_dict[f'{base_param}_pd_nsigma'] = pd_config['pd_nsigma']
                     par_dict[f'{base_param}_pd_type'] = pd_config['pd_type']
 
-        link_radius_effective_dict(par_dict, fit_state.radius_effective_mode)
+        apply_parameter_links(par_dict, fit_state.linked_params)
         return par_dict
 
     def residual(x: np.ndarray) -> np.ndarray:
@@ -124,6 +124,10 @@ def fit_scipy(
             f"Unknown method '{method}'. Use 'leastsq', 'least_squares', or 'differential_evolution'."
         )
 
+    # The parameter set the fit actually landed on: link followers carry their
+    # target's fitted value here, which their stale fit_state entry does not.
+    final_pars = build_parameter_dict(fitted_params)
+
     result_parameters: dict[str, dict[str, Any]] = {}
     fitted_values: dict[str, float] = {}
 
@@ -139,10 +143,16 @@ def fit_scipy(
 
     for name, info in fit_state.params.items():
         if name not in param_names:
+            value = final_pars.get(name, info['value'])
+            label = (
+                f'{value:.6g} (= {fit_state.linked_params[name]})'
+                if name in fit_state.linked_params
+                else f'{value:.6g} (fixed)'
+            )
             result_parameters[name] = {
-                'value': info['value'],
+                'value': value,
                 'stderr': 0.0,
-                'formatted': f'{info["value"]:.6g} (fixed)',
+                'formatted': label,
             }
 
     contract = FitResultContract(
@@ -151,7 +161,7 @@ def fit_scipy(
         chisq=chisq,
         parameters=result_parameters,
         artifacts=FitArtifacts(
-            fitted_curve=np.asarray(calculator(**build_parameter_dict(fitted_params))),
+            fitted_curve=np.asarray(calculator(**final_pars)),
             fit_index=extract_fit_index(calculator),
             raw_result=result,
         ),
