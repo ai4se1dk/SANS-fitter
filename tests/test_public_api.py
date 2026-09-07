@@ -23,6 +23,7 @@ class TestPublicApi(unittest.TestCase):
             'PD_DEFAULTS',
             'PD_DISTRIBUTION_TYPES',
             'get_all_models',
+            'set_verbosity',
             'FitResultContract',
             'PosteriorSummary',
             'data_ops',

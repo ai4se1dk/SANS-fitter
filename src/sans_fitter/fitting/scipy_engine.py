@@ -4,6 +4,7 @@ from typing import Any
 import numpy as np
 from sasmodels.direct_model import DirectModel
 
+from ..console import logger
 from ..results import FitArtifacts, FitResultContract, ParameterStateSnapshot
 from .base import EngineFitOutput, apply_parameter_links, extract_fit_index, pd_is_active
 
@@ -88,7 +89,7 @@ def fit_scipy(
         i_calc = calculator(**build_parameter_dict(x))
         return (y_fit - i_calc) / dy_fit
 
-    print(f'\nFitting with scipy.optimize (method: {method})...')
+    logger.info(f'\nFitting with scipy.optimize (method: {method})...')
 
     if method == 'leastsq':
         result = leastsq(residual, x0, full_output=True, **kwargs)
