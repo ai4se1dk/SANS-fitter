@@ -8,8 +8,9 @@ The typical workflow involves:
 1.  Loading data
 2.  Selecting a model
 3.  Configuring parameters
-4.  Fitting
-5.  Visualizing and saving results
+4.  Previewing the model
+5.  Fitting
+6.  Visualizing and saving results
 
 ### 1. Loading Data
 
@@ -51,7 +52,30 @@ fitter.set_param('length', value=400, vary=False)  # Fix this parameter
 -   `min` / `max`: The lower and upper bounds for the fit.
 -   `vary`: Set to `True` to fit this parameter, `False` to keep it fixed.
 
-### 4. Fitting
+### 4. Previewing the Model
+
+Check that the starting values are sane before committing to a fit. None of
+these change the fitter's parameters or its fit results.
+
+```python
+# Data, model at the current parameters, and residuals — no fit required
+fitter.plot_model()
+
+# The intensities themselves: on the data grid (NaN outside the fit range,
+# data's own resolution applied) or on any grid, optionally smeared by dQ/Q
+intensity = fitter.calculate()
+smooth = fitter.calculate(q=np.geomspace(0.005, 0.5, 300), dq=0.05)
+
+# Overlay candidate parameter sets: a one-parameter sweep, or labelled cases
+fitter.compare(radius=[20, 30, 40])
+fitter.compare({'current': {}, '20% polydisperse': {'radius_pd': 0.2}})
+```
+
+The χ² shown by `plot_model()` is χ²/dof, the same number BUMPS prints as
+"Initial χ²" (the LMFit engine reports an unnormalized χ²). It is reported as
+not available when the data has no `dI` column.
+
+### 5. Fitting
 
 SANS Fitter supports two fitting engines: **BUMPS** and **LMFit**.
 
@@ -76,7 +100,7 @@ LMFit provides access to SciPy's optimization algorithms.
 result = fitter.fit(engine='lmfit', method='leastsq')
 ```
 
-### 5. Visualization and Export
+### 6. Visualization and Export
 
 After fitting, you can plot the results and save them.
 

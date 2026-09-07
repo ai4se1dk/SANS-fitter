@@ -18,6 +18,7 @@ A flexible, model-agnostic Python template for fitting Small-Angle Neutron Scatt
 - **Q-Range Restriction**: Fit only a chosen [qmin, qmax] window (e.g. trim beam-stop or background-dominated points)
 - **Dataset Arithmetic**: Add, subtract, multiply, and divide datasets (or scale by constants) with propagated uncertainties via `data_ops` — e.g. background subtraction and transmission correction before fitting
 - **User-Friendly Parameter Management**: Easy-to-use interface for setting parameter values, bounds, and fitting flags
+- **Theory Preview**: See the model at the current parameters before fitting — `plot_model()` for data, curve and residuals, `calculate()` for the intensities on any Q grid, and `compare()` to overlay several parameter sets
 - **Interactive Visualization**: Automatic plotting of data, fitted model, and residuals with Plotly
 - **Bayesian Analysis**: Posterior sampling with BUMPS DREAM (MCMC) plus corner, marginal, predictive-band, correlation, and trace plots
 - **P(r) Inversion**: Model-free pair distance distribution analysis (indirect Fourier transform) via `pr_inversion` — D_max exploration, automatic regularization/term selection, and Rg/I(0)/positivity diagnostics
@@ -106,6 +107,9 @@ fitter.set_param('background', value=0.01, min=0, max=1, vary=True)
 
 # View current parameters
 fitter.get_params()
+
+# Check the starting values against the data before fitting
+fitter.plot_model()
 
 # Perform the fit (using BUMPS by default)
 result = fitter.fit(engine='bumps', method='amoeba')
