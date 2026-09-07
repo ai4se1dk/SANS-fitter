@@ -25,6 +25,21 @@ def default_parameter_bounds(default: float, limits: tuple[float, float]) -> tup
     return lo, hi
 
 
+RADIUS_EFFECTIVE_MODES = ('unconstrained', 'link_radius')
+
+
+def validate_radius_effective_mode(mode: str) -> None:
+    """Raise for an unsupported ``radius_effective_mode``.
+
+    Exposed separately so callers can reject a bad mode *before* they start
+    swapping kernels and parameter sets.
+    """
+    if mode not in RADIUS_EFFECTIVE_MODES:
+        raise ValueError(
+            f"Invalid radius_effective_mode '{mode}'. Use 'unconstrained' or 'link_radius'."
+        )
+
+
 class StructureFactorManager:
     """Manage structure factor state and form-factor parameter backups."""
 
@@ -75,10 +90,7 @@ class StructureFactorManager:
         re_mode: str,
         current_params: dict[str, dict[str, Any]],
     ) -> dict[str, dict[str, Any]]:
-        if re_mode not in ['unconstrained', 'link_radius']:
-            raise ValueError(
-                f"Invalid radius_effective_mode '{re_mode}'. Use 'unconstrained' or 'link_radius'."
-            )
+        validate_radius_effective_mode(re_mode)
 
         if not self._form_factor_params:
             self.backup_params(current_params)
