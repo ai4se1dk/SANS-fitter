@@ -6,6 +6,7 @@ optimization engines (BUMPS, LMFit) with any model from the SasModels library.
 """
 
 import difflib
+import functools
 import re
 import warnings
 from collections.abc import Sequence
@@ -20,6 +21,7 @@ from sasmodels.core import load_model
 from sasmodels.direct_model import DirectModel
 
 from . import plotting
+from .console import ARROW, CHI_SQUARED, INVERSE_ANGSTROM, OK, logger
 from .data.loader import get_fit_index, has_real_data, load_sans_data, normalize_sans_data
 from .fitting import (
     DEFAULT_DREAM_BURN,
@@ -44,13 +46,32 @@ def get_all_models() -> list[str]:
 
     Returns:
         List of model names
+
+    Raises:
+        Exception: Whatever ``sasmodels.core.list_models()`` raises. A broken
+            sasmodels installation surfaces as an error rather than as an
+            empty model list.
     """
-    try:
-        all_models = core.list_models()
-        return sorted(all_models)
-    except Exception as e:
-        print(f'Error fetching models: {str(e)}')
-        return []
+    return sorted(core.list_models())
+
+
+@functools.lru_cache(maxsize=1)
+def get_structure_factors() -> tuple[str, ...]:
+    """Return the structure-factor model names available in sasmodels.
+
+    Derived from sasmodels rather than a hardcoded whitelist: every built-in
+    model whose ``ModelInfo.structure_factor`` flag is set (via
+    ``sasmodels.core.load_model_info``). New structure factors added upstream
+    (e.g. ``two_yukawa``) are picked up automatically, so this list cannot go
+    stale. The result is cached; the immutable tuple prevents accidental
+    mutation of the cached value.
+
+    Returns:
+        Sorted tuple of structure-factor names.
+    """
+    return tuple(
+        sorted(name for name in core.list_models() if core.load_model_info(name).structure_factor)
+    )
 
 
 def _validate_model_expression(model_name: str) -> None:
@@ -122,7 +143,7 @@ class SANSFitter:
         # Parameter management delegated to ParameterManager
         self._param_manager = ParameterManager()
 
-    def load_data(self, filename: str) -> None:
+    def load_data(self, filename: str, dataset: int | str = 0) -> None:
         """
         Load SANS data from a file.
 
@@ -132,24 +153,34 @@ class SANSFitter:
         its uncertainties and resolution swapped. Check the column summary
         printed after loading.
 
+        Files may hold several datasets (e.g. CanSAS XML with multiple
+        ``SASentry`` blocks). Pass *dataset* to select one by 0-based index or
+        by name (title, run id or filename); the first dataset is used by
+        default. If the file contains more than one dataset, a warning lists
+        them all.
+
         Args:
             filename: Path to the data file
+            dataset: Which dataset to load — a 0-based index or a name (title,
+                run id or filename). Defaults to the first dataset.
 
         Raises:
             FileNotFoundError: If the file doesn't exist
             ValueError: If the data cannot be loaded or is invalid
         """
-        self.data = load_sans_data(filename)
+        self.data = load_sans_data(filename, dataset=dataset)
         self._full_q_range = (self.data.qmin, self.data.qmax)
 
         has_dy = has_real_data(self.data.dy)
         has_dx = has_real_data(self.data.dx)
 
-        print(f'✓ Loaded data from {filename}')
-        print(f'  Q range: {self.data.qmin:.4f} to {self.data.qmax:.4f} Å⁻¹')
-        print(f'  Data points: {len(self.data.x)}')
-        print(f'  Error (dI) column: {"yes" if has_dy else "no"}')
-        print(f'  Resolution (dQ) column: {"yes" if has_dx else "no"}')
+        logger.info(
+            f'{OK} Loaded data from {filename}\n'
+            f'  Q range: {self.data.qmin:.4f} to {self.data.qmax:.4f} {INVERSE_ANGSTROM}\n'
+            f'  Data points: {len(self.data.x)}\n'
+            f'  Error (dI) column: {"yes" if has_dy else "no"}\n'
+            f'  Resolution (dQ) column: {"yes" if has_dx else "no"}'
+        )
 
     def set_data(self, data: Any) -> None:
         """
@@ -197,11 +228,13 @@ class SANSFitter:
         has_dx = has_real_data(self.data.dx)
         label = getattr(data, 'title', '') or getattr(data, 'filename', '') or 'in-memory dataset'
 
-        print(f'✓ Data set: {label}')
-        print(f'  Q range: {self.data.qmin:.4f} to {self.data.qmax:.4f} Å⁻¹')
-        print(f'  Data points: {len(self.data.x)}')
-        print(f'  Error (dI) column: {"yes" if has_dy else "no"}')
-        print(f'  Resolution (dQ) column: {"yes" if has_dx else "no"}')
+        logger.info(
+            f'{OK} Data set: {label}\n'
+            f'  Q range: {self.data.qmin:.4f} to {self.data.qmax:.4f} {INVERSE_ANGSTROM}\n'
+            f'  Data points: {len(self.data.x)}\n'
+            f'  Error (dI) column: {"yes" if has_dy else "no"}\n'
+            f'  Resolution (dQ) column: {"yes" if has_dx else "no"}'
+        )
 
     def set_q_range(self, qmin: float | None = None, qmax: float | None = None) -> None:
         """
@@ -246,8 +279,10 @@ class SANSFitter:
                 f'No data points in Q range [{new_qmin:g}, {new_qmax:g}]. Range unchanged.'
             )
 
-        print(f'✓ Q range for fitting: {new_qmin:.6g} to {new_qmax:.6g} Å⁻¹')
-        print(f'  Points in fit: {n_points} of {len(index)}')
+        logger.info(
+            f'{OK} Q range for fitting: {new_qmin:.6g} to {new_qmax:.6g} {INVERSE_ANGSTROM}\n'
+            f'  Points in fit: {n_points} of {len(index)}'
+        )
 
     def reset_q_range(self) -> None:
         """
@@ -261,8 +296,10 @@ class SANSFitter:
 
         self.data.qmin, self.data.qmax = self._full_q_range
         n_points = int(get_fit_index(self.data).sum())
-        print(f'✓ Q range reset to {self.data.qmin:.6g} to {self.data.qmax:.6g} Å⁻¹')
-        print(f'  Points in fit: {n_points}')
+        logger.info(
+            f'{OK} Q range reset to {self.data.qmin:.6g} to {self.data.qmax:.6g} '
+            f'{INVERSE_ANGSTROM}\n  Points in fit: {n_points}'
+        )
 
     def get_q_range(self) -> tuple[float, float] | None:
         """
@@ -307,8 +344,10 @@ class SANSFitter:
             # string (robust against nested mixture plugins).
             self._param_manager.initialize_from_kernel(self.kernel, model_name)
 
-            print(f"✓ Model '{model_name}' loaded successfully")
-            print(f'  Available parameters: {len(self._param_manager.params)}')
+            logger.info(
+                f"{OK} Model '{model_name}' loaded successfully\n"
+                f'  Available parameters: {len(self._param_manager.params)}'
+            )
 
         except Exception as e:
             raise ValueError(f"Failed to load model '{model_name}': {str(e)}") from e
@@ -442,11 +481,14 @@ class SANSFitter:
         # full alias map, not by ad-hoc string rules).
         self._param_manager.register_aliases(components, list(shared))
 
-        print(f'✓ Combined {len(components)} models: {expression}')
-        print(f'  Components: {", ".join(m for m, _n in components)}')
+        lines = [
+            f'{OK} Combined {len(components)} models: {expression}',
+            f'  Components: {", ".join(m for m, _n in components)}',
+        ]
         if shared:
-            print(f'  Shared parameters: {", ".join(shared)}')
-        print(f'  Available parameters: {len(self._param_manager.params)}')
+            lines.append(f'  Shared parameters: {", ".join(shared)}')
+        lines.append(f'  Available parameters: {len(self._param_manager.params)}')
+        logger.info('\n'.join(lines))
 
     def link_params(self, name: str, to: str) -> None:
         """
@@ -458,6 +500,11 @@ class SANSFitter:
         parameters, including cross-component ones (``'large_sld'`` following
         ``'small_sld'``) and differently named ones.
 
+        This is the same mechanism as
+        ``set_structure_factor(..., radius_effective_mode='link_radius')``,
+        which links ``'radius_effective'`` to ``'radius'``; ``get_links()``
+        reports both alike.
+
         Args:
             name: The follower parameter name.
             to: The target parameter name.
@@ -467,7 +514,7 @@ class SANSFitter:
             ValueError: On self-links, link chains, or conflicting links.
         """
         self._param_manager.link_params(name, to)
-        print(f'✓ Linked {name} → {to}')
+        logger.info(f'{OK} Linked {name} {ARROW} {to}')
 
     def unlink_params(self, name: str) -> None:
         """
@@ -481,7 +528,7 @@ class SANSFitter:
             ValueError: If the parameter is not linked.
         """
         self._param_manager.unlink_params(name)
-        print(f'✓ Unlinked {name}')
+        logger.info(f'{OK} Unlinked {name}')
 
     def get_links(self) -> dict[str, str]:
         """Return the active parameter equality links (follower -> target)."""
@@ -568,11 +615,9 @@ class SANSFitter:
         This creates a product model (form_factor * structure_factor) to account
         for inter-particle interactions in concentrated systems.
 
-        Supported structure factors:
-        - 'hardsphere': Hard sphere structure factor (Percus-Yevick closure)
-        - 'hayter_msa': Hayter-Penfold rescaled MSA for charged spheres
-        - 'squarewell': Square well potential
-        - 'stickyhardsphere': Sticky hard sphere (Baxter model)
+        Available structure factors are queried from sasmodels at runtime —
+        see :func:`get_structure_factors` for the full, up-to-date list
+        (e.g. 'hardsphere', 'hayter_msa', 'squarewell', 'stickyhardsphere').
 
         Args:
             structure_factor_name: Name of the structure factor (e.g., 'hardsphere')
@@ -598,8 +643,8 @@ class SANSFitter:
                 "part instead, e.g. set_models('sphere@hardsphere', 'peak_lorentz')."
             )
 
-        # Validate structure factor name
-        supported_sf = ['hardsphere', 'hayter_msa', 'squarewell', 'stickyhardsphere']
+        # Validate structure factor name against sasmodels (cached query)
+        supported_sf = get_structure_factors()
         if structure_factor_name not in supported_sf:
             raise ValueError(
                 f"Unsupported structure factor '{structure_factor_name}'. "
@@ -627,12 +672,15 @@ class SANSFitter:
             )
             self.kernel = product_kernel
 
+            lines = []
             if radius_effective_mode == 'link_radius':
-                print("  Note: 'radius_effective' linked to 'radius' value")
-
-            print(f"✓ Structure factor '{structure_factor_name}' applied to '{self.model_name}'")
-            print(f'  Product model: {full_model_name}')
-            print(f'  Total parameters: {len(self.params)}')
+                lines.append("  Note: 'radius_effective' linked to 'radius' value")
+            lines.append(
+                f"{OK} Structure factor '{structure_factor_name}' applied to '{self.model_name}'"
+            )
+            lines.append(f'  Product model: {full_model_name}')
+            lines.append(f'  Total parameters: {len(self.params)}')
+            logger.info('\n'.join(lines))
 
         except Exception as e:
             raise ValueError(f"Failed to load model '{full_model_name}': {str(e)}") from e
@@ -657,8 +705,10 @@ class SANSFitter:
             sf_name = self._param_manager.remove_structure_factor()
             self.kernel = form_factor_kernel
 
-            print(f"✓ Structure factor '{sf_name}' removed")
-            print(f'  Reverted to form factor: {self.model_name}')
+            logger.info(
+                f"{OK} Structure factor '{sf_name}' removed\n"
+                f'  Reverted to form factor: {self.model_name}'
+            )
 
         except Exception as e:
             raise ValueError(f'Failed to reload form factor model: {str(e)}') from e
@@ -803,16 +853,19 @@ class SANSFitter:
         self.fit_result = self._fit_contract.to_legacy_dict()
         self._fitted_model = engine_output.runtime_model
 
-        print('\n✓ Fit completed!')
-        print(f'Final χ² = {self.fit_result["chisq"]:.4f}')
-        print('\nFitted parameters:')
+        lines = [
+            f'\n{OK} Fit completed!',
+            f'Final {CHI_SQUARED} = {self.fit_result["chisq"]:.4f}',
+            '\nFitted parameters:',
+        ]
         for name, info in self.fit_result['parameters'].items():
-            print(f'  {name}: {info["formatted"]}')
+            lines.append(f'  {name}: {info["formatted"]}')
 
         posterior = self._fit_contract.artifacts.posterior
         if posterior is not None:
-            print()
-            print(posterior.format_summary())
+            lines.append('')
+            lines.append(posterior.format_summary())
+        logger.info('\n'.join(lines))
 
         return self.fit_result
 
@@ -941,8 +994,8 @@ class SANSFitter:
 
         Raises:
             ValueError: If data or model not loaded, or invalid engine
-            NotImplementedError: If a composite model or parameter links are
-                used with an engine other than 'bumps'.
+            NotImplementedError: If a composite model is used with an engine
+                other than 'bumps'.
         """
         if self.data is None:
             raise ValueError('No data loaded. Use load_data() first.')
@@ -963,20 +1016,17 @@ class SANSFitter:
         return self._fit_lmfit(method or 'leastsq', **kwargs)
 
     def _check_composite_engine_support(self, engine: str) -> None:
-        """Gate composite models and parameter links to the bumps engine.
+        """Gate composite models to the bumps engine.
 
         The scipy path would probably work for composites (DirectModel accepts
         prefixed kwargs) but it is untested; failing loudly beats silently
-        unvalidated results. A model using shared= always presents non-empty
-        linked_params, so no separate gate is needed for it.
+        unvalidated results. Parameter links are *not* gated: both engines apply
+        them on every model evaluation. shared= needs no gate of its own — it
+        only exists on composite models, which this check already covers.
         """
         if engine == 'bumps':
             return
         snapshot = self._param_manager.snapshot_fit_state()
-        if snapshot.linked_params:
-            raise NotImplementedError(
-                "Parameter links are currently supported by the 'bumps' engine only."
-            )
         if snapshot.components:
             raise NotImplementedError(
                 "Composite models are currently supported by the 'bumps' engine only."
@@ -1102,8 +1152,8 @@ class SANSFitter:
 
         Raises:
             ValueError: If data or model is not loaded, or no parameter varies.
-            NotImplementedError: If a composite model or parameter links are
-                used — the DREAM path does not support them yet.
+            NotImplementedError: If a composite model is used — the DREAM path
+                does not support them yet.
         """
         if self.data is None:
             raise ValueError('No data loaded. Use load_data() first.')
@@ -1111,10 +1161,10 @@ class SANSFitter:
             raise ValueError('No model loaded. Use set_model() first.')
 
         snapshot = self._param_manager.snapshot_fit_state()
-        if snapshot.linked_params or snapshot.components:
+        if snapshot.components:
             raise NotImplementedError(
-                'Composite models and parameter links are currently supported '
-                "by the 'bumps' point-estimate engine only (fit(engine='bumps'))."
+                "Composite models are currently supported by the 'bumps' "
+                "point-estimate engine only (fit(engine='bumps'))."
             )
         self._check_scale_degeneracy()
 
@@ -1319,4 +1369,4 @@ class SANSFitter:
             fit_result=fit_contract,
         )
 
-        print(f'✓ Results saved to {filename}')
+        logger.info(f'{OK} Results saved to {filename}')

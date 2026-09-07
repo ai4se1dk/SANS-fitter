@@ -1,5 +1,7 @@
 from typing import Any
 
+from ..console import NO, YES
+
 PD_DEFAULTS = {
     'pd': 0.0,
     'pd_n': 35,
@@ -175,7 +177,7 @@ class PolydispersityManager:
         for param_name in self._param_names:
             pd_config = self._params[param_name]
             display_name = (name_map or {}).get(param_name, param_name)
-            vary_str = '✓' if pd_config.get('vary', False) else '✗'
+            vary_str = YES if pd_config.get('vary', False) else NO
             print(
                 f'{display_name:<20} {pd_config["pd"]:<10.4g} {pd_config["pd_n"]:<10} '
                 f'{pd_config["pd_nsigma"]:<10.4g} {pd_config["pd_type"]:<12} {vary_str:<8}'
