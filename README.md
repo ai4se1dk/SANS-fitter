@@ -158,7 +158,7 @@ result = fitter.fit()
 fitter.remove_structure_factor()
 ```
 
-- **Supported structure factors:** `hardsphere`, `hayter_msa`, `squarewell`, `stickyhardsphere`.
+- **Structure factors:** queried from sasmodels at runtime — call `get_structure_factors()` for the full list (currently includes `hardsphere`, `hayter_msa`, `squarewell`, `stickyhardsphere`, `two_yukawa`).
 - **Radius handling:** use `radius_effective_mode='link_radius'` to keep `radius_effective` equal to the form-factor `radius`, or leave the default `unconstrained` to fit it independently.
 - **State helpers:** `get_structure_factor()` returns the active structure factor so notebooks/scripts can branch as needed.
 

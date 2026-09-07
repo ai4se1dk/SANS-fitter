@@ -6,6 +6,7 @@ optimization engines (BUMPS, LMFit) with any model from the SasModels library.
 """
 
 import difflib
+import functools
 import re
 import warnings
 from collections.abc import Sequence
@@ -50,6 +51,25 @@ def get_all_models() -> list[str]:
     except Exception as e:
         print(f'Error fetching models: {str(e)}')
         return []
+
+
+@functools.lru_cache(maxsize=1)
+def get_structure_factors() -> tuple[str, ...]:
+    """Return the structure-factor model names available in sasmodels.
+
+    Derived from sasmodels rather than a hardcoded whitelist: every built-in
+    model whose ``ModelInfo.structure_factor`` flag is set (via
+    ``sasmodels.core.load_model_info``). New structure factors added upstream
+    (e.g. ``two_yukawa``) are picked up automatically, so this list cannot go
+    stale. The result is cached; the immutable tuple prevents accidental
+    mutation of the cached value.
+
+    Returns:
+        Sorted tuple of structure-factor names.
+    """
+    return tuple(
+        sorted(name for name in core.list_models() if core.load_model_info(name).structure_factor)
+    )
 
 
 def _validate_model_expression(model_name: str) -> None:
@@ -567,11 +587,9 @@ class SANSFitter:
         This creates a product model (form_factor * structure_factor) to account
         for inter-particle interactions in concentrated systems.
 
-        Supported structure factors:
-        - 'hardsphere': Hard sphere structure factor (Percus-Yevick closure)
-        - 'hayter_msa': Hayter-Penfold rescaled MSA for charged spheres
-        - 'squarewell': Square well potential
-        - 'stickyhardsphere': Sticky hard sphere (Baxter model)
+        Available structure factors are queried from sasmodels at runtime —
+        see :func:`get_structure_factors` for the full, up-to-date list
+        (e.g. 'hardsphere', 'hayter_msa', 'squarewell', 'stickyhardsphere').
 
         Args:
             structure_factor_name: Name of the structure factor (e.g., 'hardsphere')
@@ -594,8 +612,8 @@ class SANSFitter:
                 "part instead, e.g. set_models('sphere@hardsphere', 'peak_lorentz')."
             )
 
-        # Validate structure factor name
-        supported_sf = ['hardsphere', 'hayter_msa', 'squarewell', 'stickyhardsphere']
+        # Validate structure factor name against sasmodels (cached query)
+        supported_sf = get_structure_factors()
         if structure_factor_name not in supported_sf:
             raise ValueError(
                 f"Unsupported structure factor '{structure_factor_name}'. "
