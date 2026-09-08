@@ -25,8 +25,8 @@ from ..results import (
 )
 from .base import (
     EngineFitOutput,
-    build_result_parameters,
     apply_parameter_links,
+    build_result_parameters,
     extract_fit_index,
     pd_is_active,
 )

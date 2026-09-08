@@ -8,10 +8,9 @@ from ..console import logger
 from ..results import FitArtifacts, FitResultContract, ParameterStateSnapshot
 from .base import (
     EngineFitOutput,
+    apply_parameter_links,
     build_result_parameters,
     extract_fit_index,
-    link_radius_effective_dict,
-    apply_parameter_links,
     pd_is_active,
 )
 
@@ -137,7 +136,6 @@ def fit_scipy(
     # target's fitted value here, which their stale fit_state entry does not.
     final_pars = build_parameter_dict(fitted_params)
 
-    result_parameters: dict[str, dict[str, Any]] = {}
     fitted_values: dict[str, float] = {}
 
     for index, name in enumerate(param_names):
@@ -149,20 +147,6 @@ def fit_scipy(
             else f'{fitted_params[index]:.6g}',
         }
         fitted_values[name] = fitted_params[index]
-
-    for name, info in fit_state.params.items():
-        if name not in param_names:
-            value = final_pars.get(name, info['value'])
-            label = (
-                f'{value:.6g} (= {fit_state.linked_params[name]})'
-                if name in fit_state.linked_params
-                else f'{value:.6g} (fixed)'
-            )
-            result_parameters[name] = {
-                'value': value,
-                'stderr': 0.0,
-                'formatted': label,
-            }
 
     contract = FitResultContract(
         engine='lmfit',
