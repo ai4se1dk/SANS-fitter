@@ -150,6 +150,96 @@ columns were detected.
 
 ## Advanced Usage
 
+### Resolution (Smearing)
+
+Instrument resolution changes the fitted parameters, so SANS-fitter treats it
+as a stated choice rather than a property of the input file. The four modes
+mirror SasView's Fit Page (*None* / *Use dQ Data* / *Custom Pinhole* /
+*Custom Slit*).
+
+```python
+fitter.set_resolution('data')                      # default: the file's own columns
+fitter.set_resolution('none')                      # perfect resolution
+fitter.set_resolution('pinhole', dq_over_q=0.10)   # constant relative width
+fitter.set_resolution('slit', slit_length=0.05)    # constant slit geometry
+
+fitter.get_resolution()
+# {'mode': 'pinhole', 'dq_over_q': 0.1, 'slit_length': None, 'slit_width': None}
+```
+
+The setting reaches `fit(engine='bumps')`, `fit(engine='lmfit')`,
+`fit_bayesian()` and the post-fit curves through one shared evaluation copy of
+your dataset. **`fitter.data` is never modified** — plots, CSV export, P(r)
+inversion and `data_ops` all keep seeing the dataset you loaded.
+
+`get_resolution()` works before any data is loaded, and the mode **persists**
+across `load_data()` / `set_data()`, exactly as the model and the parameters
+do. The summary printed on load reports the active mode, so a custom width
+cannot reach a new dataset unnoticed.
+
+#### What each mode does
+
+| Mode | Dataset has | Result |
+|---|---|---|
+| `'data'` | a real `dQ` column | pinhole smearing from that column |
+| `'data'` | slit columns only (`dxl`/`dxw`) | slit smearing from those columns |
+| `'data'` | no resolution columns | warns, evaluates unsmeared |
+| `'none'` | anything | unsmeared, file columns ignored |
+| `'pinhole'` | anything | `dx = dq_over_q · q` |
+| `'slit'` | anything | constant `dxl` (and optional `dxw`) |
+
+A dataset carrying both a `dQ` column and slit columns warns: sasmodels gives
+`dQ` priority and ignores the slit columns. A dataset carrying a slit *width*
+with no slit *length* is refused with an explanatory error rather than being
+smeared wrongly or silently — see the note on slit conventions below.
+
+#### Units and conventions
+
+`dq_over_q` is **σ_q/q, a Gaussian 1-σ** — the same quantity as the file's
+`dQ` column and as `examples.simulate(dq=...)`. **It is not FWHM.** If your
+instrument scientist quotes ΔQ/Q as a full width at half maximum, divide by
+about 2.355 first.
+
+`slit_length` (sasmodels' `dxl`, along q) and `slit_width` (`dxw`,
+perpendicular) are **absolute** widths in Å⁻¹, constant across every Q point.
+`slit_length` is required: sasmodels does not implement smearing from a slit
+width alone, so `slit_width` refines a real slit rather than describing one on
+its own. Omit it for the usual long-slit (USANS) geometry.
+
+Out of scope: per-point custom widths, constant *absolute* σ_q, 2D/oriented
+resolution and fittable resolution parameters.
+
+#### Pairing simulated data with a mode
+
+`examples.simulate(dq=...)` both smears the simulated intensity and attaches a
+`dQ` column, so it behaves like a measurement. Fitting the wrong mode against
+it double-smears or under-smears.
+
+| Data produced by | Fit with |
+|---|---|
+| `simulate(...)` without `dq`, or a file with no `dQ` | `'none'`, or a `'pinhole'`/`'slit'` you supply |
+| `simulate(..., dq=0.1)`, or a file with `dQ` | `'data'` (the default) |
+| a file with `dQ` you want to ignore | `'none'` |
+
+#### Things to know
+
+- **χ² is not comparable across modes.** Smearing redistributes residual
+  structure, so a χ² that jumps after `set_resolution()` is expected and says
+  nothing about which fit is better.
+- **The exported `dQ` column is the file's own**, not the width the fit used.
+  `save_results()` writes a `# Resolution mode:` header line recording what was
+  actually applied, and `plot_results()` draws horizontal error bars from the
+  file's column.
+- **Smearing costs time.** Pinhole and slit resolution build a weight matrix
+  and evaluate the model on an extended Q grid; this is a one-time cost per
+  fit, but a noticeable one on large datasets.
+- **P(r) inversion is unaffected.** `pr_inversion` reads `fitter.data`, which
+  this setting deliberately leaves alone: `set_resolution('none')` will not
+  change a P(r) result, and `'slit'` will not make `invert()` slit-aware.
+- **Dataset arithmetic.** Under `'data'`, a background-subtracted result
+  inherits the combined-`dQ` caveat noted under *Dataset Operations*.
+  `'pinhole'`, `'slit'` and `'none'` are the way to override it.
+
 ### Restricting the Q Range
 
 Real datasets often contain points you do not want to fit: beam-stop

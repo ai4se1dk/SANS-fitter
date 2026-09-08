@@ -4,9 +4,18 @@ from typing import Any
 import numpy as np
 
 from .data.loader import has_real_data
+from .data.resolution import ResolutionSetting
 
 MIN_POSTERIOR_PARAMETER_COUNT = 2
 MIN_POSTERIOR_SAMPLE_COUNT = 2
+
+
+def _format_resolution(setting: dict[str, Any]) -> str:
+    """Render a stored resolution setting for the CSV header, in plain ASCII."""
+    try:
+        return ResolutionSetting(**setting).describe(ascii_only=True)
+    except TypeError:  # a setting saved by a future/other shape — show it raw
+        return str(setting)
 
 
 @dataclass(slots=True)
@@ -169,6 +178,11 @@ class FitResultContract:
     chisq: float
     parameters: dict[str, dict[str, Any]]
     artifacts: FitArtifacts = field(default_factory=FitArtifacts)
+    # The resolution setting this fit ran under, as
+    # ``ResolutionSetting.as_dict()``. Recorded because a fitted parameter set
+    # only means something alongside the smearing that produced it — and
+    # because saved analyses will need to restore it.
+    resolution: dict[str, Any] | None = None
 
     def to_legacy_dict(self) -> dict[str, Any]:
         """Expose the historical dict-based result shape for public compatibility."""
@@ -230,12 +244,17 @@ class FitResultContract:
         residuals = (y - fitted_curve) / dy
         _validate_export_lengths(residuals=residuals, **arrays_to_validate)
 
-        with open(filename, 'w') as f:
+        # Explicit encoding: the default is the locale codepage, so on a
+        # Windows console an export carrying any non-ASCII text (a model name,
+        # a moniker) would fail late, at write time.
+        with open(filename, 'w', encoding='utf-8') as f:
             f.write('# SANS Fit Results\n')
             f.write(f'# Model: {model_name}\n')
             f.write(f'# Engine: {self.engine}\n')
             f.write(f'# Method: {self.method}\n')
             f.write(f'# Chi-squared: {self.chisq:.6f}\n')
+            if self.resolution is not None:
+                f.write(f'# Resolution mode: {_format_resolution(self.resolution)}\n')
             f.write(f'# Q range: {x.min():.6g} to {x.max():.6g}\n')
             f.write(f'# Points fitted: {len(x)} of {len(index)}\n')
             f.write('#\n')
@@ -256,6 +275,9 @@ class FitResultContract:
             f.write('#\n')
 
             if has_dx:
+                # The exported dQ is the dataset's own column. Under a custom
+                # resolution mode it is not the width the fit smeared with —
+                # that is on the '# Resolution mode' line above.
                 f.write('Q,dQ,I_exp,dI_exp,I_fit,Residuals\n')
                 for q, dq, i_exp, di_exp, i_fit, res in zip(
                     x, dx, y, dy, fitted_curve, residuals, strict=True

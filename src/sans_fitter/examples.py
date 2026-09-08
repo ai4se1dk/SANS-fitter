@@ -658,9 +658,13 @@ def simulate(
             engine refuses data without uncertainties.
         seed: Seed for the noise, so results are reproducible. Pass ``None``
             for fresh noise on every call.
-        dq: Relative resolution width. When given, ``dx = dq * q`` is attached
-            and the *simulated intensity is smeared accordingly*, matching what
-            an instrument would measure.
+        dq: Relative pinhole resolution width σ_q/q (Gaussian 1-σ, not FWHM).
+            When given, ``dx = dq * q`` is attached and the *simulated
+            intensity is smeared accordingly*, matching what an instrument
+            would measure. The same quantity as ``dq_over_q`` in
+            :meth:`~sans_fitter.SANSFitter.set_resolution`, so data simulated
+            with ``dq`` is fitted correctly under the default ``'data'``
+            resolution mode.
         q: Explicit Q array, overriding *qmin*/*qmax*/*npoints*. Use this to
             simulate onto the grid of a real dataset.
         **params: Model parameters, e.g. ``radius=50``, ``sld=4.0``. Anything

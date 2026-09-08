@@ -118,3 +118,5 @@ ARROW = _glyph('→', '->')
 INVERSE_ANGSTROM = _glyph('Å⁻¹', '1/Ang')
 #: Goodness-of-fit symbol.
 CHI_SQUARED = _glyph('χ²', 'chi^2')
+#: Gaussian 1-sigma, used for resolution widths (σ_q/q).
+SIGMA = _glyph('σ', 'sigma')
