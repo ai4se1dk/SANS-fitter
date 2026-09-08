@@ -58,6 +58,8 @@ Check that the starting values are sane before committing to a fit. None of
 these change the fitter's parameters or its fit results.
 
 ```python
+import numpy as np
+
 # Data, model at the current parameters, and residuals — no fit required
 fitter.plot_model()
 
