@@ -291,7 +291,7 @@ class TestCompositeFitRoundTrip(unittest.TestCase):
 
 
 class TestEngineGating(unittest.TestCase):
-    """Test 6: non-bumps engines reject composites and links."""
+    """Test 6: non-bumps engines reject composites (but do support links)."""
 
     def setUp(self):
         self.fitter = SANSFitter()
@@ -303,15 +303,24 @@ class TestEngineGating(unittest.TestCase):
         with self.assertRaises(NotImplementedError):
             self.fitter.fit(engine='lmfit')
 
-    def test_lmfit_with_links_raises(self):
+    def test_lmfit_with_links_is_supported(self):
+        # Links are applied on every model evaluation by both engines, so an
+        # atomic model carrying one is not gated to bumps.
         atomic = SANSFitter()
         atomic.set_data(make_composite_data())
         atomic.set_model('sphere')
         atomic.set_param('radius', vary=True)
-        atomic.set_param('sld', vary=True)
+        atomic.set_param('sld', value=2.0, vary=True)
         atomic.link_params('sld_solvent', to='sld')
-        with self.assertRaises(NotImplementedError):
-            atomic.fit(engine='lmfit')
+
+        result = atomic.fit(engine='lmfit', method='leastsq')
+
+        # The follower tracks the target through the fit, not just before it.
+        self.assertEqual(atomic.params['sld_solvent']['value'], atomic.params['sld']['value'])
+        self.assertEqual(
+            result['parameters']['sld_solvent']['value'],
+            result['parameters']['sld']['value'],
+        )
 
     def test_bayesian_on_composite_raises(self):
         with self.assertRaises(NotImplementedError):

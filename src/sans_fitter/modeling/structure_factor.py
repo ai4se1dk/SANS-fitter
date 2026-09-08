@@ -25,6 +25,21 @@ def default_parameter_bounds(default: float, limits: tuple[float, float]) -> tup
     return lo, hi
 
 
+RADIUS_EFFECTIVE_MODES = ('unconstrained', 'link_radius')
+
+
+def validate_radius_effective_mode(mode: str) -> None:
+    """Raise for an unsupported ``radius_effective_mode``.
+
+    Exposed separately so callers can reject a bad mode *before* they start
+    swapping kernels and parameter sets.
+    """
+    if mode not in RADIUS_EFFECTIVE_MODES:
+        raise ValueError(
+            f"Invalid radius_effective_mode '{mode}'. Use 'unconstrained' or 'link_radius'."
+        )
+
+
 class StructureFactorManager:
     """Manage structure factor state and form-factor parameter backups."""
 
@@ -75,10 +90,7 @@ class StructureFactorManager:
         re_mode: str,
         current_params: dict[str, dict[str, Any]],
     ) -> dict[str, dict[str, Any]]:
-        if re_mode not in ['unconstrained', 'link_radius']:
-            raise ValueError(
-                f"Invalid radius_effective_mode '{re_mode}'. Use 'unconstrained' or 'link_radius'."
-            )
+        validate_radius_effective_mode(re_mode)
 
         if not self._form_factor_params:
             self.backup_params(current_params)
@@ -124,16 +136,18 @@ class StructureFactorManager:
                     'description': 'Constant background level',
                 }
 
-        if re_mode == 'link_radius':
-            if 'radius' in new_params and 'radius_effective' in new_params:
-                new_params['radius_effective']['value'] = new_params['radius']['value']
-                new_params['radius_effective']['vary'] = False
-            else:
-                warnings.warn(
-                    'Cannot link radius_effective to radius: one or both parameters not found. Using unconstrained mode.',
-                    stacklevel=3,
-                )
-                self._radius_effective_mode = 'unconstrained'
+        # The link itself is an ordinary equality link, established by
+        # ParameterManager after this rebuild; all that is decided here is
+        # whether the requested mode is achievable at all.
+        if re_mode == 'link_radius' and not (
+            'radius' in new_params and 'radius_effective' in new_params
+        ):
+            warnings.warn(
+                'Cannot link radius_effective to radius: one or both parameters '
+                'not found. Using unconstrained mode.',
+                stacklevel=3,
+            )
+            self._radius_effective_mode = 'unconstrained'
 
         return new_params
 

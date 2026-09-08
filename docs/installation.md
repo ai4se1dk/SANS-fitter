@@ -25,6 +25,13 @@ To install with development dependencies (for running tests or building document
 pip install -e ".[dev,docs]"
 ```
 
+The Jupyter stack is an optional extra — the library itself does not need it.
+Install it only to run the notebooks in `notebooks/`:
+
+```bash
+pip install -e ".[notebooks]"
+```
+
 ### Using Pixi
 
 If you use [Pixi](https://prefix.dev/) for package management:

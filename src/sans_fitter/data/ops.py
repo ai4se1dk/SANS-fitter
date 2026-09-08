@@ -58,7 +58,7 @@ _OPERATORS = {
 }
 
 
-def load(filename: str) -> Data1D:
+def load(filename: str, dataset: int | str = 0) -> Data1D:
     """Load a SANS dataset from a file and return a fit-ready ``Data1D``.
 
     This is the canonical standalone loader: ``SANSFitter.load_data()`` uses
@@ -66,16 +66,25 @@ def load(filename: str) -> Data1D:
     those loaded through the fitter. Supports CSV, XML and HDF5 formats via
     sasdata (columnar text files are read in the order Q, I, dI, dQ).
 
+    Files may hold several datasets (e.g. CanSAS XML with multiple
+    ``SASentry`` blocks). Pass *dataset* to select one by 0-based index or by
+    name (title, run id or filename); the first dataset is used by default. A
+    warning is emitted whenever the file contains more than one dataset,
+    listing them so a different selection is possible.
+
     Args:
         filename: Path to the data file.
+        dataset: Which dataset to load — a 0-based index or a name (title,
+            run id or filename). Defaults to the first dataset.
 
     Returns:
         A ``Data1D`` object with ``qmin``/``qmax``/``mask`` set.
 
     Raises:
-        ValueError: If the file cannot be loaded or contains no data.
+        ValueError: If the file cannot be loaded, contains no data, or the
+            requested dataset does not exist or is ambiguous.
     """
-    return load_sans_data(filename)
+    return load_sans_data(filename, dataset=dataset)
 
 
 def add(a: Data1D, b: Operand) -> Data1D:
