@@ -22,6 +22,8 @@ def make_preview_contract(data, chisq=1.5):
         parameters={},
         artifacts=FitArtifacts(fitted_curve=np.asarray(data.y, dtype=float) * 1.1),
     )
+
+
 class TestNotebookDetectionWithoutIPython(unittest.TestCase):
     """IPython is an optional extra, so the import guard is load-bearing."""
 

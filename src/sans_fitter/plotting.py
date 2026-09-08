@@ -79,13 +79,17 @@ def _resolve_show(show: bool | None) -> bool:
     return not _running_in_notebook() if show is None else show
 
 
-def format_chisq(chisq: float) -> str:
-    """Format a chi-squared value for titles and printed summaries.
+def format_chisq(chisq: float, symbol: str = 'χ²') -> str:
+    """Format a chi-squared value for titles and logged summaries.
 
     A NaN means the value could not be computed because the data carries no
     usable intensity uncertainties; say so rather than printing 'nan'.
+
+    *symbol* names the goodness-of-fit glyph. Figure titles keep the Unicode
+    default; console messages pass ``console.CHI_SQUARED``, which falls back
+    to ASCII on a stdout that cannot encode it.
     """
-    return 'χ² n/a (no dI)' if not np.isfinite(chisq) else f'χ² = {chisq:.4f}'
+    return f'{symbol} n/a (no dI)' if not np.isfinite(chisq) else f'{symbol} = {chisq:.4f}'
 
 
 def plot_fit(

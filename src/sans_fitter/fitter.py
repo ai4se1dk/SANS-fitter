@@ -42,6 +42,7 @@ from .fitting.theory import (
     theory_data,
 )
 from .modeling.parameters import ParameterManager
+from .modeling.structure_factor import validate_radius_effective_mode
 from .plotting import DEFAULT_POSTERIOR_PREDICTIVE_DRAWS, format_chisq, plot_fit
 from .results import (
     PREVIEW_ENGINE,
@@ -50,7 +51,7 @@ from .results import (
     PosteriorSummary,
     save_fit_result,
 )
-from .modeling.structure_factor import validate_radius_effective_mode
+
 
 def get_all_models() -> list[str]:
     """
@@ -1444,8 +1445,9 @@ class SANSFitter:
             ),
         )
 
-        print(
-            f'✓ Model preview: {self.model_name} — {format_chisq(chisq)} at current '
+        logger.info(
+            f'{OK} Model preview: {self.model_name} — '
+            f'{format_chisq(chisq, CHI_SQUARED)} at current '
             f'parameters ({int(fit_index.sum())} points, {n_free} free)'
         )
 

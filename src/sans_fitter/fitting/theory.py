@@ -10,7 +10,7 @@ from sasmodels.direct_model import DirectModel
 
 from ..data.loader import has_real_data, validate_q_grid
 from ..results import ParameterStateSnapshot, resolve_fit_index
-from .base import extract_fit_index, link_radius_effective_dict, pd_is_active
+from .base import apply_parameter_links, extract_fit_index, pd_is_active
 
 
 def build_model_parameters(
@@ -19,11 +19,12 @@ def build_model_parameters(
 ) -> dict[str, Any]:
     """Canonical sasmodels keyword arguments for a parameter snapshot.
 
-    Order: values, active polydispersity blocks, *overrides*, equality links
-    (follower = target), the ``radius_effective`` link. An override therefore
-    reaches a follower through its target. A ``<base>_pd`` override brings
-    the block's companion settings along, because sasmodels ignores a width
-    that arrives without ``_pd_n``.
+    Order: values, active polydispersity blocks, *overrides*, then equality
+    links (follower = target), which include the ``radius_effective`` link of
+    ``radius_effective_mode='link_radius'``. An override therefore reaches a
+    follower through its target. A ``<base>_pd`` override brings the block's
+    companion settings along, because sasmodels ignores a width that arrives
+    without ``_pd_n``.
     """
     pars: dict[str, Any] = {name: info['value'] for name, info in fit_state.params.items()}
 
@@ -46,11 +47,7 @@ def build_model_parameters(
                 pars[f'{base}_pd_nsigma'] = pd_config['pd_nsigma']
                 pars[f'{base}_pd_type'] = pd_config['pd_type']
 
-    for follower, target in fit_state.linked_params.items():
-        if target in pars:
-            pars[follower] = pars[target]
-
-    link_radius_effective_dict(pars, fit_state.radius_effective_mode)
+    apply_parameter_links(pars, fit_state.linked_params)
     return pars
 
 

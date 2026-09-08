@@ -1,17 +1,20 @@
 """Integration tests for the theory preview API: calculate/plot_model/compare."""
 
+import contextlib
 import copy
+import io
 import unittest
-from unittest.mock import patch
 
 import numpy as np
 from sasdata.dataloader.data_info import Data1D
 from sasmodels.data import empty_data1D
 from sasmodels.direct_model import DirectModel
 
-from sans_fitter import SANSFitter, examples
+from sans_fitter import SANSFitter, examples, set_verbosity
+from sans_fitter.console import LOGGER_NAME
 from sans_fitter.data.loader import normalize_sans_data
 from sans_fitter.fitting.bumps_engine import _build_bumps_problem
+from sans_fitter.fitting.theory import build_model_parameters
 from sans_fitter.plotting import PREVIEW_MODEL_TRACE_NAME, PREVIEW_TITLE_PREFIX
 
 
@@ -141,10 +144,15 @@ class TestCalculate(unittest.TestCase):
         fitter.set_structure_factor('hardsphere', radius_effective_mode='link_radius')
         fitter.set_param('radius', value=60.0)
 
-        linked = fitter.calculate()
-        fitter.set_param('radius_effective', value=20.0)
-        # radius_effective follows radius, so writing it must not matter.
-        np.testing.assert_allclose(fitter.calculate(), linked)
+        snapshot = fitter._param_manager.snapshot_fit_state()
+        # radius_effective follows radius like any other link, so a stale
+        # follower value in the snapshot must not reach the evaluation.
+        snapshot.params['radius_effective']['value'] = 20.0
+        pars = build_model_parameters(snapshot)
+        self.assertEqual(pars['radius_effective'], 60.0)
+
+        expected = DirectModel(fitter.data, fitter.kernel)(**pars)
+        np.testing.assert_allclose(fitter.calculate(), expected)
 
 
 class TestPlotModel(unittest.TestCase):
@@ -161,10 +169,25 @@ class TestPlotModel(unittest.TestCase):
 
     def test_plot_results_still_reports_no_fit(self):
         self.fitter.plot_model(show=False)
-        with patch('builtins.print') as mock_print:
+        with self.assertLogs(LOGGER_NAME, level='WARNING') as captured:
             self.fitter.plot_results(show=False)
-        printed = ' '.join(str(call) for call in mock_print.call_args_list)
-        self.assertIn('No fit results available', printed)
+        self.assertIn('No fit results available', ' '.join(captured.output))
+
+    def test_preview_message_follows_the_package_verbosity(self):
+        # The preview line is a side effect of the call, so it goes through
+        # the logger and silences with the rest of the progress messages.
+        with self.assertLogs(LOGGER_NAME, level='INFO') as captured:
+            self.fitter.plot_model(show=False)
+        self.assertIn('Model preview', ' '.join(captured.output))
+
+        buffer = io.StringIO()
+        set_verbosity('quiet')
+        try:
+            with contextlib.redirect_stdout(buffer):
+                self.fitter.plot_model(show=False)
+        finally:
+            set_verbosity('info')
+        self.assertEqual(buffer.getvalue(), '')
 
     def test_matches_the_fit_curve_after_fitting(self):
         self.fitter.fit(engine='bumps', method='amoeba')
@@ -306,6 +329,16 @@ class TestCompare(unittest.TestCase):
         with self.assertRaises(ValueError):
             fitter.compare({'a': {'sld_shell': 3.0}}, show=False)
 
+    def test_overriding_the_radius_effective_link_raises(self):
+        # link_radius is an ordinary link, so it is rejected by the same guard.
+        fitter = SANSFitter()
+        fitter.set_data(examples.simulate('sphere', npoints=20, seed=0))
+        fitter.set_model('sphere')
+        fitter.set_structure_factor('hardsphere', radius_effective_mode='link_radius')
+
+        with self.assertRaises(ValueError):
+            fitter.compare({'a': {'radius_effective': 30.0}}, show=False)
+
     def test_alias_and_canonical_overrides_agree(self):
         fitter = SANSFitter()
         fitter.set_data(examples.simulate('sphere', npoints=20, seed=0))
@@ -318,10 +351,13 @@ class TestCompare(unittest.TestCase):
 
 class TestPreviewDoesNotPrintFromCalculate(unittest.TestCase):
     def test_calculate_is_silent(self):
+        # Covers both bare prints and the package logger, whose handler
+        # resolves sys.stdout at emit time.
         fitter = make_sphere_fitter(npoints=10, seed=0)
-        with patch('builtins.print') as mock_print:
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
             fitter.calculate()
-        mock_print.assert_not_called()
+        self.assertEqual(buffer.getvalue(), '')
 
 
 if __name__ == '__main__':

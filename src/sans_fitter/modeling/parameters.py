@@ -423,15 +423,12 @@ class ParameterManager:
                 continue
 
             resolved = self.resolve_name(name)
+            # In link_radius mode 'radius_effective' is an ordinary follower,
+            # so the structure-factor link needs no special case here.
             if resolved in self._links:
                 raise ValueError(
                     f"Parameter '{name}' is linked to '{self._links[resolved]}' and cannot "
                     'be set directly. Override the target, or unlink_params() first.'
-                )
-            if resolved == 'radius_effective' and self._radius_effective_mode == 'link_radius':
-                raise ValueError(
-                    "'radius_effective' is linked to 'radius' and cannot be set "
-                    "directly. Override 'radius' instead."
                 )
             for target in self._shared_to_canonicals.get(
                 resolved, [self._resolve_canonical(resolved)]
