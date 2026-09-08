@@ -59,7 +59,7 @@ print('\n' + '=' * 80)
 print('Part 2: Looking at the Starting Values')
 print('=' * 80)
 
-# Data, the model at the current parameters, and residuals — no fit required.
+# Data, the model at the current parameters, and residuals, no fit required.
 # The printed chi-squared is chi2/dof, the same number BUMPS prints as
 # "Initial chi2" at the start of a fit.
 print('\nPlotting the model at radius = 25 Å...')
@@ -144,7 +144,7 @@ print(f'\nradius after fitting: {result["parameters"]["radius"]["value"]:.2f} Å
 print(f'truth was:            {data.truth["radius"]} Å')
 
 # plot_results() shows the fit; plot_model() would still show the model at the
-# current parameters — which, after a fit, are the fitted ones.
+# current parameters, which, after a fit, are the fitted ones.
 fitter.plot_results(show_residuals=True, log_scale=True)
 
 print('\n' + '=' * 80)
@@ -158,7 +158,7 @@ print("""
 ✓ calculate() returns intensities: on the data grid, or on any q= grid
 ✓ On the data grid, excluded points are NaN so the array stays aligned
 ✓ dq= smears an explicit q grid; the dataset's own resolution is used otherwise
-✓ None of it changes parameters or fit results — plot_results() is unaffected
+✓ None of it changes parameters or fit results and plot_results() is unaffected
 """)
 
 print('\n✓ Theory preview example completed successfully!')
