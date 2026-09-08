@@ -77,6 +77,8 @@ The χ² shown by `plot_model()` is χ²/dof, the same number BUMPS prints as
 "Initial χ²" (the LMFit engine reports an unnormalized χ²). It is reported as
 not available when the data has no `dI` column.
 
+See `examples/theory_preview_example.py` for a runnable walkthrough.
+
 ### 5. Fitting
 
 SANS Fitter supports two fitting engines: **BUMPS** and **LMFit**.
@@ -141,7 +143,7 @@ fitter.set_q_range(qmin=0.01, qmax=0.3)
 fitter.set_q_range(qmax=0.3)
 
 # Inspect and restore
-fitter.get_q_range()    # -> (qmin, qmax)
+fitter.get_q_range()  # -> (qmin, qmax)
 fitter.reset_q_range()  # back to the full data range
 ```
 
@@ -161,14 +163,14 @@ correction.
 ```python
 from sans_fitter import SANSFitter, data_ops
 
-sample = data_ops.load('sample.csv')          # standalone loader, returns Data1D
+sample = data_ops.load('sample.csv')  # standalone loader, returns Data1D
 background = data_ops.load('empty_cell.csv')
 
-net = data_ops.subtract(sample, background)   # sample − background
-net = data_ops.divide(net, 0.8)               # transmission correction
+net = data_ops.subtract(sample, background)  # sample − background
+net = data_ops.divide(net, 0.8)  # transmission correction
 
 fitter = SANSFitter()
-fitter.set_data(net)                          # inject the in-memory dataset
+fitter.set_data(net)  # inject the in-memory dataset
 fitter.set_model('sphere')
 fitter.fit()
 ```
@@ -234,15 +236,15 @@ data = data_ops.load('protein.csv')
 
 # 1. Find a stable D_max: look for the Rg/I(0) plateau and chi2 minimum
 scan = pr_inversion.explore_dmax(data, d_max=120.0, fit_background=False)
-scan.plot()                    # or scan.plot(quantity='all'), scan.format_summary()
+scan.plot()  # or scan.plot(quantity='all'), scan.format_summary()
 
 # 2. One-shot inversion with automatic selection of n_terms and alpha
 result = pr_inversion.auto_invert(data, d_max=120.0, fit_background=False)
 print(result.format_summary())  # Rg, I(0), oscillations, positivity, diagnostics
 
 # 3. Plots and export
-result.plot_pr()               # P(r) with its 1-sigma band
-result.plot_fit(data)          # data vs fit, residuals (data passed explicitly)
+result.plot_pr()  # P(r) with its 1-sigma band
+result.plot_fit(data)  # data vs fit, residuals (data passed explicitly)
 result.save_csv('pr_result.csv')
 ```
 
@@ -361,7 +363,7 @@ duplicates, or physics labels:
 fitter.set_models(small='sphere', large='sphere', shared=['sld', 'sld_solvent'])
 fitter.set_param('small_radius', value=20, min=5, max=100, vary=True)
 fitter.set_param('large_radius', value=200, min=50, max=1000, vary=True)
-fitter.set_param('sld', value=4.0, vary=True)   # one knob drives both spheres
+fitter.set_param('sld', value=4.0, vary=True)  # one knob drives both spheres
 ```
 
 **Sharing parameters.** Each name in `shared=[...]` must exist in at least
@@ -401,9 +403,9 @@ is a documented no-op.
 some components, or parameters with different names — use explicit links:
 
 ```python
-fitter.link_params('large_sld', to='small_sld')      # follower mirrors target
-fitter.link_params('shell_sld_core', to='small_sld') # different names work too
-fitter.unlink_params('large_sld')                    # escape hatch
+fitter.link_params('large_sld', to='small_sld')  # follower mirrors target
+fitter.link_params('shell_sld_core', to='small_sld')  # different names work too
+fitter.unlink_params('large_sld')  # escape hatch
 ```
 
 A follower is forced `vary=False` and mirrors the target's value before,
@@ -415,7 +417,7 @@ composite expressions directly and keeps the canonical `A_`/`B_` parameter
 names — zero magic when following sasmodels documentation:
 
 ```python
-fitter.set_model('dab+peak_lorentz')   # A_scale, A_cor_length, B_scale, ...
+fitter.set_model('dab+peak_lorentz')  # A_scale, A_cor_length, B_scale, ...
 ```
 
 Every atomic name in the expression is validated before loading, with a
@@ -440,7 +442,7 @@ Not all model parameters support polydispersity. Check which parameters are poly
 if fitter.supports_polydispersity():
     # Get list of polydisperse parameters
     pd_params = fitter.get_polydisperse_parameters()
-    print(f"Polydisperse parameters: {pd_params}")
+    print(f'Polydisperse parameters: {pd_params}')
 ```
 
 ### Configuring Polydispersity
@@ -454,16 +456,18 @@ fitter.set_pd_param('radius', pd_width=0.1)
 # Configure all PD options
 fitter.set_pd_param(
     'radius',
-    pd_width=0.15,      # 15% polydispersity
-    pd_n=50,            # Number of quadrature points (default: 35)
-    pd_nsigma=4.0,      # Number of sigmas to include (default: 3.0)
-    pd_type='gaussian', # Distribution type
-    vary=True           # Allow pd_width to vary during fitting
+    pd_width=0.15,  # 15% polydispersity
+    pd_n=50,  # Number of quadrature points (default: 35)
+    pd_nsigma=4.0,  # Number of sigmas to include (default: 3.0)
+    pd_type='gaussian',  # Distribution type
+    vary=True,  # Allow pd_width to vary during fitting
 )
 
 # Get current PD configuration
 pd_config = fitter.get_pd_param('radius')
-print(pd_config)  # {'pd': 0.15, 'pd_n': 50, 'pd_nsigma': 4.0, 'pd_type': 'gaussian', 'vary': True, 'active': True}
+print(
+    pd_config
+)  # {'pd': 0.15, 'pd_n': 50, 'pd_nsigma': 4.0, 'pd_type': 'gaussian', 'vary': True, 'active': True}
 ```
 
 ### Distribution Types
@@ -491,7 +495,7 @@ fitter.enable_polydispersity(True)
 
 # Check if enabled
 if fitter.is_polydispersity_enabled():
-    print("Polydispersity is enabled")
+    print('Polydispersity is enabled')
 
 # Disable polydispersity (values are preserved)
 fitter.enable_polydispersity(False)
@@ -568,9 +572,9 @@ fitter.plot_posterior_pairs(params=['radius', 'scale'])  # subset
 fitter.plot_param_distribution('radius')
 
 # Posterior predictive check: 95% credible band over the data
-fitter.plot_posterior_predictive()                    # band only
+fitter.plot_posterior_predictive()  # band only
 fitter.plot_posterior_predictive(style='band+draws')  # band + sampled curves
-fitter.plot_posterior_predictive(n_draws=100)         # more model evaluations
+fitter.plot_posterior_predictive(n_draws=100)  # more model evaluations
 
 # Correlation heatmap of the sampled parameters
 fitter.plot_param_correlations()
@@ -588,10 +592,10 @@ enabled.
 ```python
 posterior = fitter.get_posterior()
 
-posterior.labels        # sampled parameter names (chain order)
-posterior.samples       # ndarray [n_samples, n_params]
-posterior.ci_95         # {name: (low, high)} 95% credible intervals
-posterior.diagnostics   # {name: {'r_hat': ..., 'ess': ...}}
+posterior.labels  # sampled parameter names (chain order)
+posterior.samples  # ndarray [n_samples, n_params]
+posterior.ci_95  # {name: (low, high)} 95% credible intervals
+posterior.diagnostics  # {name: {'r_hat': ..., 'ess': ...}}
 
 print(posterior.format_summary())
 
