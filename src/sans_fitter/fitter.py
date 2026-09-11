@@ -34,10 +34,23 @@ from .fitting import (
     fit_scipy,
 )
 from .fitting.base import extract_fit_index, pd_is_active
+from .fitting.theory import (
+    build_model_parameters,
+    evaluate_theory,
+    preview_chisq,
+    scatter_to_full_length,
+    theory_data,
+)
 from .modeling.parameters import ParameterManager
 from .modeling.structure_factor import validate_radius_effective_mode
-from .plotting import DEFAULT_POSTERIOR_PREDICTIVE_DRAWS, plot_fit
-from .results import FitArtifacts, FitResultContract, PosteriorSummary, save_fit_result
+from .plotting import DEFAULT_POSTERIOR_PREDICTIVE_DRAWS, format_chisq, plot_fit
+from .results import (
+    PREVIEW_ENGINE,
+    FitArtifacts,
+    FitResultContract,
+    PosteriorSummary,
+    save_fit_result,
+)
 
 
 def get_all_models() -> list[str]:
@@ -1004,10 +1017,8 @@ class SANSFitter:
             NotImplementedError: If a composite model is used with an engine
                 other than 'bumps'.
         """
-        if self.data is None:
-            raise ValueError('No data loaded. Use load_data() first.')
-        if self.kernel is None:
-            raise ValueError('No model loaded. Use set_model() first.')
+        self._require_data()
+        self._require_model()
 
         if engine not in ('bumps', 'lmfit'):
             raise ValueError(f"Unknown engine '{engine}'. Use 'bumps' or 'lmfit'.")
@@ -1162,10 +1173,8 @@ class SANSFitter:
             NotImplementedError: If a composite model is used — the DREAM path
                 does not support them yet.
         """
-        if self.data is None:
-            raise ValueError('No data loaded. Use load_data() first.')
-        if self.kernel is None:
-            raise ValueError('No model loaded. Use set_model() first.')
+        self._require_data()
+        self._require_model()
 
         snapshot = self._param_manager.snapshot_fit_state()
         if snapshot.components:
@@ -1320,6 +1329,213 @@ class SANSFitter:
             ValueError: If the last fit was not Bayesian.
         """
         return plotting.plot_trace(self.get_posterior(), params=params, show=show)
+
+    # =========================================================================
+    # Theory preview (model evaluation without fitting)
+    # =========================================================================
+
+    def _require_data(self) -> None:
+        if self.data is None:
+            raise ValueError('No data loaded. Use load_data() first.')
+
+    def _require_model(self) -> None:
+        if self.kernel is None:
+            raise ValueError('No model loaded. Use set_model() first.')
+
+    def _theory_target(self, q: np.ndarray | None, dq: float | None) -> Any:
+        """The dataset to evaluate on: an empty one on *q*, else the loaded data."""
+        if q is not None:
+            return theory_data(q, dq)
+        if dq is not None:
+            raise ValueError(
+                "dq applies to an explicit q grid only; the loaded data's own "
+                'resolution columns are used when q is omitted.'
+            )
+        self._require_data()
+        return self.data
+
+    def _evaluate(
+        self, data: Any, overrides: dict[str, float] | None = None
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Evaluate the model on *data* at the current parameters (+ overrides)."""
+        self._require_model()
+        pars = build_model_parameters(self._param_manager.snapshot_fit_state(), overrides)
+        return evaluate_theory(data, self.kernel, pars)
+
+    def calculate(self, q: np.ndarray | None = None, dq: float | None = None) -> np.ndarray:
+        """
+        Evaluate the model at the current parameter values, without fitting.
+
+        Args:
+            q: Q values in Å⁻¹ to evaluate on. When omitted, the loaded
+                dataset's Q values are used and its resolution (dQ or slit
+                columns) is applied, exactly as during a fit.
+            dq: Relative resolution width ΔQ/Q applied to the *q* grid.
+                Only valid together with *q*; the dataset carries its own
+                resolution.
+
+        Returns:
+            Intensities as a float64 array. On the data grid the result has
+            one entry per data point, with NaN where a point is excluded from
+            the fit (outside the Q range, masked, or NaN), so it can be
+            plotted directly against ``fitter.data.x``.
+
+        Raises:
+            ValueError: If no model is loaded, if no data is loaded and *q* is
+                omitted, if *dq* is given without *q*, or if *q*/*dq* are
+                invalid.
+        """
+        curve, fit_index = self._evaluate(self._theory_target(q, dq))
+        return scatter_to_full_length(curve, fit_index)
+
+    def plot_model(
+        self,
+        show_residuals: bool = True,
+        log_scale: bool = True,
+        show: bool | None = None,
+        show_components: bool = False,
+    ) -> Figure:
+        """
+        Plot the data and the model at the current parameters, without fitting.
+
+        The notebook equivalent of watching SasView redraw the theory as you
+        change a parameter: it answers "are my starting values sane?" before
+        committing to a fit. Fit results are untouched — ``plot_results()``
+        keeps showing the last real fit.
+
+        The reported χ² uses the same convention as the bumps engine
+        (χ²/dof), so it matches the "Initial χ²" printed at the start of a
+        bumps fit. It is reported as not available when the data carries no
+        intensity uncertainties. Note that ``fit(engine='lmfit')`` reports an
+        unnormalized χ², which is on a different scale.
+
+        Args:
+            show_residuals: If True, show residuals in a separate panel.
+            log_scale: If True, use log scale for both axes.
+            show: Same display convention as plot_results().
+            show_components: If True and the model is a '+' mixture, overlay
+                one dashed curve per component.
+
+        Returns:
+            Plotly Figure object
+
+        Raises:
+            ValueError: If no data or no model is loaded.
+        """
+        self._require_data()
+        curve, fit_index = self._evaluate(self.data)
+
+        fit_state = self._param_manager.snapshot_fit_state()
+        n_free = len(fit_state.varying_params) + len(fit_state.varying_pd_params)
+        chisq = preview_chisq(self.data, curve, fit_index, n_free)
+
+        # Current values only: nothing was estimated, so there is no stderr.
+        contract = FitResultContract(
+            engine=PREVIEW_ENGINE,
+            method=PREVIEW_ENGINE,
+            chisq=chisq,
+            parameters={
+                self._param_manager.to_display_name(name): {'value': info['value']}
+                for name, info in fit_state.params.items()
+            },
+            artifacts=FitArtifacts(
+                fitted_curve=curve,
+                fit_index=fit_index,
+                component_curves=self._compute_component_curves() if show_components else None,
+            ),
+        )
+
+        logger.info(
+            f'{OK} Model preview: {self.model_name} — '
+            f'{format_chisq(chisq, CHI_SQUARED)} at current '
+            f'parameters ({int(fit_index.sum())} points, {n_free} free)'
+        )
+
+        return plot_fit(
+            data=self.data,
+            fit_result=contract,
+            model_name=self.model_name,
+            show_residuals=show_residuals,
+            log_scale=log_scale,
+            show=show,
+            show_components=show_components,
+        )
+
+    def compare(
+        self,
+        cases: dict[str, dict[str, float]] | None = None,
+        q: np.ndarray | None = None,
+        dq: float | None = None,
+        log_scale: bool = True,
+        show: bool | None = None,
+        show_data: bool = True,
+        **sweep: Sequence[float],
+    ) -> Figure:
+        """
+        Overlay theory curves for several parameter sets on one plot.
+
+        Each case starts from the current parameters and applies its own
+        overrides; the fitter's own parameters are never changed.
+
+        Args:
+            cases: Label -> parameter overrides, e.g.
+                ``{'thin': {'radius': 20}, 'thick': {'radius': 40}}``. An
+                empty override dict means the current parameters. Override
+                names accept aliases, canonical names, shared names and
+                polydispersity widths (``radius_pd``).
+            q: Q values to evaluate on. When omitted, the loaded dataset's Q
+                values and resolution are used.
+            dq: Relative resolution width ΔQ/Q for the *q* grid.
+            log_scale: If True, use log scale for both axes.
+            show: Same display convention as plot_results().
+            show_data: If True and data is loaded, draw the measured points.
+                With an explicit *q*, the data keeps its own Q grid.
+            **sweep: One parameter name mapped to a sequence of values, as an
+                alternative to *cases*: ``compare(radius=[20, 30, 40])``.
+
+        Returns:
+            Plotly Figure object
+
+        Raises:
+            ValueError: If no model is loaded, if neither or both spellings
+                are used, if more than one sweep parameter is given, or if
+                data is required but not loaded.
+            KeyError: If an override names an unknown parameter.
+        """
+        self._require_model()
+
+        if cases and sweep:
+            raise ValueError('Pass either cases or a parameter sweep, not both.')
+        if sweep:
+            if len(sweep) > 1:
+                raise ValueError(
+                    f'Only one parameter can be swept at a time (got {", ".join(sweep)}). '
+                    'Use the cases= form to vary several parameters.'
+                )
+            name, values = next(iter(sweep.items()))
+            cases = {f'{name} = {value:g}': {name: value} for value in values}
+        if not cases:
+            raise ValueError(
+                "Nothing to compare. Pass cases={'label': {...}} or a sweep such as "
+                'radius=[20, 30, 40].'
+            )
+
+        target = self._theory_target(q, dq)
+        curves: dict[str, np.ndarray] = {}
+        for label, overrides in cases.items():
+            curve, fit_index = self._evaluate(
+                target, self._param_manager.canonical_overrides(overrides)
+            )
+            curves[label] = scatter_to_full_length(curve, fit_index)
+
+        return plotting.plot_model_comparison(
+            x=np.asarray(target.x),
+            curves=curves,
+            data=self.data if (show_data and self.data is not None) else None,
+            model_name=self.model_name,
+            log_scale=log_scale,
+            show=show,
+        )
 
     def plot_results(
         self,
