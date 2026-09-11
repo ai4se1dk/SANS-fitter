@@ -223,9 +223,15 @@ it double-smears or under-smears.
 
 #### Things to know
 
-- **χ² is not comparable across modes.** Smearing redistributes residual
-  structure, so a χ² that jumps after `set_resolution()` is expected and says
-  nothing about which fit is better.
+- **χ² across modes is evidence, not a dial.** Changing the mode changes the
+  forward model and nothing else — same points, same `dI`, same free
+  parameters — so a χ² that drops really does mean the data prefers that
+  smearing. Do not go looking for the mode that minimises it, though:
+  resolution is a property of the instrument, and smearing is degenerate with
+  real physics (polydispersity broadens a form-factor minimum much as
+  resolution does), so tuning it absorbs sample physics into an instrument
+  setting. Use the mode the beamline actually had, and read χ² as a check on
+  it.
 - **The exported `dQ` column is the file's own**, not the width the fit used.
   `save_results()` writes a `# Resolution mode:` header line recording what was
   actually applied, and `plot_results()` draws horizontal error bars from the
@@ -239,6 +245,9 @@ it double-smears or under-smears.
 - **Dataset arithmetic.** Under `'data'`, a background-subtracted result
   inherits the combined-`dQ` caveat noted under *Dataset Operations*.
   `'pinhole'`, `'slit'` and `'none'` are the way to override it.
+
+See `examples/resolution_example.py` and
+`notebooks/resolution_control.ipynb` for a complete walkthrough.
 
 ### Restricting the Q Range
 
