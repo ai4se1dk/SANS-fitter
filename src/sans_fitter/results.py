@@ -9,6 +9,10 @@ from .data.resolution import ResolutionSetting
 MIN_POSTERIOR_PARAMETER_COUNT = 2
 MIN_POSTERIOR_SAMPLE_COUNT = 2
 
+# Engine name carried by contracts built from a theory preview rather than a
+# fit (SANSFitter.plot_model). Plotting branches on it for titles and labels.
+PREVIEW_ENGINE = 'preview'
+
 
 def _format_resolution(setting: dict[str, Any]) -> str:
     """Render a stored resolution setting for the CSV header, in plain ASCII."""
@@ -183,6 +187,11 @@ class FitResultContract:
     # only means something alongside the smearing that produced it — and
     # because saved analyses will need to restore it.
     resolution: dict[str, Any] | None = None
+
+    @property
+    def is_preview(self) -> bool:
+        """True for a theory preview (model at current values, no fit)."""
+        return self.engine == PREVIEW_ENGINE
 
     def to_legacy_dict(self) -> dict[str, Any]:
         """Expose the historical dict-based result shape for public compatibility."""

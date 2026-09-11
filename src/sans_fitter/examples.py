@@ -47,7 +47,7 @@ from sasdata.dataloader.data_info import Data1D
 from sasmodels.core import load_model
 from sasmodels.direct_model import DirectModel
 
-from .data.loader import has_real_data, load_sans_data, normalize_sans_data
+from .data.loader import has_real_data, load_sans_data, normalize_sans_data, validate_q_grid
 from .fitter import SANSFitter
 from .modeling.polydispersity import PD_DEFAULTS
 
@@ -808,16 +808,7 @@ def _is_grid_kwarg(key: str) -> bool:
 def _build_q(q: np.ndarray | None, qmin: float, qmax: float, npoints: int) -> np.ndarray:
     """Validate and return the Q grid to simulate on."""
     if q is not None:
-        q_values = np.asarray(q, dtype=float)
-        if q_values.ndim != 1 or q_values.size == 0:
-            raise ValueError('q must be a non-empty 1D array.')
-        if not np.all(np.isfinite(q_values)):
-            raise ValueError('Q values must be finite.')
-        if np.any(q_values <= 0):
-            raise ValueError('Q values must be positive.')
-        if np.any(np.diff(q_values) <= 0):
-            raise ValueError('Q values must be strictly increasing.')
-        return q_values
+        return validate_q_grid(q)
 
     if not (np.isfinite(qmin) and np.isfinite(qmax)):
         raise ValueError(f'qmin and qmax must be finite, got qmin={qmin}, qmax={qmax}.')

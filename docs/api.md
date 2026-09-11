@@ -32,6 +32,9 @@ The main class for SANS data fitting.
         - remove_structure_factor
         - get_params
         - set_param
+        - calculate
+        - plot_model
+        - compare
         - fit
         - fit_bayesian
         - get_posterior
