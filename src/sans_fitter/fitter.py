@@ -23,6 +23,7 @@ from sasmodels.direct_model import DirectModel
 from . import plotting
 from .console import ARROW, CHI_SQUARED, INVERSE_ANGSTROM, OK, logger
 from .data.loader import get_fit_index, has_real_data, load_sans_data, normalize_sans_data
+from .data.resolution import ResolutionSetting, apply_resolution, validate_resolution
 from .fitting import (
     DEFAULT_DREAM_BURN,
     DEFAULT_DREAM_POP,
@@ -153,6 +154,12 @@ class SANSFitter:
         self._fitted_model = None
         self._full_q_range: tuple[float, float] | None = None
 
+        # Resolution is an analysis choice, like the model and the parameters:
+        # it lives on the fitter and survives load_data()/set_data(). The
+        # default 'data' means "whatever the loaded dataset carries", so it
+        # keeps doing the right thing when the dataset is swapped.
+        self._resolution = ResolutionSetting()
+
         # Parameter management delegated to ParameterManager
         self._param_manager = ParameterManager()
 
@@ -192,7 +199,8 @@ class SANSFitter:
             f'  Q range: {self.data.qmin:.4f} to {self.data.qmax:.4f} {INVERSE_ANGSTROM}\n'
             f'  Data points: {len(self.data.x)}\n'
             f'  Error (dI) column: {"yes" if has_dy else "no"}\n'
-            f'  Resolution (dQ) column: {"yes" if has_dx else "no"}'
+            f'  Resolution (dQ) column: {"yes" if has_dx else "no"}\n'
+            f'  Resolution mode: {self._resolution.describe()}'
         )
 
     def set_data(self, data: Any) -> None:
@@ -246,7 +254,8 @@ class SANSFitter:
             f'  Q range: {self.data.qmin:.4f} to {self.data.qmax:.4f} {INVERSE_ANGSTROM}\n'
             f'  Data points: {len(self.data.x)}\n'
             f'  Error (dI) column: {"yes" if has_dy else "no"}\n'
-            f'  Resolution (dQ) column: {"yes" if has_dx else "no"}'
+            f'  Resolution (dQ) column: {"yes" if has_dx else "no"}\n'
+            f'  Resolution mode: {self._resolution.describe()}'
         )
 
     def set_q_range(self, qmin: float | None = None, qmax: float | None = None) -> None:
@@ -324,6 +333,109 @@ class SANSFitter:
         if self.data is None:
             return None
         return (self.data.qmin, self.data.qmax)
+
+    def set_resolution(
+        self,
+        mode: str = 'data',
+        dq_over_q: float | None = None,
+        slit_length: float | None = None,
+        slit_width: float | None = None,
+    ) -> None:
+        """
+        State how instrument resolution is applied when the model is evaluated.
+
+        Resolution smearing changes the fitted parameters, so it is a stated
+        choice rather than a property of the input file. The four modes mirror
+        SasView's Fit Page (*None* / *Use dQ Data* / *Custom Pinhole* /
+        *Custom Slit*)::
+
+            fitter.set_resolution('data')                     # default
+            fitter.set_resolution('none')
+            fitter.set_resolution('pinhole', dq_over_q=0.10)
+            fitter.set_resolution('slit', slit_length=0.05)
+
+        The setting is applied to a **copy** of the dataset made for
+        evaluation; ``fitter.data`` is never modified. It reaches
+        ``fit(engine='bumps')``, ``fit(engine='lmfit')``, ``fit_bayesian()``
+        and the post-fit curve displays alike.
+
+        The mode is fitter state, not data state: it **persists** across
+        ``load_data()`` / ``set_data()``, exactly as the model, the parameters
+        and the links do. Mode ``'data'`` already means "use *this* dataset's
+        columns", so swapping datasets under the default needs no reset; the
+        load summary reports the active mode so a custom width cannot be
+        applied to a new file unnoticed.
+
+        Args:
+            mode: Which resolution to apply.
+
+                - ``'data'`` (default): the dataset's own resolution columns.
+                  A dQ (pinhole) column wins over slit columns, as in
+                  sasmodels. A dataset carrying only ``dxl``/``dxw`` is smeared
+                  with slit geometry. A dataset with no resolution columns
+                  warns and is evaluated unsmeared.
+                - ``'none'``: perfect resolution; any columns in the file are
+                  ignored.
+                - ``'pinhole'``: constant relative width, ``dx = dq_over_q·q``.
+                - ``'slit'``: constant slit geometry.
+            dq_over_q: Relative pinhole width **σ_q/q, a Gaussian 1-σ** — the
+                same quantity as the file's dQ column and as
+                :func:`sans_fitter.examples.simulate`'s ``dq``. **It is not
+                FWHM.** Required by ``'pinhole'``, rejected by other modes.
+            slit_length: Slit length along q, an absolute width in Å⁻¹
+                (sasmodels' ``dxl``). **Required** by ``'slit'`` — sasmodels
+                does not implement smearing from a slit width alone.
+            slit_width: Slit width perpendicular to q, an absolute width in
+                Å⁻¹ (sasmodels' ``dxw``). Optional under ``'slit'``; omit it
+                for the usual long-slit (USANS) geometry.
+
+        Raises:
+            ValueError: If the mode is unknown, an argument does not belong to
+                the mode, a required argument is missing, or a width is
+                non-finite, negative or degenerate (a pinhole or slit length of
+                zero). Every check runs before any state is touched, so a
+                rejected call leaves the fitter exactly as it was.
+
+        Note:
+            Per-point custom widths, constant *absolute* σ_q, 2D/oriented
+            resolution and fittable resolution parameters are out of scope.
+            P(r) inversion is unaffected: it reads ``fitter.data``, which this
+            setting deliberately leaves alone.
+        """
+        self._resolution = validate_resolution(
+            mode, dq_over_q=dq_over_q, slit_length=slit_length, slit_width=slit_width
+        )
+        logger.info(f'{OK} Resolution: {self._resolution.describe()}')
+
+    def get_resolution(self) -> dict[str, Any]:
+        """
+        Return the active resolution setting.
+
+        Works before any data is loaded — the mode is fitter state, and the
+        evaluation copy it describes is only built at fit time.
+
+        Returns:
+            A fresh dict with all four keys always present, e.g.
+            ``{'mode': 'pinhole', 'dq_over_q': 0.1, 'slit_length': None,
+            'slit_width': None}``. Mutating it does not affect the fitter.
+        """
+        return self._resolution.as_dict()
+
+    def _evaluation_data(self, data: Any = None, *, warn: bool = True) -> Any:
+        """Return the dataset copy that sasmodels should be handed.
+
+        The single seam through which every calculator built from fitter state
+        gets its data. Keeping it single is what lets the engines stay
+        untouched, and it is where the ``dy`` rewriting of the data-weighting
+        work will go too: copy once, apply resolution, then weighting.
+
+        Args:
+            data: Dataset to base the copy on. Defaults to ``self.data``.
+            warn: Whether mode ``'data'`` may warn about missing or shadowed
+                resolution columns. Post-fit evaluation paths pass ``False``
+                because the fit they follow has already warned.
+        """
+        return apply_resolution(self.data if data is None else data, self._resolution, warn=warn)
 
     def set_model(self, model_name: str, platform: str = 'cpu') -> None:
         """
@@ -849,6 +961,10 @@ class SANSFitter:
         """Apply engine output to fitter state and return legacy-compatible results."""
         self._param_manager.apply_fitted_values(engine_output.fitted_values)
         self._fit_contract = engine_output.contract
+        # Record what smeared this fit: the parameter values only mean
+        # something alongside the resolution that produced them, and χ² is not
+        # comparable across modes.
+        self._fit_contract.resolution = self._resolution.as_dict()
 
         # Translate engine result names (canonical) back to user-facing names
         # so saved results and displays never expose A_/B_ on the set_models
@@ -916,6 +1032,10 @@ class SANSFitter:
                 if pd_is_active(pd_config):
                     pd_settings[base_param] = pd_config
 
+        # Built once and shared by every component: same resolution as the
+        # fit, so the parts and the total are smeared alike.
+        evaluation_data = self._evaluation_data(warn=False)
+
         curves: dict[str, np.ndarray] = {}
         for prefix, moniker, part_name in components:
             # Label: moniker, with the model name appended when they differ;
@@ -928,7 +1048,10 @@ class SANSFitter:
                 label = moniker
 
             part_kernel = load_model(part_name, dtype='single', platform='dll')
-            calculator = DirectModel(self.data, part_kernel)
+            # Evaluated through the same resolution as the fit: otherwise a
+            # slit or custom-pinhole fit would overlay sharp component curves
+            # under a smeared total.
+            calculator = DirectModel(evaluation_data, part_kernel)
 
             # Map fitted values by stripping the component prefix; fold in
             # active PD settings the same way the posterior evaluator does.
@@ -973,9 +1096,13 @@ class SANSFitter:
                     fitted_curve=np.asarray(self._fitted_model.active_model.theory()),
                     fit_index=extract_fit_index(self._fitted_model.active_model),
                 ),
+                resolution=self._resolution.as_dict(),
             )
 
-        calculator = DirectModel(self.data, self.kernel)
+        # Re-evaluating legacy lmfit runtime state: use the same evaluation
+        # copy the fit itself used, or the re-plotted/saved curve would be
+        # unsmeared while the fit was smeared.
+        calculator = DirectModel(self._evaluation_data(warn=False), self.kernel)
         par_dict = {name: info['value'] for name, info in self.fit_result['parameters'].items()}
         return FitResultContract(
             engine=self.fit_result['engine'],
@@ -986,6 +1113,7 @@ class SANSFitter:
                 fitted_curve=np.asarray(calculator(**par_dict)),
                 fit_index=extract_fit_index(calculator),
             ),
+            resolution=self._resolution.as_dict(),
         )
 
     def fit(
@@ -1026,12 +1154,21 @@ class SANSFitter:
         self._check_composite_engine_support(engine)
         self._check_scale_degeneracy()
         self._check_fit_uncertainties(engine)
+        self._log_active_resolution()
 
         if engine == 'bumps':
             return self._fit_bumps(method or 'amoeba', **kwargs)
         if not LMFIT_AVAILABLE:
             raise ValueError("scipy is not installed. Use 'bumps' engine or install scipy.")
         return self._fit_lmfit(method or 'leastsq', **kwargs)
+
+    def _log_active_resolution(self) -> None:
+        """Report the resolution a fit is about to use, before the engine runs.
+
+        Before, not after: the engine's own "Initial χ²" line is already a
+        smeared number, so the reader needs to know what smeared it first.
+        """
+        logger.info(f'Resolution: {self._resolution.describe()}')
 
     def _check_composite_engine_support(self, engine: str) -> None:
         """Gate composite models to the bumps engine.
@@ -1114,7 +1251,7 @@ class SANSFitter:
     def _fit_bumps(self, method: str = 'amoeba', **kwargs: Any) -> dict[str, Any]:
         """Fit using BUMPS engine."""
         engine_output = fit_bumps(
-            data=self.data,
+            data=self._evaluation_data(),
             kernel=self.kernel,
             fit_state=self._param_manager.snapshot_fit_state(),
             method=method,
@@ -1125,7 +1262,7 @@ class SANSFitter:
     def _fit_lmfit(self, method: str = 'leastsq', **kwargs: Any) -> dict[str, Any]:
         """Fit using scipy.optimize (leastsq/least_squares) engine."""
         engine_output = fit_scipy(
-            data=self.data,
+            data=self._evaluation_data(),
             kernel=self.kernel,
             fit_state=self._param_manager.snapshot_fit_state(),
             method=method,
@@ -1183,9 +1320,10 @@ class SANSFitter:
                 "point-estimate engine only (fit(engine='bumps'))."
             )
         self._check_scale_degeneracy()
+        self._log_active_resolution()
 
         engine_output = fit_bumps_dream(
-            data=self.data,
+            data=self._evaluation_data(),
             kernel=self.kernel,
             fit_state=self._param_manager.snapshot_fit_state(),
             method=method,

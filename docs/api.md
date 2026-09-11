@@ -19,6 +19,8 @@ The main class for SANS data fitting.
         - set_q_range
         - reset_q_range
         - get_q_range
+        - set_resolution
+        - get_resolution
         - set_model
         - set_models
         - link_params
