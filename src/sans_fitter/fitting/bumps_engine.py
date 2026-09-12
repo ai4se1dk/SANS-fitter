@@ -99,20 +99,40 @@ def _jacobian_covariance(problem: Any, labels: list[str]) -> np.ndarray:
 def _configured_budget(method: str, problem: Any, options: dict[str, Any]) -> int | None:
     """The maximum number of steps the selected bumps fitter is configured for.
 
-    ``FitBase.max_steps`` fills in the fitter's own defaults and accounts for
-    ``starts`` (and, for DREAM, derives generations from ``samples``, ``pop`` and
-    ``burn``), so it is the only correct source. Returns None if the method is not
-    in the registry or the call fails, since this feeds an informational message.
+    ``FitBase.max_steps`` is the authoritative source: it fills in the fitter's own
+    defaults, multiplies ``steps`` by ``starts``, and for DREAM derives generations
+    from ``samples``, ``pop``, ``burn`` and the differential-evolution step
+    rounding. It arrived after bumps 1.0.3, which the declared floor
+    (``bumps>=1.0``) still admits, so it is feature-detected rather than assumed.
+
+    Without it, the generic default is reproduced from the fitter's ``settings``
+    (present in every 1.0.x): the defaults overridden by the caller's options, then
+    ``steps × starts``. DREAM is *not* approximated that way — its budget is a
+    non-trivial function of ``samples`` and ``pop`` that only the library should
+    compute — so this returns None there and the message simply omits the maximum.
+
+    Returns None when the method is not in the registry or the budget cannot be
+    derived; this feeds an informational message and must never fail a fit.
     """
     from bumps.fitters import FITTERS
 
-    try:
-        for fitclass in FITTERS:
-            if fitclass.id == method:
-                return int(fitclass.max_steps(problem, dict(options)))
-    except Exception:  # informational only — never fail a completed fit over it
+    fitclass = next((candidate for candidate in FITTERS if candidate.id == method), None)
+    if fitclass is None:
         return None
-    return None
+
+    try:
+        if hasattr(fitclass, 'max_steps'):
+            return int(fitclass.max_steps(problem, dict(options)))
+
+        settings = dict(getattr(fitclass, 'settings', ()))
+        if 'steps' not in settings or 'starts' not in settings:
+            # DREAM and any other fitter not budgeted in plain steps.
+            return None
+        merged = {**settings, **options}
+        return int(merged['steps']) * max(int(merged.get('starts', 1)), 1)
+    except Exception as error:  # informational only — never fail a completed fit
+        logger.debug(f'Could not determine the bumps step budget for {method!r}: {error}')
+        return None
 
 
 def _build_bumps_problem(

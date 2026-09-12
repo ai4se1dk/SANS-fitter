@@ -10,6 +10,7 @@ of the fit contract, so a later fit (or a caller mutating the returned dictionar
 cannot change a report already handed out.
 """
 
+import copy
 import html
 import json
 import math
@@ -132,9 +133,12 @@ class FitReport:
     def from_contract(cls, contract: FitResultContract, model_name: str) -> 'FitReport':
         """Snapshot *contract* into a report.
 
-        The parameter block is copied one level deep (each entry is itself a fresh
-        dictionary) and the covariance is copied, so the report does not alias
-        mutable fitter state.
+        Nothing mutable is shared with the fitter: the parameter block is copied
+        one level deep (each entry becomes a fresh dictionary), the covariance is
+        copied, and the posterior is deep-copied — its ``samples`` array and its
+        per-parameter statistic and diagnostic dictionaries are all mutable, and a
+        caller holding the object from ``get_posterior()`` would otherwise be able
+        to change a report that was already handed out.
         """
         resolution = 'not recorded'
         if contract.resolution is not None:
@@ -161,7 +165,11 @@ class FitReport:
             cov=None if contract.cov is None else np.array(contract.cov, copy=True),
             cov_source=contract.cov_source,
             on_bounds=[tuple(hit) for hit in contract.on_bounds],
-            posterior=contract.artifacts.posterior,
+            posterior=(
+                None
+                if contract.artifacts.posterior is None
+                else copy.deepcopy(contract.artifacts.posterior)
+            ),
         )
 
     # ------------------------------------------------------------------

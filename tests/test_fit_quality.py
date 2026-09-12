@@ -16,7 +16,7 @@ from sans_fitter.fitting.base import (
     reduced_chisq,
     validate_covariance,
 )
-from sans_fitter.fitting.bumps_engine import _build_bumps_problem
+from sans_fitter.fitting.bumps_engine import _build_bumps_problem, _configured_budget
 from sans_fitter.report import FitReport, escape_markdown_cell, json_safe
 
 FIXED = {'sld': 4.0, 'sld_solvent': 1.0, 'scale': 1.0, 'background': 0.001}
@@ -329,6 +329,64 @@ class TestConvergence:
         """max_steps multiplies steps by starts, which a bare settings read misses."""
         result = sphere_fitter().fit(engine='bumps', method='amoeba', steps=50, starts=3)
         assert 'configured maximum: 150' in result['message']
+
+
+class TestBudgetWithoutMaxSteps:
+    """bumps 1.0.3 has no FitBase.max_steps, and `bumps>=1.0` still admits it.
+
+    The fallback reproduces the generic default (defaults overridden by the
+    caller's options, then steps x starts) from the `settings` every 1.0.x
+    exposes. These tests stub the registry so they hold on any installed version.
+    """
+
+    @staticmethod
+    def _stub_registry(monkeypatch, *fitters):
+        import bumps.fitters
+
+        monkeypatch.setattr(bumps.fitters, 'FITTERS', fitters)
+
+    def test_derives_steps_times_starts_from_settings(self, monkeypatch):
+        class LegacyAmoeba:
+            id = 'amoeba'
+            settings = [('steps', 1000), ('starts', 1)]
+
+        self._stub_registry(monkeypatch, LegacyAmoeba)
+        assert _configured_budget('amoeba', None, {'steps': 50, 'starts': 3}) == 150
+        assert _configured_budget('amoeba', None, {'steps': 50}) == 50
+        assert _configured_budget('amoeba', None, {}) == 1000
+
+    def test_a_sampler_budget_is_not_approximated(self, monkeypatch):
+        """DREAM's budget is a function of samples and pop; only bumps should derive it."""
+
+        class LegacyDream:
+            id = 'dream'
+            settings = [('samples', 10000), ('burn', 100), ('pop', 10), ('steps', 0)]
+
+        self._stub_registry(monkeypatch, LegacyDream)
+        assert _configured_budget('dream', None, {'samples': 600, 'burn': 40}) is None
+
+    def test_an_unknown_method_has_no_budget(self, monkeypatch):
+        self._stub_registry(monkeypatch)
+        assert _configured_budget('amoeba', None, {}) is None
+
+    def test_dream_message_survives_a_missing_budget(self, monkeypatch):
+        """The sampler settings still reach the message when the maximum is unknown."""
+        import sans_fitter.fitting.bumps_engine as engine
+
+        monkeypatch.setattr(engine, '_configured_budget', lambda *args, **kwargs: None)
+        fitter = sphere_fitter(npoints=25)
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')
+            result = fitter.fit_bayesian(samples=600, burn=40)
+        assert '600 samples' in result['message']
+        assert 'configured maximum' not in result['message']
+
+    def test_point_estimate_message_survives_a_missing_budget(self, monkeypatch):
+        import sans_fitter.fitting.bumps_engine as engine
+
+        monkeypatch.setattr(engine, '_configured_budget', lambda *args, **kwargs: None)
+        result = sphere_fitter().fit(engine='bumps', method='amoeba')
+        assert 'configured maximum: unknown' in result['message']
 
 
 # ---------------------------------------------------------------------------
@@ -757,6 +815,46 @@ class TestFitReportAccess:
             warnings.simplefilter('ignore')
             fitter.fit_bayesian(samples=600, burn=40)
         assert 'Posterior summary:' in str(fitter.get_fit_report())
+
+    def test_the_posterior_is_snapshotted_too(self):
+        """A Bayesian report must not alias the fitter's live PosteriorSummary.
+
+        Its samples array and its per-parameter statistic and diagnostic
+        dictionaries are all mutable, so a caller holding the object from
+        get_posterior() could otherwise rewrite a report already handed out.
+        """
+        fitter = sphere_fitter(npoints=25)
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')
+            fitter.fit_bayesian(samples=600, burn=40)
+
+        report = fitter.get_fit_report()
+        assert report.posterior is not None
+        name = report.posterior.labels[0]
+        before = {
+            'summary': report.posterior.format_summary(),
+            'samples': np.array(report.posterior.samples, copy=True),
+            'mean': report.posterior.mean[name],
+            'diagnostics': None
+            if not report.posterior.diagnostics
+            else dict(report.posterior.diagnostics[name]),
+        }
+
+        live = fitter.get_posterior()
+        assert report.posterior is not live
+        live.samples[:] = 0.0
+        live.mean[name] = 12345.0
+        live.median[name] = 12345.0
+        live.ci_68[name] = (0.0, 0.0)
+        if live.diagnostics:
+            live.diagnostics[name]['r_hat'] = 99.0
+
+        assert report.posterior.mean[name] == before['mean']
+        np.testing.assert_array_equal(report.posterior.samples, before['samples'])
+        assert report.posterior.format_summary() == before['summary']
+        if before['diagnostics'] is not None:
+            assert report.posterior.diagnostics[name] == before['diagnostics']
+        assert 'Posterior summary:' in str(report)
 
     def test_public_import_path_is_stable(self):
         from sans_fitter.report import FitReport as Imported
