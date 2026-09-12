@@ -34,22 +34,24 @@ from .fitting import (
     fit_bumps_dream,
     fit_scipy,
 )
-from .fitting.base import extract_fit_index, pd_is_active
+from .fitting.base import at_bound, extract_fit_index, pd_is_active, reduced_chisq
 from .fitting.theory import (
     build_model_parameters,
     evaluate_theory,
-    preview_chisq,
+    preview_quality,
     scatter_to_full_length,
     theory_data,
 )
 from .modeling.parameters import ParameterManager
 from .modeling.structure_factor import validate_radius_effective_mode
-from .plotting import DEFAULT_POSTERIOR_PREDICTIVE_DRAWS, format_chisq, plot_fit
+from .plotting import DEFAULT_POSTERIOR_PREDICTIVE_DRAWS, format_reduced_chisq, plot_fit
+from .report import FitReport
 from .results import (
     PREVIEW_ENGINE,
     FitArtifacts,
     FitResultContract,
     PosteriorSummary,
+    resolve_fit_index,
     save_fit_result,
 )
 
@@ -976,29 +978,113 @@ class SANSFitter:
             for name, info in self._fit_contract.parameters.items()
         }
 
+        # Covariance labels are canonical too, and land next to the parameter
+        # names in the same translation (Boundary 2 of the alias layer).
+        self._fit_contract.cov_labels = [to_display(name) for name in self._fit_contract.cov_labels]
+
         # Attach per-component curves for '+' mixture models (no-op otherwise).
         component_curves = self._compute_component_curves()
         if component_curves:
             self._fit_contract.artifacts.component_curves = component_curves
 
+        self._fit_contract.on_bounds = self._find_parameters_on_bounds()
+
         self.fit_result = self._fit_contract.to_legacy_dict()
         self._fitted_model = engine_output.runtime_model
 
-        lines = [
-            f'\n{OK} Fit completed!',
-            f'Final {CHI_SQUARED} = {self.fit_result["chisq"]:.4f}',
-            '\nFitted parameters:',
-        ]
-        for name, info in self.fit_result['parameters'].items():
-            lines.append(f'  {name}: {info["formatted"]}')
+        logger.info(f'\n{OK} Fit completed!\n{self.get_fit_report()}')
 
-        posterior = self._fit_contract.artifacts.posterior
-        if posterior is not None:
-            lines.append('')
-            lines.append(posterior.format_summary())
-        logger.info('\n'.join(lines))
+        self._warn_about_bounds(self._fit_contract.on_bounds)
+        if self._fit_contract.converged is False:
+            warnings.warn(
+                f'The optimizer did not report convergence: {self._fit_contract.message}. '
+                'The reported parameters are wherever it stopped; increase the '
+                'iteration budget or revisit the starting values.',
+                stacklevel=3,
+            )
 
         return self.fit_result
+
+    def _find_parameters_on_bounds(self) -> list[tuple[str, str]]:
+        """Varied parameters whose fitted value sits on one of their bounds.
+
+        Only the optimizer's own dimensions can hit a wall, so fixed and linked
+        parameters are skipped even when their value happens to equal a bound.
+        Polydispersity widths are bounded [0, 1] by both engines rather than by
+        ``ParameterManager``, so their limits are supplied here.
+
+        Names are user-facing: this runs after the display-name translation.
+        """
+        hits: list[tuple[str, str]] = []
+        for name, info in self._fit_contract.parameters.items():
+            if info.get('fixed', False) or info.get('linked_to') is not None:
+                continue
+            value = info.get('value')
+            if value is None:
+                continue
+
+            bounds = self._param_manager.params.get(name)
+            if bounds is not None:
+                lo, hi = bounds.get('min'), bounds.get('max')
+            elif name.endswith('_pd'):
+                # PD widths are not in the parameter table; both engines bound
+                # them to [0, 1] themselves.
+                lo, hi = 0.0, 1.0
+            else:
+                continue
+            if lo is not None and at_bound(value, lo):
+                hits.append((name, 'min'))
+            if hi is not None and at_bound(value, hi):
+                hits.append((name, 'max'))
+        return hits
+
+    def _warn_about_bounds(self, on_bounds: list[tuple[str, str]]) -> None:
+        """Warn once about every fitted parameter resting on a bound.
+
+        A warning rather than a log line, so it survives
+        ``set_verbosity('quiet')`` and shows up in a notebook. The wording is
+        deliberately neutral: an optimum at a bound can be physically correct (a
+        non-negative background at zero), so the claim is that the estimate is
+        constrained by the configured domain, not that a better one lies outside it.
+        """
+        if not on_bounds:
+            return
+        hits = ', '.join(
+            f'{name} = {self._fit_contract.parameters[name]["value"]:.6g} ({side})'
+            for name, side in on_bounds
+        )
+        warnings.warn(
+            f'Fitted parameter(s) at a bound: {hits}. The estimate may be constrained '
+            'by these limits; review or widen the bounds if the boundary was not '
+            'intentional. Uncertainties from a symmetric covariance estimate are '
+            'unreliable at an active bound.',
+            stacklevel=3,
+        )
+
+    def get_fit_report(self) -> FitReport:
+        """
+        Return a :class:`~sans_fitter.report.FitReport` for the last fit.
+
+        The report carries the goodness-of-fit statistics, the parameter table, the
+        covariance and correlation matrices, the convergence verdict and any
+        parameter resting on a bound. It renders itself as a table in a notebook
+        (``_repr_html_``), as plain text (``print(report)``) and as Markdown
+        (``report.to_markdown()``), and serializes through ``report.to_dict()``.
+
+        Returns:
+            A snapshot of the current fit result. Mutating the fitter afterwards
+            does not change a report already returned.
+
+        Raises:
+            ValueError: If no fit has been run in this session. A theory preview
+                (``plot_model()``) does not produce a fit result.
+        """
+        if self._fit_contract is None:
+            raise ValueError(
+                'No fit result available. Run fit() or fit_bayesian() first; '
+                'plot_model() previews the theory without fitting.'
+            )
+        return FitReport.from_contract(self._fit_contract, self.model_name)
 
     def _compute_component_curves(self) -> dict[str, np.ndarray] | None:
         """Compute per-component curves after a fit of a '+' mixture model.
@@ -1078,6 +1164,54 @@ class SANSFitter:
 
         return curves
 
+    def _legacy_quality_block(
+        self, fit_result: dict[str, Any], fit_index: np.ndarray
+    ) -> dict[str, Any]:
+        """Goodness-of-fit fields for a contract rebuilt from a result dictionary.
+
+        A dictionary that already carries ``reduced_chisq`` came from this version
+        and is read verbatim. An older one carries a single ``chisq`` whose meaning
+        depended on the engine — bumps stored χ²/dof, the scipy engine stored the
+        raw sum — so the conversion is determined, not guessed: recover the counts
+        from the fit index and the parameter block, then derive whichever of the two
+        χ² values the dictionary does not hold.
+        """
+        if 'reduced_chisq' in fit_result:
+            return {
+                'chisq': fit_result['chisq'],
+                'reduced_chisq': fit_result['reduced_chisq'],
+                'n_points': fit_result['n_points'],
+                'n_free': fit_result['n_free'],
+                'dof': fit_result['dof'],
+                'weighting_note': fit_result.get('weighting_note', 'dI'),
+                'converged': fit_result.get('converged'),
+                'message': fit_result.get('message', ''),
+                'cov': fit_result.get('cov'),
+                'cov_labels': list(fit_result.get('cov_labels', [])),
+                'cov_source': fit_result.get('cov_source'),
+                'on_bounds': list(fit_result.get('on_bounds', [])),
+            }
+
+        legacy_chisq = float(fit_result['chisq'])
+        n_points = int(np.asarray(fit_index, dtype=bool).sum())
+        n_free = sum(1 for info in fit_result['parameters'].values() if not info.get('fixed', True))
+        dof = n_points - n_free
+        if fit_result['engine'] == 'bumps':
+            raw = legacy_chisq * dof if dof > 0 else float('nan')
+            reduced = legacy_chisq
+        else:
+            raw = legacy_chisq
+            reduced = reduced_chisq(legacy_chisq, dof)
+        return {
+            'chisq': raw,
+            'reduced_chisq': reduced,
+            'n_points': n_points,
+            'n_free': n_free,
+            'dof': dof,
+            'weighting_note': 'dI',
+            'message': 'legacy result adapted from fit_result',
+        }
+
     def _get_active_fit_contract(self) -> FitResultContract | None:
         """Return the active fit contract, adapting legacy runtime state if needed."""
         if self._fit_contract is not None:
@@ -1087,16 +1221,16 @@ class SANSFitter:
             return None
 
         if self.fit_result['engine'] == 'bumps':
+            fit_index = extract_fit_index(self._fitted_model.active_model)
+            curve = np.asarray(self._fitted_model.active_model.theory())
+            resolved_index = resolve_fit_index(fit_index, len(self.data.x))
             return FitResultContract(
                 engine=self.fit_result['engine'],
                 method=self.fit_result['method'],
-                chisq=self.fit_result['chisq'],
                 parameters=self.fit_result['parameters'],
-                artifacts=FitArtifacts(
-                    fitted_curve=np.asarray(self._fitted_model.active_model.theory()),
-                    fit_index=extract_fit_index(self._fitted_model.active_model),
-                ),
+                artifacts=FitArtifacts(fitted_curve=curve, fit_index=fit_index),
                 resolution=self._resolution.as_dict(),
+                **self._legacy_quality_block(self.fit_result, resolved_index),
             )
 
         # Re-evaluating legacy lmfit runtime state: use the same evaluation
@@ -1104,16 +1238,18 @@ class SANSFitter:
         # unsmeared while the fit was smeared.
         calculator = DirectModel(self._evaluation_data(warn=False), self.kernel)
         par_dict = {name: info['value'] for name, info in self.fit_result['parameters'].items()}
+        fit_index = extract_fit_index(calculator)
+        resolved_index = resolve_fit_index(fit_index, len(self.data.x))
         return FitResultContract(
             engine=self.fit_result['engine'],
             method=self.fit_result['method'],
-            chisq=self.fit_result['chisq'],
             parameters=self.fit_result['parameters'],
             artifacts=FitArtifacts(
                 fitted_curve=np.asarray(calculator(**par_dict)),
-                fit_index=extract_fit_index(calculator),
+                fit_index=fit_index,
             ),
             resolution=self._resolution.as_dict(),
+            **self._legacy_quality_block(self.fit_result, resolved_index),
         )
 
     def fit(
@@ -1133,12 +1269,24 @@ class SANSFitter:
             **kwargs: Additional arguments passed to the fitting engine
 
         Returns:
-            Dictionary with ``engine``, ``method``, ``chisq`` and
-            ``parameters``. The ``parameters`` block is engine-independent:
-            one entry per model parameter, each carrying ``value``, ``stderr``,
-            ``formatted``, a ``fixed`` flag (``False`` only for the parameters
-            the optimizer varied) and ``linked_to`` (the parameter it follows,
-            or ``None``). A follower reports its target's fitted value.
+            Dictionary with ``engine``, ``method``, ``parameters`` and an
+            engine-independent goodness-of-fit block: ``chisq`` (the **raw**
+            weighted sum of squared residuals), ``reduced_chisq``
+            (``chisq / dof``, not a number when ``dof <= 0``), ``n_points``,
+            ``n_free``, ``dof``, ``converged`` (``None`` on the bumps engine,
+            which reports success unconditionally), ``message``,
+            ``weighting_note``, ``cov`` / ``cov_labels`` / ``cov_source``, and
+            ``on_bounds``. Call :meth:`get_fit_report` for the same information
+            as a self-rendering object.
+
+            The ``parameters`` block is engine-independent too: one entry per
+            model parameter, each carrying ``value``, ``stderr``, ``formatted``,
+            a ``fixed`` flag (``False`` only for the parameters the optimizer
+            varied) and ``linked_to`` (the parameter it follows, or ``None``).
+            A follower reports its target's fitted value.
+
+            Changed in 0.4: ``chisq`` from the bumps engine used to be
+            χ²/dof. Use ``reduced_chisq`` for that value.
 
         Raises:
             ValueError: If data or model not loaded, or invalid engine
@@ -1302,8 +1450,13 @@ class SANSFitter:
             **kwargs: Additional arguments passed to bumps.fitters.fit.
 
         Returns:
-            Dictionary with fit results including chi-squared and parameter
-            values. The posterior itself is available via get_posterior().
+            The same dictionary shape as :meth:`fit`, including the
+            goodness-of-fit block. ``cov`` here is the sample covariance of the
+            posterior draw rather than a Jacobian estimate, and ``converged`` is
+            None — a sampler has no optimizer verdict, so the ``message``
+            carries the sampler settings and the largest R-hat instead. The
+            posterior itself is available via get_posterior(), and
+            get_fit_report() renders everything as a table.
 
         Raises:
             ValueError: If data or model is not loaded, or no parameter varies.
@@ -1490,7 +1643,12 @@ class SANSFitter:
                 'resolution columns are used when q is omitted.'
             )
         self._require_data()
-        return self.data
+        # The same copy a fit is handed, so a preview under set_resolution('none' |
+        # 'pinhole' | 'slit') is smeared exactly like the fit that follows it. Without
+        # this the preview would apply the file's own columns and its chi-squared would
+        # not match the "Initial chi-squared" a bumps fit prints. warn=False: the fit
+        # itself warns about missing or shadowed columns.
+        return self._evaluation_data(warn=False)
 
     def _evaluate(
         self, data: Any, overrides: dict[str, float] | None = None
@@ -1541,11 +1699,13 @@ class SANSFitter:
         committing to a fit. Fit results are untouched — ``plot_results()``
         keeps showing the last real fit.
 
-        The reported χ² uses the same convention as the bumps engine
-        (χ²/dof), so it matches the "Initial χ²" printed at the start of a
-        bumps fit. It is reported as not available when the data carries no
-        intensity uncertainties. Note that ``fit(engine='lmfit')`` reports an
-        unnormalized χ², which is on a different scale.
+        The reported goodness of fit is χ²/dof — the same convention every
+        engine reports as ``result['reduced_chisq']``, and the same number the
+        bumps engine prints as "Initial χ²" at the start of a fit. The model is
+        evaluated through the active resolution mode, exactly as a fit would,
+        so the preview and the fit that follows it are directly comparable. The
+        value is reported as not available when the data carries no intensity
+        uncertainties, and when the free parameters outnumber the fitted points.
 
         Args:
             show_residuals: If True, show residuals in a separate panel.
@@ -1561,32 +1721,40 @@ class SANSFitter:
             ValueError: If no data or no model is loaded.
         """
         self._require_data()
-        curve, fit_index = self._evaluate(self.data)
+        evaluation_data = self._evaluation_data(warn=False)
+        curve, fit_index = self._evaluate(evaluation_data)
 
         fit_state = self._param_manager.snapshot_fit_state()
         n_free = len(fit_state.varying_params) + len(fit_state.varying_pd_params)
-        chisq = preview_chisq(self.data, curve, fit_index, n_free)
+        quality = preview_quality(evaluation_data, curve, fit_index, n_free)
 
         # Current values only: nothing was estimated, so there is no stderr.
         contract = FitResultContract(
             engine=PREVIEW_ENGINE,
             method=PREVIEW_ENGINE,
-            chisq=chisq,
+            chisq=quality.chisq,
+            reduced_chisq=quality.reduced_chisq,
+            n_points=quality.n_points,
+            n_free=quality.n_free,
+            dof=quality.dof,
+            weighting_note='dI',
             parameters={
                 self._param_manager.to_display_name(name): {'value': info['value']}
                 for name, info in fit_state.params.items()
             },
+            resolution=self._resolution.as_dict(),
             artifacts=FitArtifacts(
                 fitted_curve=curve,
                 fit_index=fit_index,
+                residuals=quality.residuals,
                 component_curves=self._compute_component_curves() if show_components else None,
             ),
         )
 
         logger.info(
             f'{OK} Model preview: {self.model_name} — '
-            f'{format_chisq(chisq, CHI_SQUARED)} at current '
-            f'parameters ({int(fit_index.sum())} points, {n_free} free)'
+            f'{format_reduced_chisq(quality.reduced_chisq, quality.dof, CHI_SQUARED)} at current '
+            f'parameters ({quality.n_points} points, {n_free} free)'
         )
 
         return plot_fit(

@@ -29,6 +29,8 @@ from .base import (
     build_result_parameters,
     extract_fit_index,
     pd_is_active,
+    reduced_chisq,
+    validate_covariance,
 )
 
 DEFAULT_DREAM_SAMPLES = 10000
@@ -48,6 +50,69 @@ __all__ = [
     'fit_bumps',
     'fit_bumps_dream',
 ]
+
+
+def _quality_block(problem: Any) -> tuple[float, float, int, int, int, np.ndarray]:
+    """Goodness-of-fit numbers and the residual vector at the problem's current point.
+
+    Returns ``(chisq, reduced_chisq, n_points, n_free, dof, residuals)``, where
+    ``chisq`` is the **raw** weighted sum of squares. ``dof`` is computed as
+    ``n_points - n_free`` rather than read from ``problem.dof``: bumps defines its
+    own value more broadly (it adds prior degrees of freedom), and the public
+    meaning of the field must not depend on the engine. The two are asserted equal
+    for the problems this package builds, which use no priors.
+    """
+    residuals = np.asarray(problem.residuals(), dtype=float)
+    chisq = float(np.sum(residuals**2))
+    n_points = int(problem.model_points())
+    n_free = len(problem.labels())
+    dof = n_points - n_free
+    if dof != problem.dof:
+        raise RuntimeError(
+            f'bumps reports dof={problem.dof} where n_points - n_free = {dof}. '
+            'The problem carries prior or constraint degrees of freedom, which the '
+            'engine-independent dof contract does not model.'
+        )
+    return chisq, reduced_chisq(chisq, dof), n_points, n_free, dof, residuals
+
+
+def _jacobian_covariance(problem: Any, labels: list[str]) -> np.ndarray:
+    """Covariance over the varied parameters, from the Jacobian at the best point.
+
+    This is the same estimate bumps itself reports as ``result.dx``: its
+    ``FitDriver`` calls ``lsqerror.stderr(driver.cov())`` and the driver's
+    covariance for a problem with residuals is exactly the expression below. The
+    driver is local to ``bumps.fitters.fit`` and discarded, so it is recomputed
+    here. ``bumps.fit()`` has already set the problem to the best point.
+
+    ``lsqerror.jacobian_cov`` clamps singular values, so it always returns a
+    matrix; a near-singular problem shows up as a very large variance rather than
+    a failure. Such a variance is a diagnostic to interpret, not an uncertainty to
+    quote — see the "Judging a fit" section of ``docs/usage.md``.
+    """
+    from bumps import lsqerror
+
+    jacobian = lsqerror.jacobian(problem, problem.getp())
+    return validate_covariance(lsqerror.jacobian_cov(jacobian), labels)
+
+
+def _configured_budget(method: str, problem: Any, options: dict[str, Any]) -> int | None:
+    """The maximum number of steps the selected bumps fitter is configured for.
+
+    ``FitBase.max_steps`` fills in the fitter's own defaults and accounts for
+    ``starts`` (and, for DREAM, derives generations from ``samples``, ``pop`` and
+    ``burn``), so it is the only correct source. Returns None if the method is not
+    in the registry or the call fails, since this feeds an informational message.
+    """
+    from bumps.fitters import FITTERS
+
+    try:
+        for fitclass in FITTERS:
+            if fitclass.id == method:
+                return int(fitclass.max_steps(problem, dict(options)))
+    except Exception:  # informational only — never fail a completed fit over it
+        return None
+    return None
 
 
 def _build_bumps_problem(
@@ -118,16 +183,19 @@ def fit_bumps(
     """Fit using the BUMPS engine."""
     problem, experiment = _build_bumps_problem(data, kernel, fit_state)
 
+    # problem.chisq() is already normalized by dof, hence the label.
     logger.info(
-        f'\nInitial {CHI_SQUARED} = {problem.chisq():.4f}\nFitting with BUMPS (method: {method})...'
+        f'\nInitial {CHI_SQUARED}/dof = {problem.chisq():.4f}\n'
+        f'Fitting with BUMPS (method: {method})...'
     )
 
     result = bumps_fit(problem, method=method, **kwargs)
 
+    labels = list(problem.labels())
     varied: dict[str, dict[str, Any]] = {}
     fitted_values: dict[str, float] = {}
 
-    for name, value, stderr in zip(problem.labels(), result.x, result.dx, strict=True):
+    for name, value, stderr in zip(labels, result.x, result.dx, strict=True):
         varied[name] = {
             'value': value,
             'stderr': stderr,
@@ -135,14 +203,38 @@ def fit_bumps(
         }
         fitted_values[name] = value
 
+    chisq, reduced, n_points, n_free, dof, residuals = _quality_block(problem)
+    budget = _configured_budget(method, problem, kwargs)
+    steps = getattr(result, 'nit', None)
+    budget_text = 'unknown' if budget is None else str(budget)
+    steps_text = 'unknown' if steps is None else str(steps)
+
     contract = FitResultContract(
         engine='bumps',
         method=method,
-        chisq=problem.chisq(),
+        chisq=chisq,
+        reduced_chisq=reduced,
+        n_points=n_points,
+        n_free=n_free,
+        dof=dof,
+        weighting_note='dI',
         parameters=build_result_parameters(fit_state, varied),
+        # bumps hard-codes result.success=True for every fitter, so there is no
+        # convergence verdict to report. The step counts are the closest honest
+        # signal; they are stated side by side rather than as a ratio because not
+        # every fitter advances result.nit in the unit max_steps budgets.
+        converged=None,
+        message=(
+            'bumps does not report convergence; '
+            f'iterations reported: {steps_text}, configured maximum: {budget_text}'
+        ),
+        cov=_jacobian_covariance(problem, labels),
+        cov_labels=labels,
+        cov_source='jacobian',
         artifacts=FitArtifacts(
             fitted_curve=np.asarray(experiment.theory()),
             fit_index=extract_fit_index(experiment),
+            residuals=residuals,
             raw_result=result,
             runtime_handle=problem,
             runtime_key='problem',
@@ -342,13 +434,12 @@ def fit_bumps_dream(
         )
 
     logger.info(
-        f'\nInitial {CHI_SQUARED} = {problem.chisq():.4f}\n'
+        f'\nInitial {CHI_SQUARED}/dof = {problem.chisq():.4f}\n'
         f'Sampling posterior with BUMPS DREAM (samples={samples}, burn={burn} generations)...'
     )
 
-    result = bumps_fit(
-        problem, method=method, samples=samples, burn=burn, thin=thin, pop=pop, **kwargs
-    )
+    sampler_options = {'samples': samples, 'burn': burn, 'thin': thin, 'pop': pop, **kwargs}
+    result = bumps_fit(problem, method=method, **sampler_options)
     state = _require_dream_state(result)
 
     # Re-set the problem to the chosen point estimate and re-evaluate the
@@ -357,7 +448,7 @@ def fit_bumps_dream(
     point_estimate = np.asarray(result.x, dtype=float)
     problem.setp(point_estimate)
     fitted_curve = np.asarray(experiment.theory())
-    chisq = problem.chisq()
+    chisq, reduced, n_points, n_free, dof, residuals = _quality_block(problem)
 
     posterior = _extract_posterior(state, labels, point_estimate)
     posterior_data, posterior_model_eval = _build_posterior_evaluator(data, kernel, fit_state)
@@ -375,14 +466,42 @@ def fit_bumps_dream(
         }
         fitted_values[name] = value
 
+    budget = _configured_budget(method, problem, sampler_options)
+    message = f'{samples} samples, {burn} burn-in generations'
+    if budget is not None:
+        message += f'; configured maximum: {budget} generations'
+    if posterior.diagnostics:
+        r_hats = [stats['r_hat'] for stats in posterior.diagnostics.values() if 'r_hat' in stats]
+        if r_hats:
+            message += f'; max R-hat = {max(r_hats):.4f}'
+
     contract = FitResultContract(
         engine='bumps',
         method=method,
         chisq=chisq,
+        reduced_chisq=reduced,
+        n_points=n_points,
+        n_free=n_free,
+        dof=dof,
+        weighting_note='dI',
         parameters=build_result_parameters(fit_state, varied),
+        # A sampler has no convergence verdict of the optimizer kind; R-hat in the
+        # message is the diagnostic that plays that role.
+        converged=None,
+        message=message,
+        # The posterior sample covariance, not a Jacobian estimate. atleast_2d
+        # matters: np.cov on an (n, 1) sample returns a 0-d scalar, which would
+        # break np.diag, the correlation helper and the shape contract.
+        cov=validate_covariance(
+            np.atleast_2d(np.cov(np.asarray(posterior.samples, dtype=float), rowvar=False)),
+            labels,
+        ),
+        cov_labels=labels,
+        cov_source='posterior sample',
         artifacts=FitArtifacts(
             fitted_curve=fitted_curve,
             fit_index=extract_fit_index(experiment),
+            residuals=residuals,
             raw_result=result,
             runtime_handle=problem,
             runtime_key='problem',

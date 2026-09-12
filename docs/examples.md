@@ -130,7 +130,8 @@ dI = noise * sqrt(|I| * median(|I|))
 ```
 
 The scatter is drawn from that same width, so the error bars honestly describe
-the noise and reduced χ² lands near 1 for a correct model.
+the noise and reduced χ² lands near 1 for a correct model — that is
+`result['reduced_chisq']`, not the raw `result['chisq']`.
 
 A purely relative `dI = noise * I` would be simpler but is wrong here: it drives
 the uncertainty to zero inside the form-factor minima, where the intensity

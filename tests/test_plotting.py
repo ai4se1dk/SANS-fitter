@@ -13,12 +13,21 @@ from sans_fitter.results import PREVIEW_ENGINE, FitArtifacts, FitResultContract
 from tests.helpers import create_decay_data_file, create_loading_test_data_file_with_resolution
 
 
-def make_preview_contract(data, chisq=1.5):
+def make_preview_contract(data, chisq=1.5, n_free=1, reduced_chisq=None, dof=None):
     """A preview contract covering every point of *data*."""
+    n_points = len(np.asarray(data.x))
+    resolved_dof = n_points - n_free if dof is None else dof
+    if reduced_chisq is None:
+        reduced_chisq = chisq
     return FitResultContract(
         engine=PREVIEW_ENGINE,
         method=PREVIEW_ENGINE,
         chisq=chisq,
+        reduced_chisq=reduced_chisq,
+        n_points=n_points,
+        n_free=n_free,
+        dof=resolved_dof,
+        weighting_note='dI',
         parameters={},
         artifacts=FitArtifacts(fitted_curve=np.asarray(data.y, dtype=float) * 1.1),
     )
@@ -158,7 +167,7 @@ class TestPreviewContractPlotting(unittest.TestCase):
             show=False,
         )
         self.assertIn(PREVIEW_TITLE_PREFIX, fig.layout.title.text)
-        self.assertIn('χ² = 1.5000', fig.layout.title.text)
+        self.assertIn('χ²/dof = 1.5000', fig.layout.title.text)
         self.assertIn(PREVIEW_MODEL_TRACE_NAME, [trace.name for trace in fig.data])
 
     def test_fit_contract_keeps_fit_labels(self):
@@ -180,7 +189,7 @@ class TestPreviewContractPlotting(unittest.TestCase):
             model_name='sphere',
             show=False,
         )
-        self.assertIn('χ² n/a (no dI)', fig.layout.title.text)
+        self.assertIn('χ²/dof n/a (no dI)', fig.layout.title.text)
         self.assertNotIn('Residuals', [trace.name for trace in fig.data])
         self.assertEqual(fig.layout.yaxis2.title.text, 'Residuals (no dI)')
 
@@ -194,7 +203,7 @@ class TestPreviewContractPlotting(unittest.TestCase):
             model_name='sphere',
             show=False,
         )
-        self.assertIn('χ² n/a (no dI)', fig.layout.title.text)
+        self.assertIn('χ²/dof n/a (no dI)', fig.layout.title.text)
         self.assertEqual(fig.layout.yaxis2.title.text, 'Residuals (no dI)')
 
 

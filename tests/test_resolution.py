@@ -422,6 +422,8 @@ class TestBehaviour:
             sharp_fitter.set_resolution('none')
             sharp = sharp_fitter.fit(engine='bumps', method='amoeba')
 
+        # Raw chi-squared: same engine, same points, same dof, so the inequality
+        # holds for either normalization.
         assert sharp['chisq'] > smeared['chisq'] * 1.5
 
     def test_component_curves_are_smeared_like_the_total(self):

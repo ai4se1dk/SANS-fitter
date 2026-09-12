@@ -91,9 +91,12 @@ fitter.compare(radius=[20, 30, 40])
 fitter.compare({'current': {}, '20% polydisperse': {'radius_pd': 0.2}})
 ```
 
-The χ² shown by `plot_model()` is χ²/dof, the same number BUMPS prints as
-"Initial χ²" (the LMFit engine reports an unnormalized χ²). It is reported as
-not available when the data has no `dI` column.
+The goodness of fit shown by `plot_model()` is χ²/dof, the same number BUMPS
+prints as "Initial χ²" at the start of a fit, and the same convention every
+engine reports in `result['reduced_chisq']`. The preview is evaluated through the
+active resolution mode, so it is directly comparable with the fit that follows.
+It is reported as not available when the data has no `dI` column, and when the
+free parameters outnumber the fitted points.
 
 See `examples/theory_preview_example.py` for a runnable walkthrough.
 
@@ -128,11 +131,33 @@ Both engines return the same structure, so code written against one works
 against the other:
 
 ```python
-result['engine']  # 'bumps' or 'lmfit'
-result['method']  # the optimization method used
-result['chisq']  # goodness of fit
+result['engine']   # 'bumps' or 'lmfit'
+result['method']   # the optimization method used
+result['chisq']    # raw chi-squared: sum of squared weighted residuals
 result['parameters']  # one entry per model parameter
 ```
+
+The goodness-of-fit block means the same thing whichever engine ran:
+
+| Field | Meaning |
+|---|---|
+| `chisq` | Σ((I − I_fit)/dI)² over the fitted points — **raw**, not normalized |
+| `reduced_chisq` | `chisq / dof`; not a number when `dof <= 0` |
+| `n_points` | Points that took part in the fit (inside the Q range, unmasked, finite) |
+| `n_free` | Parameters the optimizer varied, polydispersity widths included |
+| `dof` | `n_points - n_free` |
+| `converged` | `True` / `False` when the optimizer reports a verdict, `None` when it does not |
+| `message` | The optimizer's own termination message |
+| `weighting_note` | How the residuals were weighted, e.g. `'dI'` |
+| `cov`, `cov_labels`, `cov_source` | Covariance over the varied parameters, its parameter order, and where it came from |
+| `on_bounds` | `(parameter, 'min' | 'max')` for each fitted parameter resting on a bound |
+
+!!! warning "Changed in 0.4"
+    `result['chisq']` from the bumps engine was χ²/dof before 0.4; use
+    `result['reduced_chisq']`. The two engines previously disagreed — bumps
+    normalized by the degrees of freedom while the LMFit engine stored the raw
+    sum, so the same fit produced numbers a factor of `dof` apart. Both now
+    report raw χ² in `chisq` and the normalized value in `reduced_chisq`.
 
 Each entry in `result['parameters']` carries the same five fields:
 
@@ -153,6 +178,72 @@ fitted = {
 A parameter that follows another one — through `link_params()` or
 `radius_effective_mode='link_radius'` — reports its target's *fitted* value and
 names that target in `linked_to`.
+
+#### The fit report
+
+`get_fit_report()` returns the same information as an object that renders itself,
+so a notebook cell shows a table instead of a wall of text:
+
+```python
+report = fitter.get_fit_report()
+report                      # rich table in a notebook
+print(report)               # plain text in a terminal
+report.to_markdown()        # a string for a document or an issue comment
+report.to_dict()            # JSON-safe data (non-finite values become None)
+report.strongly_correlated(threshold=0.95)   # [(param_a, param_b, rho), ...]
+```
+
+The report carries a header line (model, engine, resolution, weighting), the
+quality table, one row per parameter with its status (`fitted`, `fixed`,
+`linked → target`, `fitted, on bound (max)`), the correlation matrix when more
+than one parameter varied, and the posterior summary after `fit_bayesian()`.
+It is a snapshot: running another fit does not change a report already returned.
+`get_fit_report()` raises if no fit has been run — `plot_model()` previews the
+theory without fitting and produces no result.
+
+#### Judging a fit
+
+- **Reduced χ² near 1** means the residuals are the size the error bars claim.
+  Much greater than 1 is a model that does not describe the data (or `dI` that
+  is too small); much less than 1 usually means `dI` is too large, or that the
+  model has more freedom than the data supports.
+- **χ² is not comparable across resolution modes**, because smearing
+  redistributes residual structure. It is also not comparable across different
+  Q ranges or masks, since `n_points` changes with them.
+- **A parameter on a bound** raises a warning and appears in `on_bounds`. That
+  can be physically correct — a non-negative background at zero, say — so the
+  warning says the estimate *may be* constrained by the limit rather than that a
+  better one lies outside it. When the boundary was not intentional, widen it
+  and refit.
+- **Uncertainties are not rescaled.** `stderr` is √diag(`cov`) with no
+  √(χ²/dof) factor, which is what both bumps and SciPy's `leastsq` report. If
+  your `dI` values are relative weights rather than absolute uncertainties,
+  multiply by `sqrt(result['reduced_chisq'])` yourself:
+
+    ```python
+    import math
+
+    scale = math.sqrt(result['reduced_chisq'])
+    absolute = {
+        name: info['stderr'] * scale
+        for name, info in result['parameters'].items()
+        if not info['fixed']
+    }
+    ```
+
+- **Covariance is a local, symmetric estimate.** It is unreliable at an active
+  bound, and for strongly non-linear or non-identifiable models. A very large
+  variance is a diagnostic worth following up, not an uncertainty to quote.
+  `cov_source` says where the matrix came from: `'jacobian'` for the bumps
+  point estimate and LMFit's `least_squares`, `'scipy cov_x'` for `leastsq`,
+  `'posterior sample'` after `fit_bayesian()`. Differential evolution supplies
+  none, and `cov` is then `None`.
+- **Strong correlations** mean the data does not separate those parameters.
+  `report.strongly_correlated()` lists pairs at |ρ| ≥ 0.95; fix one of them, or
+  reparameterize.
+- **Convergence is `None` on the bumps engine.** bumps reports success for every
+  fit regardless of the outcome, so there is no verdict to pass on; the message
+  carries the iteration count and the configured maximum instead.
 
 ### 6. Visualization and Export
 
@@ -298,7 +389,8 @@ fitter.reset_q_range()  # back to the full data range
 
 The restriction applies to both fitting engines. Excluded points still
 appear in plots (grayed out, labelled "Excluded Data"), but the fitted
-curve, residuals, χ², and the CSV export only cover the fitted range.
+curve, residuals, χ², and the CSV export only cover the fitted range, and
+`n_points` counts those points.
 The range can be changed freely between fits — each fit result remembers
 the range it was fitted with.
 
@@ -706,10 +798,13 @@ fitter.set_param('scale', value=0.1, min=0.01, max=1.0, vary=True)
 result = fitter.fit_bayesian(samples=10000, burn=200)
 ```
 
-`fit_bayesian()` prints the usual point-estimate summary plus a posterior
+`fit_bayesian()` prints the usual fit report plus a posterior
 table with the mean, median, standard deviation, 68%/95% credible
 intervals, and convergence diagnostics (R-hat, effective sample size) for
-each sampled parameter. The reported parameter values are the best
+each sampled parameter. The `cov` on a Bayesian result is the **sample**
+covariance of the posterior draw rather than a Jacobian estimate
+(`cov_source` reads `'posterior sample'`), and the `message` carries the
+sampler settings and the largest R-hat. The reported parameter values are the best
 (maximum-likelihood) posterior sample, and `stderr` is the posterior 68%
 credible half-width.
 
