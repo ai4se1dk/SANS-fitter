@@ -187,8 +187,8 @@ sans_fitter.set_verbosity('quiet')   # keep warnings, drop the progress messages
 sans_fitter.set_verbosity('info')    # back to the default
 ```
 
-Tables you ask for explicitly — `get_params()`, `get_pd_params()`,
-`examples.describe()` — are printed either way; they are the result of the call
+Tables you ask for explicitly - `get_params()`, `get_pd_params()`,
+`examples.describe()` - are printed either way; they are the result of the call
 rather than a side effect of it.
 
 ::: sans_fitter.console

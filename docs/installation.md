@@ -25,7 +25,7 @@ To install with development dependencies (for running tests or building document
 pip install -e ".[dev,docs]"
 ```
 
-The Jupyter stack is an optional extra — the library itself does not need it.
+The Jupyter stack is an optional extra. The library itself does not need it.
 Install it only to run the notebooks in `notebooks/`:
 
 ```bash

@@ -35,7 +35,7 @@ Notes:
 
 -   The arguments of `Iq` must match the parameter names, in the order they appear in
     `parameters`.
--   `scale` and `background` are added automatically by SasModels — do not list them in
+-   `scale` and `background` are added automatically by SasModels. Do not list them in
     `parameters`.
 -   `Iq.vectorized = True` tells SasModels that `Iq` accepts the whole `q` array at once.
     Omit it if your function handles one `q` value at a time.
@@ -71,7 +71,7 @@ fitter.set_model('custom.my_power_law')     # loads my_power_law.py
 
 ## Fitting a Custom Model
 
-Nothing else changes — parameter configuration, fitting, plotting, and result export all
+Nothing else changes: parameter configuration, fitting, plotting, and result export all
 work as usual:
 
 ```python

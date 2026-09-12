@@ -78,7 +78,7 @@ these change the fitter's parameters or its fit results.
 ```python
 import numpy as np
 
-# Data, model at the current parameters, and residuals — no fit required
+# Data, model at the current parameters, and residuals - no fit required
 fitter.plot_model()
 
 # The intensities themselves: on the data grid (NaN outside the fit range,
@@ -141,7 +141,7 @@ The goodness-of-fit block means the same thing whichever engine ran:
 
 | Field | Meaning |
 |---|---|
-| `chisq` | Σ((I − I_fit)/dI)² over the fitted points — **raw**, not normalized |
+| `chisq` | Σ((I − I_fit)/dI)² over the fitted points: **raw**, not normalized |
 | `reduced_chisq` | `chisq / dof`; not a number when `dof <= 0` |
 | `n_points` | Points that took part in the fit (inside the Q range, unmasked, finite) |
 | `n_free` | Parameters the optimizer varied, polydispersity widths included |
@@ -154,7 +154,7 @@ The goodness-of-fit block means the same thing whichever engine ran:
 
 !!! warning "Changed in 0.4"
     `result['chisq']` from the bumps engine was χ²/dof before 0.4; use
-    `result['reduced_chisq']`. The two engines previously disagreed — bumps
+    `result['reduced_chisq']`. The two engines previously disagreed: bumps
     normalized by the degrees of freedom while the LMFit engine stored the raw
     sum, so the same fit produced numbers a factor of `dof` apart. Both now
     report raw χ² in `chisq` and the normalized value in `reduced_chisq`.
@@ -175,8 +175,8 @@ fitted = {
 }
 ```
 
-A parameter that follows another one — through `link_params()` or
-`radius_effective_mode='link_radius'` — reports its target's *fitted* value and
+A parameter that follows another one - through `link_params()` or
+`radius_effective_mode='link_radius'` - reports its target's *fitted* value and
 names that target in `linked_to`.
 
 #### The fit report
@@ -198,7 +198,7 @@ quality table, one row per parameter with its status (`fitted`, `fixed`,
 `linked → target`, `fitted, on bound (max)`), the correlation matrix when more
 than one parameter varied, and the posterior summary after `fit_bayesian()`.
 It is a snapshot: running another fit does not change a report already returned.
-`get_fit_report()` raises if no fit has been run — `plot_model()` previews the
+`get_fit_report()` raises if no fit has been run. `plot_model()` previews the
 theory without fitting and produces no result.
 
 #### Judging a fit
@@ -211,7 +211,7 @@ theory without fitting and produces no result.
   redistributes residual structure. It is also not comparable across different
   Q ranges or masks, since `n_points` changes with them.
 - **A parameter on a bound** raises a warning and appears in `on_bounds`. That
-  can be physically correct — a non-negative background at zero, say — so the
+  can be physically correct - a non-negative background at zero, say - so the
   warning says the estimate *may be* constrained by the limit rather than that a
   better one lies outside it. When the boundary was not intentional, widen it
   and refit.
@@ -264,7 +264,7 @@ notebook itself, so the plot appears exactly once. Pass `show=True` or
 
 Error bars are drawn from the `dI` column (vertical) and, when present, the
 `dQ` resolution column (horizontal). Columnar text/CSV files are read in the
-order `Q, I, dI, dQ` — if your file stores `dQ` in the third column, it will
+order `Q, I, dI, dQ`. If your file stores `dQ` in the third column, it will
 be misinterpreted as `dI`. The summary printed by `load_data()` shows which
 columns were detected.
 
@@ -289,7 +289,7 @@ fitter.get_resolution()
 
 The setting reaches `fit(engine='bumps')`, `fit(engine='lmfit')`,
 `fit_bayesian()` and the post-fit curves through one shared evaluation copy of
-your dataset. **`fitter.data` is never modified** — plots, CSV export, P(r)
+your dataset. **`fitter.data` is never modified**: plots, CSV export, P(r)
 inversion and `data_ops` all keep seeing the dataset you loaded.
 
 `get_resolution()` works before any data is loaded, and the mode **persists**
@@ -311,11 +311,11 @@ cannot reach a new dataset unnoticed.
 A dataset carrying both a `dQ` column and slit columns warns: sasmodels gives
 `dQ` priority and ignores the slit columns. A dataset carrying a slit *width*
 with no slit *length* is refused with an explanatory error rather than being
-smeared wrongly or silently — see the note on slit conventions below.
+smeared wrongly or silently. See the note on slit conventions below.
 
 #### Units and conventions
 
-`dq_over_q` is **σ_q/q, a Gaussian 1-σ** — the same quantity as the file's
+`dq_over_q` is **σ_q/q, a Gaussian 1-σ** - the same quantity as the file's
 `dQ` column and as `examples.simulate(dq=...)`. **It is not FWHM.** If your
 instrument scientist quotes ΔQ/Q as a full width at half maximum, divide by
 about 2.355 first.
@@ -344,8 +344,8 @@ it double-smears or under-smears.
 #### Things to know
 
 - **χ² across modes is evidence, not a dial.** Changing the mode changes the
-  forward model and nothing else — same points, same `dI`, same free
-  parameters — so a χ² that drops really does mean the data prefers that
+  forward model and nothing else - same points, same `dI`, same free
+  parameters - so a χ² that drops really does mean the data prefers that
   smearing. Do not go looking for the mode that minimises it, though:
   resolution is a property of the instrument, and smearing is degenerate with
   real physics (polydispersity broadens a form-factor minimum much as
@@ -391,13 +391,13 @@ The restriction applies to both fitting engines. Excluded points still
 appear in plots (grayed out, labelled "Excluded Data"), but the fitted
 curve, residuals, χ², and the CSV export only cover the fitted range, and
 `n_points` counts those points.
-The range can be changed freely between fits — each fit result remembers
+The range can be changed freely between fits. Each fit result remembers
 the range it was fitted with.
 
 ### Dataset Operations
 
 The `sans_fitter.data.ops` module manipulates datasets with arithmetic
-operations — similar to SasView's *Data Operation* utility. Typical uses are
+operations - similar to SasView's *Data Operation* utility. Typical uses are
 background subtraction, rescaling to absolute units, and transmission
 correction.
 
@@ -416,7 +416,7 @@ fitter.set_model('sphere')
 fitter.fit()
 ```
 
-Available operations — each returns a new, fit-ready `Data1D`:
+Available operations - each returns a new, fit-ready `Data1D`:
 
 | Function | Result |
 |---|---|
@@ -428,7 +428,7 @@ Available operations — each returns a new, fit-ready `Data1D`:
 The second operand can be a dataset or a scalar. For two datasets,
 uncertainties are propagated (`dI = sqrt(dI_a² + dI_b²)` for add/subtract,
 relative errors in quadrature for multiply/divide) and both must share the
-same Q grid (x-values matching within 1% — interpolation onto a common grid
+same Q grid (x-values matching within 1% - interpolation onto a common grid
 is not yet supported). For a scalar, `multiply`/`divide` scale both `I` and
 `dI`, while `add`/`subtract` shift `I` and leave `dI` unchanged; the Q grid
 is never altered.
@@ -439,17 +439,17 @@ survives in saved CanSAS output.
 
 Things to know:
 
-- **Missing dI** on an operand triggers a warning — it is treated as zero in
+- **Missing dI** on an operand triggers a warning: it is treated as zero in
   error propagation. Error-free data warns again at fit time: the `lmfit`
   engine falls back to unit weights, while `bumps` refuses to fit.
 - **NaN points** propagate through the arithmetic and are masked in the
   result (excluded from fits); a warning reports the masked count.
 - **Resolution (dQ) propagation** through arithmetic is not validated
-  upstream — a warning is emitted when any operand carries resolution data.
+  upstream. A warning is emitted when any operand carries resolution data.
   Treat resolution on results with care, especially for slit-smeared data.
 
-`SANSFitter.set_data()` accepts any sasdata `Data1D` — arithmetic results,
-simulated data, or datasets built programmatically — and validates and
+`SANSFitter.set_data()` accepts any sasdata `Data1D` - arithmetic results,
+simulated data, or datasets built programmatically - and validates and
 normalizes it so it is fit-ready.
 
 See `examples/data_operations_example.py` and
@@ -460,13 +460,13 @@ See `examples/data_operations_example.py` and
 The `sans_fitter.inversion` module recovers the real-space pair distance
 distribution function P(r) from I(q) by indirect Fourier transform (Moore's
 sine-basis expansion, as in SasView's Inversion perspective). It is
-**model-free** — no sasmodels kernel is involved — and operates directly on
+**model-free** - no sasmodels kernel is involved - and operates directly on
 datasets (`fitter.data` or `data_ops` results). Typical use: monodisperse
 protein solutions, where P(r) yields D_max, Rg and I(0) without assuming a
 form factor.
 
 For buffer-subtracted data (the usual protein case), pass
-`fit_background=False` — the default fitted flat background can absorb I(0)
+`fit_background=False`. The default fitted flat background can absorb I(0)
 and bias Rg on already-subtracted data. Explore D_max **before** trusting an
 inversion: every result is conditional on it.
 
@@ -494,13 +494,13 @@ Explicit control is available through the individual functions:
 | Function | Result |
 |---|---|
 | `invert(data, d_max, n_terms=10, alpha=0.0, fit_background=True, background=0.0, r_points=101, regularizer='corrected')` | Core inversion → `PrResult` |
-| `estimate_n_terms(data, d_max, fit_background=True, ..., background=0.0)` | `NTermsEstimate(n_terms, alpha, message)`; its `alpha` is authoritative — use it directly |
+| `estimate_n_terms(data, d_max, fit_background=True, ..., background=0.0)` | `NTermsEstimate(n_terms, alpha, message)`; its `alpha` is authoritative: use it directly |
 | `estimate_alpha(data, d_max, n_terms, fit_background=True, ..., background=0.0)` | `AlphaEstimate(alpha, message)` |
 | `auto_invert(data, d_max, ...)` | `estimate_n_terms` → `invert`, silent |
 | `explore_dmax(data, d_max, ..., refit_alpha=False, background=0.0)` | `DmaxScan` over 0.9–1.1×d_max (25 points); raises when every point fails |
 
 When working with a known fixed background (`fit_background=False`), pass the
-same `background` value to the estimators and `explore_dmax` too — the
+same `background` value to the estimators and `explore_dmax` too. The
 selection and the scan then operate on exactly the problem the final
 inversion solves (`auto_invert` does this automatically).
 
@@ -515,7 +515,7 @@ Things to know:
   P(r). Always inspect `format_summary()`.
 - **Missing dI** triggers fabricated uncertainties
   (`max(0.05*|I|, 0.01*median|I|)`), a warning, and an
-  `uncertainties_fabricated` flag on the result — chi-squared diagnostics are
+  `uncertainties_fabricated` flag on the result. Chi-squared diagnostics are
   then not interpretable.
 - **Q range is honoured**: the inversion uses the same accepted-point rule as
   the fit engines, so `fitter.set_q_range()` restricts it identically.
@@ -525,7 +525,7 @@ Things to know:
   pinhole dQ resolution is ignored, as in SasView.
 - **`regularizer='sasview'`** reproduces SasView's exact smoothing operator
   for comparison; the default `'corrected'` penalizes the true second
-  derivative on a resolved grid (validated against SasView — identical for
+  derivative on a resolved grid (validated against SasView: identical for
   spheres, and it remains reliable above 20 terms where SasView's fixed
   20-point penalty grid degrades).
 - **Uncertainties are conditional**: the covariance (and the P(r) band)
@@ -575,8 +575,8 @@ is held at `radius` throughout the fit, and writing to it directly raises. Pass
 
 ### Combining Models (Composite Models)
 
-Datasets with several distinct features — for example a low-Q diffuse
-scattering contribution plus a high-Q correlation peak — are often best
+Datasets with several distinct features - for example a low-Q diffuse
+scattering contribution plus a high-Q correlation peak - are often best
 described by *several models fitted simultaneously* against the same data.
 `set_models()` combines any sasmodels models into one fit:
 
@@ -605,12 +605,12 @@ I(q) = scale · [dab_scale·I_dab(q) + peak_lorentz_scale·I_peak(q)] + backgrou
 The global `scale` and `background` are shared by every component natively
 (sasmodels' mixture semantics), while each component carries its own
 `<name>_scale`. Varying the global `scale` together with a component scale is
-degenerate — only their product is fitted — so `fit()` warns when both are
+degenerate - only their product is fitted - so `fit()` warns when both are
 free. With `operation='*'` the part intensities multiply instead.
 
 **Friendly parameter names.** Every component parameter is prefixed with the
 model name (`dab_cor_length`, `peak_lorentz_peak_pos`). Give components custom
-names (monikers) with keyword arguments — useful for long model names,
+names (monikers) with keyword arguments - useful for long model names,
 duplicates, or physics labels:
 
 ```python
@@ -630,8 +630,8 @@ still configure the two components independently.
 
 **One component per entry.** Each `set_models()` entry must be a single
 component (optionally with `@`, see below). An entry that is itself a
-composite expression — e.g. `set_models(diffuse='dab+peak_lorentz',
-particle='sphere')` — raises an error, because the two entries would expand
+composite expression - e.g. `set_models(diffuse='dab+peak_lorentz',
+particle='sphere')` - raises an error, because the two entries would expand
 to three kernel components and the monikers could not map 1:1. Pass each
 component separately, or use the raw string path
 (`set_model('dab+peak_lorentz+sphere')`) with canonical `A_`/`B_`/`C_` names.
@@ -645,7 +645,7 @@ fitter.set_models('sphere@hardsphere', 'peak_lorentz')
 
 (`@` binds tighter than `+`, so this is `(sphere@hardsphere) + peak_lorentz`.)
 Applying `set_structure_factor()` to an already-composite model raises an
-error — sasmodels cannot express `(A+B)@S`.
+error: sasmodels cannot express `(A+B)@S`.
 
 **Component curves.** After fitting a `'+'` mixture,
 `plot_results(show_components=True)` overlays one dashed curve per component,
@@ -653,8 +653,8 @@ each drawn as `scale · part_scale · I_part(q)` (background excluded, shown
 implicitly in the total curve). For `'*'` mixtures and atomic models the flag
 is a documented no-op.
 
-**Equality links.** For sharing that `shared=` cannot express — linking only
-some components, or parameters with different names — use explicit links:
+**Equality links.** For sharing that `shared=` cannot express - linking only
+some components, or parameters with different names - use explicit links:
 
 ```python
 fitter.link_params('large_sld', to='small_sld')  # follower mirrors target
@@ -668,7 +668,7 @@ supported.
 
 **Raw string syntax (advanced).** `set_model()` accepts sasmodels' native
 composite expressions directly and keeps the canonical `A_`/`B_` parameter
-names — zero magic when following sasmodels documentation:
+names - zero magic when following sasmodels documentation:
 
 ```python
 fitter.set_model('dab+peak_lorentz')  # A_scale, A_cor_length, B_scale, ...
@@ -783,7 +783,7 @@ result = fitter.fit(engine='bumps')
 
 Beyond point estimates, SANS-fitter can sample the full posterior
 distribution of the varying parameters with the DREAM Markov chain Monte
-Carlo sampler (via BUMPS, which is already a dependency — no extra
+Carlo sampler (via BUMPS, which is already a dependency - no extra
 installs needed).
 
 ### Running a Bayesian Fit
