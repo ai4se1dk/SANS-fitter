@@ -60,7 +60,8 @@ print('Part 2: Looking at the Starting Values')
 print('=' * 80)
 
 # Data, the model at the current parameters, and residuals, no fit required.
-# The printed chi-squared is chi2/dof, the same number BUMPS prints as
+# The printed chi-squared is chi2/dof (result["reduced_chisq"] after a fit),
+# the same number BUMPS prints as
 # "Initial chi2" at the start of a fit.
 print('\nPlotting the model at radius = 25 Å...')
 fitter.plot_model(show_residuals=True, log_scale=True)

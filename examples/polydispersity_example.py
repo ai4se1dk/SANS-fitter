@@ -66,7 +66,7 @@ print(f"\nPolydispersity enabled: {fitter.is_polydispersity_enabled()}")
 # Fit without polydispersity
 print("\nFitting without polydispersity...")
 result_mono = fitter.fit(engine='bumps', method='amoeba')
-print(f"Chi-squared (monodisperse): {result_mono['chisq']:.4f}")
+print(f"Reduced chi-squared (monodisperse): {result_mono['reduced_chisq']:.4f}")
 
 # ============================================================================
 # Part 3: Enabling and Configuring Polydispersity
@@ -127,12 +127,12 @@ print("=" * 80)
 
 print("\nFitting with 10% Gaussian polydispersity on radius...")
 result_pd = fitter_pd.fit(engine='bumps', method='amoeba')
-print(f"Chi-squared (polydisperse): {result_pd['chisq']:.4f}")
+print(f"Reduced chi-squared (polydisperse): {result_pd['reduced_chisq']:.4f}")
 
-# Compare chi-squared values
+# Compare reduced chi-squared values
 print("\n--- Comparison ---")
-print(f"Monodisperse chi-squared: {result_mono['chisq']:.4f}")
-print(f"Polydisperse chi-squared: {result_pd['chisq']:.4f}")
+print(f"Monodisperse reduced chi-squared: {result_mono['reduced_chisq']:.4f}")
+print(f"Polydisperse reduced chi-squared: {result_pd['reduced_chisq']:.4f}")
 
 # ============================================================================
 # Part 5: Using Different Distribution Types
@@ -160,7 +160,7 @@ fitter_lognorm.enable_polydispersity(True)
 
 print("Fitting with lognormal distribution...")
 result_lognorm = fitter_lognorm.fit(engine='bumps', method='amoeba')
-print(f"Chi-squared (lognormal): {result_lognorm['chisq']:.4f}")
+print(f"Reduced chi-squared (lognormal): {result_lognorm['reduced_chisq']:.4f}")
 
 # Schulz distribution - commonly used for polymers and colloids
 fitter_schulz = SANSFitter()
@@ -179,7 +179,7 @@ fitter_schulz.enable_polydispersity(True)
 
 print("Fitting with Schulz distribution...")
 result_schulz = fitter_schulz.fit(engine='bumps', method='amoeba')
-print(f"Chi-squared (Schulz): {result_schulz['chisq']:.4f}")
+print(f"Reduced chi-squared (Schulz): {result_schulz['reduced_chisq']:.4f}")
 
 # ============================================================================
 # Part 6: Fitting the Polydispersity Width

@@ -108,7 +108,16 @@ class TestPosteriorSummary(unittest.TestCase):
 
     def test_require_posterior_raises_without_posterior(self):
         contract = FitResultContract(
-            engine='bumps', method='amoeba', chisq=1.0, parameters={}, artifacts=FitArtifacts()
+            engine='bumps',
+            method='amoeba',
+            chisq=1.0,
+            reduced_chisq=0.5,
+            n_points=10,
+            n_free=2,
+            dof=8,
+            weighting_note='dI',
+            parameters={},
+            artifacts=FitArtifacts(),
         )
         with self.assertRaises(ValueError):
             contract.require_posterior()
@@ -118,6 +127,11 @@ class TestPosteriorSummary(unittest.TestCase):
             engine='bumps',
             method='dream',
             chisq=1.0,
+            reduced_chisq=0.5,
+            n_points=10,
+            n_free=2,
+            dof=8,
+            weighting_note='dI',
             parameters={},
             artifacts=FitArtifacts(posterior=self.posterior),
         )

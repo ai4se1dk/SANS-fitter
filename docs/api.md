@@ -37,6 +37,7 @@ The main class for SANS data fitting.
         - compare
         - fit
         - fit_bayesian
+        - get_fit_report
         - get_posterior
         - plot_results
         - plot_posterior_pairs
@@ -74,6 +75,25 @@ With keyword monikers (`set_models(small='sphere', large='sphere')`) the
 prefix is the moniker (`small_radius` → `A_radius`). Parameters listed in
 `shared=` collapse to a single unprefixed name (`sld` → `A_sld` + `B_sld`);
 their prefixed aliases remain addressable for polydispersity configuration.
+
+## FitReport
+
+Goodness-of-fit summary returned by `SANSFitter.get_fit_report()`: the χ²
+statistics, the parameter table, the covariance and correlation matrices, the
+convergence verdict and any parameter resting on a bound. Renders itself as a
+table in a notebook, as plain text, and as Markdown.
+
+::: sans_fitter.report.FitReport
+    options:
+      show_root_heading: true
+      show_source: true
+      members:
+        - from_contract
+        - corr
+        - strongly_correlated
+        - to_markdown
+        - to_dict
+        - to_json
 
 ## PosteriorSummary
 
@@ -167,8 +187,8 @@ sans_fitter.set_verbosity('quiet')   # keep warnings, drop the progress messages
 sans_fitter.set_verbosity('info')    # back to the default
 ```
 
-Tables you ask for explicitly — `get_params()`, `get_pd_params()`,
-`examples.describe()` — are printed either way; they are the result of the call
+Tables you ask for explicitly - `get_params()`, `get_pd_params()`,
+`examples.describe()` - are printed either way; they are the result of the call
 rather than a side effect of it.
 
 ::: sans_fitter.console

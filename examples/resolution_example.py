@@ -82,7 +82,7 @@ for mode in ('data', 'none'):
     error = radius['value'] - TRUTH['radius']
     print(
         f"\n  mode '{mode}': radius = {radius['value']:.3f} +/- {radius['stderr']:.3f} A"
-        f' ({error:+.3f} A from truth), chi^2/dof = {result["chisq"]:.3f}'
+        f' ({error:+.3f} A from truth), chi^2/dof = {result["reduced_chisq"]:.3f}'
     )
 
 # The bias in the radius is modest; the goodness of fit is not. Fitting a
@@ -136,7 +136,7 @@ for label, kwargs in (("mode 'none'", {}), ('a guessed 10% pinhole', {'dq_over_q
     error = radius['value'] - TRUTH['radius']
     print(
         f'\n  {label}: radius = {radius["value"]:.3f} A '
-        f'({error:+.3f} A from truth), chi^2/dof = {result["chisq"]:.3f}'
+        f'({error:+.3f} A from truth), chi^2/dof = {result["reduced_chisq"]:.3f}'
     )
 
 
@@ -154,7 +154,7 @@ fitter.set_resolution('slit', slit_length=0.05)
 print(f'Active setting: {fitter.get_resolution()}')
 result = fitter.fit(engine='bumps', method='amoeba')
 print(f'  radius = {result["parameters"]["radius"]["value"]:.3f} A')
-print(f'  chi^2/dof = {result["chisq"]:.3f} -- slit geometry is wrong for this data,')
+print(f'  chi^2/dof = {result["reduced_chisq"]:.3f} -- slit geometry is wrong for this data,')
 print('  which is exactly what a bad goodness of fit is for.')
 
 # ============================================================================

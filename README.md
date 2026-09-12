@@ -22,6 +22,7 @@ A flexible, model-agnostic Python template for fitting Small-Angle Neutron Scatt
 - **Interactive Visualization**: Automatic plotting of data, fitted model, and residuals with Plotly
 - **Bayesian Analysis**: Posterior sampling with BUMPS DREAM (MCMC) plus corner, marginal, predictive-band, correlation, and trace plots
 - **P(r) Inversion**: Model-free pair distance distribution analysis (indirect Fourier transform) via `pr_inversion` — D_max exploration, automatic regularization/term selection, and Rg/I(0)/positivity diagnostics
+- **Fit-Quality Reporting**: Reduced χ² alongside raw χ², point and parameter counts, covariance/correlation matrices, a convergence verdict and a warning when a fitted parameter rests on a bound — all via `fitter.get_fit_report()`, which renders as a table in a notebook, as text, or as Markdown
 - **Result Export**: Save fitted parameters and curves to CSV files
 
 ## Installation
@@ -119,6 +120,10 @@ result = fitter.fit(engine='bumps', method='amoeba')
 
 # Visualize results
 fitter.plot_results(show_residuals=True)
+
+# Judge the fit: reduced chi-squared, correlations, bound checks
+report = fitter.get_fit_report()
+print(report)
 
 # Save results
 fitter.save_results('fit_results.csv')

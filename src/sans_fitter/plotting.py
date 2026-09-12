@@ -79,17 +79,22 @@ def _resolve_show(show: bool | None) -> bool:
     return not _running_in_notebook() if show is None else show
 
 
-def format_chisq(chisq: float, symbol: str = 'χ²') -> str:
-    """Format a chi-squared value for titles and logged summaries.
+def format_reduced_chisq(reduced_chisq: float, dof: int, symbol: str = 'χ²') -> str:
+    """Format a *reduced* chi-squared for titles and logged summaries.
 
-    A NaN means the value could not be computed because the data carries no
-    usable intensity uncertainties; say so rather than printing 'nan'.
+    Takes the reduced value and the degrees of freedom rather than a raw χ² plus a
+    flag, so a caller cannot label a raw sum of squares as χ²/dof by forgetting an
+    argument. *dof* also discriminates the two reasons the value can be
+    unavailable: no degrees of freedom, or no usable intensity uncertainties.
 
     *symbol* names the goodness-of-fit glyph. Figure titles keep the Unicode
     default; console messages pass ``console.CHI_SQUARED``, which falls back
     to ASCII on a stdout that cannot encode it.
     """
-    return f'{symbol} n/a (no dI)' if not np.isfinite(chisq) else f'{symbol} = {chisq:.4f}'
+    if np.isfinite(reduced_chisq):
+        return f'{symbol}/dof = {reduced_chisq:.4f}'
+    reason = 'dof <= 0' if dof <= 0 else 'no dI'
+    return f'{symbol}/dof n/a ({reason})'
 
 
 def plot_fit(
@@ -161,7 +166,12 @@ def plot_fit(
     # preview can be plotted against data without dI (no fit can be), in which
     # case the residual panel stays empty rather than dividing by nothing.
     has_dy = has_real_data(dy)
-    if has_dy:
+    stored_residuals = fit_result.artifacts.residuals
+    if stored_residuals is not None and len(stored_residuals) == len(y):
+        # The residuals the fit minimized, which differ from (y - fit) / dy
+        # wherever the scipy engine unit-weighted a zero-dI point.
+        residuals = np.asarray(stored_residuals, dtype=float)
+    elif has_dy:
         # Individual zero-dI points still give inf/NaN; plotly drops them.
         with np.errstate(divide='ignore', invalid='ignore'):
             residuals = (y - i_fit) / dy
@@ -293,7 +303,10 @@ def plot_fit(
 
     title_prefix = PREVIEW_TITLE_PREFIX if fit_result.is_preview else 'SANS Fit'
     fig.update_layout(
-        title=f'{title_prefix}: {model_name} ({format_chisq(fit_result.chisq)})',
+        title=(
+            f'{title_prefix}: {model_name} '
+            f'({format_reduced_chisq(fit_result.reduced_chisq, fit_result.dof)})'
+        ),
         template='plotly_white',
         height=800 if show_residuals else 500,
         width=900,

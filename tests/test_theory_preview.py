@@ -201,7 +201,23 @@ class TestPlotModel(unittest.TestCase):
             self.fitter.data, self.fitter.kernel, self.fitter._param_manager.snapshot_fit_state()
         )
         fig = self.fitter.plot_model(show=False)
-        self.assertIn(f'χ² = {problem.chisq():.4f}', fig.layout.title.text)
+        self.assertIn(f'χ²/dof = {problem.chisq():.4f}', fig.layout.title.text)
+
+    def test_chisq_matches_the_bumps_initial_value_under_custom_resolution(self):
+        """The preview must be smeared exactly like the fit that follows it.
+
+        Before the fit-quality work the preview evaluated fitter.data directly
+        while fits go through _evaluation_data(), so a custom resolution mode made
+        the two numbers disagree.
+        """
+        self.fitter.set_resolution('pinhole', dq_over_q=0.1)
+        problem, _ = _build_bumps_problem(
+            self.fitter._evaluation_data(warn=False),
+            self.fitter.kernel,
+            self.fitter._param_manager.snapshot_fit_state(),
+        )
+        fig = self.fitter.plot_model(show=False)
+        self.assertIn(f'χ²/dof = {problem.chisq():.4f}', fig.layout.title.text)
 
     def test_data_without_uncertainties_reports_no_chisq(self):
         q = np.geomspace(0.01, 0.3, 15)
@@ -210,18 +226,25 @@ class TestPlotModel(unittest.TestCase):
 
         fig = fitter.plot_model(show=False)
 
-        self.assertIn('χ² n/a (no dI)', fig.layout.title.text)
+        self.assertIn('χ²/dof n/a (no dI)', fig.layout.title.text)
         self.assertIsNone(fitter.data.dy)
 
     def test_zero_uncertainties_report_no_chisq(self):
         fitter = make_sphere_fitter(npoints=15, noise=0, seed=0)
-        self.assertIn('χ² n/a (no dI)', fitter.plot_model(show=False).layout.title.text)
+        self.assertIn('χ²/dof n/a (no dI)', fitter.plot_model(show=False).layout.title.text)
 
-    def test_chisq_stays_finite_when_free_parameters_outnumber_points(self):
+    def test_chisq_is_unavailable_when_free_parameters_outnumber_points(self):
+        """No degrees of freedom, no reduced chi-squared — and it says which reason.
+
+        The pre-0.4 preview clamped dof to 1 and reported a number here, which a
+        fit never would.
+        """
         self.fitter.set_q_range(qmin=self.fitter.data.x[-2])  # two fitted points
         self.fitter.set_param('scale', vary=True)
         self.fitter.set_param('background', vary=True)
-        self.assertIn('χ² = ', self.fitter.plot_model(show=False).layout.title.text)
+        self.fitter.set_param('sld', vary=True)
+        title = self.fitter.plot_model(show=False).layout.title.text
+        self.assertIn('χ²/dof n/a (dof <= 0)', title)
 
     def test_components_overlay_before_fitting(self):
         fitter = SANSFitter()

@@ -11,7 +11,10 @@ from .base import (
     apply_parameter_links,
     build_result_parameters,
     extract_fit_index,
+    normalize_message,
     pd_is_active,
+    reduced_chisq,
+    validate_covariance,
 )
 
 try:
@@ -69,6 +72,7 @@ def fit_scipy(
     # 1.0 instead — they will dominate χ² relative to small-error points, but
     # masking them would silently change the degrees of freedom.
     zero_dy = np.nan_to_num(dy_fit) == 0
+    weighting_note = 'dI'
     if zero_dy.any():
         if zero_dy.all():
             warnings.warn(
@@ -81,6 +85,9 @@ def fit_scipy(
                 'uncertainty (dI); weighting them as 1.0.',
                 stacklevel=2,
             )
+        weighting_note = (
+            f'dI ({int(zero_dy.sum())} of {zero_dy.size} points unit-weighted because dI = 0)'
+        )
         dy_fit = np.where(zero_dy, 1.0, dy_fit)
 
     def build_parameter_dict(x: np.ndarray) -> dict[str, Any]:
@@ -109,6 +116,14 @@ def fit_scipy(
 
     logger.info(f'\nFitting with scipy.optimize (method: {method})...')
 
+    # Initialized before the branching so a method that cannot supply a covariance
+    # (differential evolution) or whose inversion fails leaves it None rather than
+    # unbound.
+    cov_matrix: np.ndarray | None = None
+    cov_source: str | None = None
+    converged: bool | None = None
+    message = ''
+
     if method == 'leastsq':
         # epsfcn is the assumed relative error in the function; leastsq derives
         # its step as sqrt(epsfcn)*x. See KERNEL_PRECISION.
@@ -118,9 +133,12 @@ def fit_scipy(
         cov_matrix = result[1]
         if cov_matrix is not None:
             param_errors = np.sqrt(np.diag(cov_matrix))
+            cov_source = 'scipy cov_x'
         else:
             param_errors = np.zeros_like(fitted_params)
-        chisq = np.sum(residual(fitted_params) ** 2)
+        # ier 1-4 are leastsq's success codes; 0 and 5+ are failures.
+        converged = result[4] in (1, 2, 3, 4)
+        message = normalize_message(result[3])
     elif method == 'least_squares':
         # diff_step is the relative step itself, not its square.
         kwargs.setdefault('diff_step', JACOBIAN_STEP)
@@ -129,10 +147,15 @@ def fit_scipy(
         try:
             cov_matrix = np.linalg.inv(result.jac.T @ result.jac)
             param_errors = np.sqrt(np.diag(cov_matrix))
-        except Exception as e:
+            cov_source = 'jacobian'
+        except np.linalg.LinAlgError as e:
             warnings.warn(f'Failed to compute covariance from Jacobian: {e}', stacklevel=2)
+            cov_matrix = None
             param_errors = np.zeros_like(fitted_params)
-        chisq = np.sum(result.fun**2)
+        # status > 0 is a termination criterion being met; 0 is the evaluation
+        # budget running out and -1 an infeasible start.
+        converged = result.status > 0
+        message = normalize_message(result.message)
     elif method == 'differential_evolution':
         bounds_list = list(zip(bounds_lower, bounds_upper, strict=True))
 
@@ -142,11 +165,17 @@ def fit_scipy(
         result = differential_evolution(objective, bounds_list, **kwargs)
         fitted_params = result.x
         param_errors = np.zeros_like(fitted_params)
-        chisq = result.fun
+        converged = bool(result.success)
+        message = normalize_message(result.message)
     else:
         raise ValueError(
             f"Unknown method '{method}'. Use 'leastsq', 'least_squares', or 'differential_evolution'."
         )
+
+    # One evaluation at the optimum, so chisq and the exported residuals cannot
+    # disagree. differential_evolution's result.fun is the same objective value.
+    final_residuals = residual(fitted_params)
+    chisq = float(np.sum(final_residuals**2))
 
     varied: dict[str, dict[str, Any]] = {}
     # The parameter set the fit actually landed on: link followers carry their
@@ -165,14 +194,29 @@ def fit_scipy(
         }
         fitted_values[name] = fitted_params[index]
 
+    n_points = int(y_fit.size)
+    n_free = len(param_names)
+    dof = n_points - n_free
+
     contract = FitResultContract(
         engine='lmfit',
         method=method,
         chisq=chisq,
+        reduced_chisq=reduced_chisq(chisq, dof),
+        n_points=n_points,
+        n_free=n_free,
+        dof=dof,
+        weighting_note=weighting_note,
         parameters=build_result_parameters(fit_state, varied),
+        converged=converged,
+        message=message,
+        cov=None if cov_matrix is None else validate_covariance(cov_matrix, param_names),
+        cov_labels=list(param_names),
+        cov_source=cov_source,
         artifacts=FitArtifacts(
             fitted_curve=np.asarray(calculator(**final_pars)),
             fit_index=extract_fit_index(calculator),
+            residuals=np.asarray(final_residuals, dtype=float),
             raw_result=result,
         ),
     )

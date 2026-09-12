@@ -2,6 +2,7 @@
 
 import copy
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -10,7 +11,20 @@ from sasmodels.direct_model import DirectModel
 
 from ..data.loader import has_real_data, validate_q_grid
 from ..results import ParameterStateSnapshot, resolve_fit_index
-from .base import apply_parameter_links, extract_fit_index, pd_is_active
+from .base import apply_parameter_links, extract_fit_index, pd_is_active, reduced_chisq
+
+
+@dataclass(slots=True, frozen=True)
+class PreviewQuality:
+    """Goodness-of-fit block for a theory preview, mirroring the fit contract's."""
+
+    chisq: float
+    reduced_chisq: float
+    n_points: int
+    n_free: int
+    dof: int
+    #: Weighted residuals, or None when the data carries no usable uncertainties.
+    residuals: np.ndarray | None
 
 
 def build_model_parameters(
@@ -83,16 +97,27 @@ def scatter_to_full_length(curve: np.ndarray, fit_index: np.ndarray) -> np.ndarr
     return full
 
 
-def preview_chisq(data: Any, curve: np.ndarray, fit_index: np.ndarray, n_free: int) -> float:
-    """χ²/dof in bumps' convention, so it equals the "Initial χ²" a bumps fit prints.
+def preview_quality(
+    data: Any, curve: np.ndarray, fit_index: np.ndarray, n_free: int
+) -> PreviewQuality:
+    """Goodness-of-fit numbers for a theory preview, in the fit's own vocabulary.
 
-    NaN when the data has no usable uncertainties: a preview does not invent
-    a weight. dof is clamped to 1, diverging from bumps only when free
-    parameters outnumber fitted points.
+    ``reduced_chisq`` equals the "Initial χ²" a bumps fit prints, so a preview and
+    the fit that follows it are directly comparable. Both χ² fields are NaN when
+    the data has no usable uncertainties: a preview does not invent a weight.
+
+    Unlike the pre-0.4 implementation there is no ``max(dof, 1)`` clamp — when the
+    free parameters outnumber the fitted points the reduced value is NaN, exactly
+    as it is after a fit.
     """
+    y = np.asarray(data.y, dtype=float)[fit_index]
+    n_points = int(len(y))
+    dof = n_points - n_free
+
     dy = None if data.dy is None else np.asarray(data.dy, dtype=float)[fit_index]
     if not has_real_data(dy) or np.any(dy == 0):
-        return float('nan')
+        return PreviewQuality(float('nan'), float('nan'), n_points, n_free, dof, None)
 
-    y = np.asarray(data.y, dtype=float)[fit_index]
-    return float(np.sum(((y - curve) / dy) ** 2) / max(len(y) - n_free, 1))
+    residuals = (y - curve) / dy
+    chisq = float(np.sum(residuals**2))
+    return PreviewQuality(chisq, reduced_chisq(chisq, dof), n_points, n_free, dof, residuals)

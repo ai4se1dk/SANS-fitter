@@ -105,16 +105,25 @@ class TestCrossEngineAgreement:
         for stderr in errors[1:]:
             assert stderr == pytest.approx(errors[0], rel=0.05)
 
-    def test_chisq_differs_only_by_the_degrees_of_freedom(self):
-        """Documents a known discrepancy rather than hiding it.
+    def test_all_engines_agree_on_chisq(self):
+        """One chi-squared vocabulary, whichever engine produced the fit.
 
-        bumps normalizes chi-squared by the degrees of freedom; the scipy
-        engine stores the raw sum of squared residuals. Same fit, ~79x apart.
+        Before 0.4 these were ~dof apart: bumps stored chi-squared per degree of
+        freedom while the scipy engine stored the raw sum of squared residuals.
         """
         dof = self.npoints - 1  # one varying parameter
-        bumps = self.results['bumps/amoeba']['chisq']
-        scipy = self.results['lmfit/leastsq']['chisq']
-        assert scipy / dof == pytest.approx(bumps, rel=0.05)
+        for name, result in self.results.items():
+            assert result['n_points'] == self.npoints, name
+            assert result['n_free'] == 1, name
+            assert result['dof'] == dof, name
+            assert result['reduced_chisq'] == pytest.approx(result['chisq'] / dof), name
+
+        raw = [result['chisq'] for result in self.results.values()]
+        reduced = [result['reduced_chisq'] for result in self.results.values()]
+        for value in raw[1:]:
+            assert value == pytest.approx(raw[0], rel=0.05)
+        for value in reduced[1:]:
+            assert value == pytest.approx(reduced[0], rel=0.05)
 
 
 def data_with_nan_rows():
