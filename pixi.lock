@@ -10788,6 +10788,7 @@ packages:
   - pytest>=7.0 ; extra == 'dev'
   - pytest-cov>=4.0 ; extra == 'dev'
   - pandas>=2.0.0 ; extra == 'dev'
+  - kaleido>=0.2 ; extra == 'report'
   - mkdocs>=1.5 ; extra == 'docs'
   - mkdocs-material>=9.5 ; extra == 'docs'
   - mkdocstrings[python]>=0.25 ; extra == 'docs'

@@ -156,6 +156,53 @@ class PosteriorSummary:
 
 
 @dataclass(slots=True)
+class PosteriorDigest:
+    """Posterior statistics without the sample chain.
+
+    What a saved analysis restores. ``PosteriorSummary`` cannot serve here: it
+    requires ``samples`` and derives its counts from that array, so a
+    summary-only instance would either be impossible or would misreport having
+    a chain. This carries exactly the read surface ``FitReport`` uses, and
+    nothing that implies a chain is available.
+
+    Sample-dependent displays (trace, pair and posterior-predictive plots)
+    check for the real thing and raise; see ``SANSFitter.get_posterior``.
+    """
+
+    labels: list[str]
+    n_samples: int
+    n_params: int
+    best: dict[str, float] = field(default_factory=dict)
+    mean: dict[str, float] = field(default_factory=dict)
+    median: dict[str, float] = field(default_factory=dict)
+    std: dict[str, float] = field(default_factory=dict)
+    ci_68: dict[str, tuple[float, float]] = field(default_factory=dict)
+    ci_95: dict[str, tuple[float, float]] = field(default_factory=dict)
+    diagnostics: dict[str, dict[str, float]] | None = None
+
+    @classmethod
+    def from_summary(cls, posterior: PosteriorSummary) -> 'PosteriorDigest':
+        """Drop the chain from a full posterior, keeping every statistic."""
+        return cls(
+            labels=list(posterior.labels),
+            n_samples=posterior.n_samples,
+            n_params=posterior.n_params,
+            best=dict(posterior.best),
+            mean=dict(posterior.mean),
+            median=dict(posterior.median),
+            std=dict(posterior.std),
+            ci_68={name: tuple(bounds) for name, bounds in posterior.ci_68.items()},
+            ci_95={name: tuple(bounds) for name, bounds in posterior.ci_95.items()},
+            diagnostics=posterior.diagnostics,
+        )
+
+    # The statistics table is identical whether or not the chain is present, so
+    # the formatting lives on PosteriorSummary and is borrowed here rather than
+    # duplicated. Only attributes this class also defines are touched.
+    format_summary = PosteriorSummary.format_summary
+
+
+@dataclass(slots=True)
 class FitArtifacts:
     """Engine-specific runtime data needed after fitting."""
 
@@ -170,7 +217,7 @@ class FitArtifacts:
     # export time would write inf where the fit used a weight of 1.0, and the
     # exported residuals would no longer square-sum to the reported chisq.
     residuals: np.ndarray | None = None
-    posterior: PosteriorSummary | None = None
+    posterior: 'PosteriorSummary | PosteriorDigest | None' = None
     posterior_data: Any = None
     posterior_model_eval: Any = None
     # Per-component curves for '+' mixture models: label -> I(q) evaluated on
@@ -228,6 +275,12 @@ class FitResultContract:
     cov_source: str | None = None
     # (parameter, 'min' | 'max') for each varied parameter sitting on a bound.
     on_bounds: list[tuple[str, str]] = field(default_factory=list)
+    # The configuration and data this result belongs to, recorded when the fit
+    # finished. No setter clears a fit result, so a fitter can hold a result
+    # produced by settings the user has since changed; save_analysis() compares
+    # this against the live configuration and omits a result that no longer
+    # describes it. See sans_fitter.persistence.fit_context.
+    fit_context: dict[str, Any] | None = None
 
     @property
     def is_preview(self) -> bool:
@@ -269,13 +322,26 @@ class FitResultContract:
         return self.artifacts.fitted_curve
 
     def require_posterior(self) -> PosteriorSummary:
-        """Return the posterior summary or raise if the fit was not Bayesian."""
-        if self.artifacts.posterior is None:
+        """Return the posterior sample, or raise if this fit has none.
+
+        A summary restored from a saved analysis is rejected here as firmly as
+        no posterior at all: the statistics survive a save, the chain does not,
+        and every caller of this method needs the chain itself.
+        """
+        posterior = self.artifacts.posterior
+        if posterior is None:
             raise ValueError(
                 'Fit result does not include a posterior sample. '
                 'Run fit_bayesian() to enable Bayesian displays.'
             )
-        return self.artifacts.posterior
+        if isinstance(posterior, PosteriorDigest):
+            raise ValueError(
+                'This analysis was loaded from a file, which stores posterior '
+                'statistics but not the sample chain. The summary is available '
+                'through get_fit_report(); re-run fit_bayesian() for displays '
+                'that need the samples themselves.'
+            )
+        return posterior
 
     def save_csv(self, filename: str, model_name: str, data: Any) -> None:
         """Save fit results, fitted curve, and residuals to CSV.

@@ -7,6 +7,7 @@ optimization engines (BUMPS, LMFit) with any model from the SasModels library.
 
 import difflib
 import functools
+import os
 import re
 import warnings
 from collections.abc import Sequence
@@ -22,7 +23,13 @@ from sasmodels.direct_model import DirectModel
 
 from . import plotting
 from .console import ARROW, CHI_SQUARED, INVERSE_ANGSTROM, OK, logger
-from .data.loader import get_fit_index, has_real_data, load_sans_data, normalize_sans_data
+from .data.loader import (
+    get_fit_index,
+    has_real_data,
+    load_sans_dataset,
+    normalize_sans_data,
+)
+from .data.provenance import DataSource, fingerprint_arrays
 from .data.resolution import ResolutionSetting, apply_resolution, validate_resolution
 from .fitting import (
     DEFAULT_DREAM_BURN,
@@ -44,8 +51,11 @@ from .fitting.theory import (
 )
 from .modeling.parameters import ParameterManager
 from .modeling.structure_factor import validate_radius_effective_mode
+from .persistence import build_fit_context, read_analysis, write_analysis
 from .plotting import DEFAULT_POSTERIOR_PREDICTIVE_DRAWS, format_reduced_chisq, plot_fit
 from .report import FitReport
+from .reporting import Report, format_for, warn_if_no_image
+from .reporting import render as render_report
 from .results import (
     PREVIEW_ENGINE,
     FitArtifacts,
@@ -152,6 +162,9 @@ class SANSFitter:
         self.data = None
         self.kernel = None
         self.fit_result = None
+        # Where self.data came from, recorded at ingestion by load_data() and
+        # set_data(); None until one of them runs. See data/provenance.py.
+        self._data_source: DataSource | None = None
         self._fit_contract: FitResultContract | None = None
         self._fitted_model = None
         self._full_q_range: tuple[float, float] | None = None
@@ -190,7 +203,18 @@ class SANSFitter:
             FileNotFoundError: If the file doesn't exist
             ValueError: If the data cannot be loaded or is invalid
         """
-        self.data = load_sans_data(filename, dataset=dataset)
+        loaded = load_sans_dataset(filename, dataset=dataset)
+        self.data = loaded.data
+        # Recorded here because nothing downstream can recover it: the selector
+        # is resolved to a position and dropped, and the dataset's own
+        # .filename metadata is not an authoritative path.
+        self._data_source = DataSource.from_file(
+            filename,
+            self.data,
+            requested=dataset,
+            index=loaded.index,
+            n_datasets=loaded.n_datasets,
+        )
         self._full_q_range = (self.data.qmin, self.data.qmax)
 
         has_dy = has_real_data(self.data.dy)
@@ -245,6 +269,10 @@ class SANSFitter:
             )
 
         self.data = normalize_sans_data(data)
+        # Replaces any file provenance: this dataset did not come from a path,
+        # and inferring one from its metadata would be wrong (data_ops results
+        # carry an operation string in .filename, not a file).
+        self._data_source = DataSource.from_memory(self.data)
         self._full_q_range = (self.data.qmin, self.data.qmax)
 
         has_dy = has_real_data(self.data.dy)
@@ -981,6 +1009,18 @@ class SANSFitter:
         # Covariance labels are canonical too, and land next to the parameter
         # names in the same translation (Boundary 2 of the alias layer).
         self._fit_contract.cov_labels = [to_display(name) for name in self._fit_contract.cov_labels]
+
+        # Record the configuration and data this result belongs to. No setter
+        # clears a fit result, so without this a later save_analysis() could
+        # pair the current settings with a chi-squared that a different set
+        # produced. Taken after apply_fitted_values, so it describes the fit.
+        self._fit_contract.fit_context = build_fit_context(
+            self._param_manager.export_config(),
+            self._resolution.as_dict(),
+            self.get_q_range(),
+            self._fit_contract.n_points,
+            None if self.data is None else fingerprint_arrays(self.data),
+        )
 
         # Attach per-component curves for '+' mixture models (no-op otherwise).
         component_curves = self._compute_component_curves()
@@ -1899,3 +1939,153 @@ class SANSFitter:
         )
 
         logger.info(f'{OK} Results saved to {filename}')
+
+    # =========================================================================
+    # Persistence and reporting
+    # =========================================================================
+
+    def save_analysis(self, filename: str, include_result: bool = True) -> None:
+        """
+        Save the complete analysis setup, and the last fit result, as JSON.
+
+        What ``save_results()`` writes is the *outcome* of a fit. This writes
+        how the fit was set up: the model expression and its component names,
+        every parameter value, bound and vary flag, polydispersity, links, the
+        structure factor, the resolution mode and the Q range. Reload it with
+        :meth:`load_analysis`.
+
+        JSON rather than pickle, so the file is readable, diffable, reviewable
+        in a pull request, and safe to accept from a collaborator.
+
+        **The result is only saved while it still describes the setup.** No
+        setter clears a fit result, so a fitter can hold one produced by
+        settings that have since changed (a parameter edited, the Q range
+        restricted, the resolution switched, the data replaced). Saving the
+        two together would pair a chi-squared with a configuration that never
+        produced it. When they disagree, the setup is written, the result is
+        left out, and the log line says which facet moved. Fit before you save,
+        or save before you experiment.
+
+        Args:
+            filename: Output path for the JSON analysis file.
+            include_result: When False, write the setup alone. Useful as a
+                template: a configured model with no sample-specific outcome,
+                ready to apply to the next dataset.
+
+        Raises:
+            AnalysisFileError: If no model is set, or the target directory
+                does not exist. A subclass of ValueError.
+        """
+        document = write_analysis(self, filename, include_result=include_result)
+
+        lines = [f'{OK} Analysis saved to {filename}']
+        if document['result'] is not None:
+            lines.append('  Fit result included')
+        elif document['result_omitted'] is not None:
+            lines.append(f'  Fit result NOT included: {document["result_omitted"]}')
+        elif include_result:
+            lines.append('  No fit result to include')
+        else:
+            lines.append('  Setup only (include_result=False)')
+        logger.info('\n'.join(lines))
+
+    @classmethod
+    def load_analysis(
+        cls,
+        filename: str,
+        data: Any = None,
+        allow_custom_models: bool = False,
+    ) -> 'SANSFitter':
+        """
+        Rebuild a fitter from a file written by :meth:`save_analysis`.
+
+        The data file is looked for next to the analysis file first (by the
+        relative path recorded when it was saved) and then at its original
+        absolute path, so an analysis that travelled together with its data
+        loads on another machine.
+
+        Args:
+            filename: Path to the JSON analysis file.
+            data: Dataset to use instead of the recorded one: a path, or an
+                in-memory dataset. Required for an analysis saved from
+                ``set_data()``, whose dataset has no file to reload. An
+                explicit value that cannot be used is an error rather than a
+                silent fall back to the recorded sample.
+            allow_custom_models: Permit a model expression that is not built
+                into sasmodels. Off by default: loading such an expression
+                imports a plugin module named by the file, so it is code
+                execution chosen by whoever wrote the file, not by you.
+
+        Returns:
+            A configured fitter. When the saved result still describes the
+            restored setup and the same data, it is attached too, so
+            ``plot_results()``, ``save_results()`` and ``get_fit_report()``
+            work without refitting.
+
+        Raises:
+            AnalysisFileError: If the file is missing, malformed, written by a
+                newer schema, describes a different model, or its data cannot
+                be found. A subclass of ValueError.
+        """
+        return read_analysis(cls, filename, data=data, allow_custom_models=allow_custom_models)
+
+    def report(
+        self,
+        filename: str | None = None,
+        fmt: str | None = None,
+        offline: bool = False,
+    ) -> Report:
+        """
+        Render a shareable report: settings, result tables and the fit plot.
+
+        One document holding everything a colleague needs to judge the fit: the
+        model and data it used, how it was smeared and weighted, the Q range,
+        the goodness-of-fit and parameter tables from
+        :meth:`get_fit_report`, and the plot. After ``fit_bayesian()`` the
+        posterior summary comes along with it.
+
+        Before any fit this produces a configuration report instead of raising:
+        the settings and the current parameter values, with a theory preview in
+        place of the fit plot. That is also what an analysis loaded with
+        ``include_result=False`` renders.
+
+        **HTML needs nothing beyond the standard dependencies; Markdown needs
+        an image renderer.** A Markdown report references a sidecar PNG, named
+        after the report file so two reports in one directory cannot overwrite
+        each other's figure. With no usable renderer the figure is left out and
+        a warning says how to install one. HTML embeds the interactive plot
+        either way.
+
+        Args:
+            filename: Where to write. The extension chooses the format
+                (``.html``/``.htm`` or ``.md``/``.markdown``). When omitted,
+                nothing is written and the report is only returned.
+            fmt: Format override, ``'html'`` or ``'markdown'``. Required to
+                pick a format when *filename* is omitted; defaults to HTML.
+            offline: Embed the Plotly library in the HTML instead of loading it
+                from a CDN. Produces a much larger file that needs no network.
+
+        Returns:
+            A Report. ``str()`` gives the Markdown, ``to_html()`` the HTML, and
+            a notebook renders it directly.
+
+        Raises:
+            ValueError: If the extension does not name a supported format, or
+                the target directory does not exist.
+        """
+        resolved = fmt or (format_for(filename) if filename else 'html')
+        if resolved not in ('html', 'markdown'):
+            raise ValueError(f"Unknown report format '{resolved}'. Use 'html' or 'markdown'.")
+
+        stem = os.path.splitext(os.path.basename(filename))[0] if filename else 'report'
+        report = render_report(self, offline=offline, asset_stem=stem)
+
+        if resolved == 'markdown' and filename is None and report.assets:
+            # Nowhere to put the sidecar, so the figure cannot be referenced.
+            report = render_report(self, offline=offline, asset_stem=stem, include_figure=False)
+
+        warn_if_no_image(report, resolved)
+        if filename is not None:
+            report.write(filename, fmt=resolved)
+            logger.info(f'{OK} Report written to {filename}')
+        return report

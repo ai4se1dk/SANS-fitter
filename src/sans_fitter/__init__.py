@@ -2,6 +2,8 @@
 SANS Model Fitter - A flexible template for fitting SANS data with SasModels
 """
 
+__version__ = '0.3.0'
+
 from . import examples
 from . import inversion as pr_inversion
 from .console import set_verbosity
@@ -12,7 +14,6 @@ from .modeling.parameters import ParameterManager
 from .modeling.polydispersity import PD_DEFAULTS, PD_DISTRIBUTION_TYPES
 from .results import FitResultContract, PosteriorSummary
 
-__version__ = '0.3.0'
 __all__ = [
     'SANSFitter',
     'ParameterManager',

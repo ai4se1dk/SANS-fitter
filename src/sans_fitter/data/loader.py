@@ -1,5 +1,6 @@
 import os
 import warnings
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -104,6 +105,29 @@ def load_sans_data(filename: str, dataset: int | str = 0) -> Any:
         ValueError: If the file cannot be loaded, contains no data, or the
             requested dataset does not exist or is ambiguous.
     """
+    return load_sans_dataset(filename, dataset=dataset).data
+
+
+@dataclass(slots=True)
+class LoadedDataset:
+    """A loaded dataset together with which entry of the file it came from.
+
+    ``load_sans_data`` resolves a name-based *dataset* selector to a position
+    and then discards it. Provenance recording needs that position, so the
+    resolution is exposed here and ``load_sans_data`` is the thin wrapper.
+    """
+
+    data: Any
+    index: int
+    n_datasets: int
+
+
+def load_sans_dataset(filename: str, dataset: int | str = 0) -> LoadedDataset:
+    """Load one dataset from *filename*, reporting which entry was selected.
+
+    Same arguments, warnings and errors as :func:`load_sans_data`; only the
+    return type differs.
+    """
     data_list = _load_all(filename)
     index = _select_dataset(data_list, filename, dataset)
 
@@ -116,7 +140,11 @@ def load_sans_data(filename: str, dataset: int | str = 0) -> Any:
             stacklevel=3,
         )
 
-    return normalize_sans_data(data_list[index])
+    return LoadedDataset(
+        data=normalize_sans_data(data_list[index]),
+        index=index,
+        n_datasets=len(data_list),
+    )
 
 
 def _load_all(filename: str) -> list[Any]:
