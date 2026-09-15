@@ -46,6 +46,9 @@ The main class for SANS data fitting.
         - plot_param_correlations
         - plot_trace
         - save_results
+        - save_analysis
+        - load_analysis
+        - report
         - supports_polydispersity
         - get_polydisperse_parameters
         - set_pd_param
@@ -95,6 +98,20 @@ table in a notebook, as plain text, and as Markdown.
         - to_dict
         - to_json
 
+## Report
+
+The analysis document returned by `SANSFitter.report()`: the settings block, the
+`FitReport` tables and the fit plot, as one HTML page or Markdown document.
+
+::: sans_fitter.reporting.Report
+    options:
+      show_root_heading: true
+      show_source: true
+      members:
+        - to_markdown
+        - to_html
+        - write
+
 ## PosteriorSummary
 
 Posterior sample chain and per-parameter statistics returned by `fit_bayesian()`.
@@ -107,6 +124,20 @@ Posterior sample chain and per-parameter statistics returned by `fit_bayesian()`
         - index_of
         - format_summary
         - save_posterior_csv
+
+## PosteriorDigest
+
+Posterior statistics without the sample chain: what an analysis loaded from a
+file carries. The statistics tables render exactly as they would after a fit,
+while displays that need the samples themselves raise instead of inventing them.
+
+::: sans_fitter.results.PosteriorDigest
+    options:
+      show_root_heading: true
+      show_source: true
+      members:
+        - from_summary
+        - format_summary
 
 ## data_ops
 

@@ -15,7 +15,7 @@ import numpy as np
 
 from ..console import ARROW, NO, YES
 from ..results import ParameterStateSnapshot
-from .polydispersity import PolydispersityManager
+from .polydispersity import PD_DISTRIBUTION_TYPES, PolydispersityManager
 from .structure_factor import StructureFactorManager, default_parameter_bounds
 
 
@@ -83,6 +83,161 @@ def derive_mixture_components(kernel: Any) -> list[tuple[str, str, str]]:
         )
         return []
     return components
+
+
+def _require_mapping(
+    config: dict[str, Any], key: str, default: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Fetch a mapping section, defaulting only where one is optional."""
+    if key not in config:
+        if default is None:
+            raise ValueError(f"Saved configuration is missing the '{key}' section.")
+        return dict(default)
+    value = config[key]
+    if not isinstance(value, dict):
+        raise ValueError(f"Saved '{key}' must be a mapping, got {type(value).__name__}.")
+    return value
+
+
+def _number(name: str, field: str, value: Any, *, allow_infinite: bool) -> float:
+    """Coerce one numeric field, rejecting what a fit could not use."""
+    if isinstance(value, bool) or not isinstance(value, (int, float, np.integer, np.floating)):
+        raise ValueError(
+            f"Parameter '{name}': '{field}' must be a number, got {type(value).__name__}."
+        )
+    number = float(value)
+    if np.isnan(number):
+        raise ValueError(f"Parameter '{name}': '{field}' must not be NaN.")
+    if not allow_infinite and np.isinf(number):
+        raise ValueError(f"Parameter '{name}': '{field}' must be finite.")
+    return number
+
+
+def _normalized_param(info: dict[str, Any]) -> dict[str, Any]:
+    """One parameter block with its numbers in canonical types."""
+    return {
+        'value': float(info['value']),
+        'min': float(info['min']),
+        'max': float(info['max']),
+        'vary': bool(info['vary']),
+    }
+
+
+def _normalized_pd(info: dict[str, Any]) -> dict[str, Any]:
+    """One polydispersity block with its numbers in canonical types."""
+    return {
+        'pd': float(info['pd']),
+        'pd_n': int(info['pd_n']),
+        'pd_nsigma': float(info['pd_nsigma']),
+        'pd_type': str(info['pd_type']),
+        'vary': bool(info['vary']),
+    }
+
+
+def _validated_param(name: str, saved: Any) -> dict[str, Any]:
+    """Validate one ``{value, min, max, vary}`` block.
+
+    Bounds may be infinite (that is the default for ``scale`` and
+    ``background``); a value may not, because a non-finite starting point is
+    not a setting a fit can use.
+    """
+    if not isinstance(saved, dict):
+        raise ValueError(f"Parameter '{name}' must be a mapping, got {type(saved).__name__}.")
+    missing = {'value', 'min', 'max', 'vary'} - set(saved)
+    if missing:
+        raise ValueError(f"Parameter '{name}' is missing: {', '.join(sorted(missing))}.")
+    value = _number(name, 'value', saved['value'], allow_infinite=False)
+    low = _number(name, 'min', saved['min'], allow_infinite=True)
+    high = _number(name, 'max', saved['max'], allow_infinite=True)
+    if low > high:
+        raise ValueError(f"Parameter '{name}': min ({low:g}) is above max ({high:g}).")
+    if not low <= value <= high:
+        raise ValueError(
+            f"Parameter '{name}': value {value:g} is outside its bounds [{low:g}, {high:g}]."
+        )
+    if not isinstance(saved['vary'], bool):
+        raise ValueError(f"Parameter '{name}': 'vary' must be true or false.")
+    return {'value': value, 'min': low, 'max': high, 'vary': saved['vary']}
+
+
+def _validated_pd(name: str, saved: Any) -> dict[str, Any]:
+    """Validate one polydispersity block, in manager (``pd``) spelling."""
+    if not isinstance(saved, dict):
+        raise ValueError(f"Polydispersity for '{name}' must be a mapping.")
+    missing = {'pd', 'pd_n', 'pd_nsigma', 'pd_type', 'vary'} - set(saved)
+    if missing:
+        raise ValueError(f"Polydispersity for '{name}' is missing: {', '.join(sorted(missing))}.")
+    width = _number(name, 'pd', saved['pd'], allow_infinite=False)
+    if width < 0:
+        raise ValueError(f"Polydispersity for '{name}': pd must be non-negative.")
+    if isinstance(saved['pd_n'], bool) or not isinstance(saved['pd_n'], (int, np.integer)):
+        raise ValueError(f"Polydispersity for '{name}': pd_n must be an integer.")
+    if int(saved['pd_n']) <= 0:
+        raise ValueError(f"Polydispersity for '{name}': pd_n must be positive.")
+    nsigma = _number(name, 'pd_nsigma', saved['pd_nsigma'], allow_infinite=False)
+    if nsigma <= 0:
+        raise ValueError(f"Polydispersity for '{name}': pd_nsigma must be positive.")
+    if saved['pd_type'] not in PD_DISTRIBUTION_TYPES:
+        raise ValueError(
+            f"Polydispersity for '{name}': invalid pd_type {saved['pd_type']!r}. "
+            f'Valid types: {", ".join(PD_DISTRIBUTION_TYPES)}'
+        )
+    if not isinstance(saved['vary'], bool):
+        raise ValueError(f"Polydispersity for '{name}': 'vary' must be true or false.")
+    return {
+        'pd': width,
+        'pd_n': int(saved['pd_n']),
+        'pd_nsigma': nsigma,
+        'pd_type': saved['pd_type'],
+        'vary': saved['vary'],
+    }
+
+
+def _validated_pd_backup(backup: Any) -> dict[str, Any] | None:
+    """Validate the pre-structure-factor polydispersity backup, if present."""
+    if backup is None:
+        return None
+    if not isinstance(backup, dict):
+        raise ValueError('Polydispersity backup must be a mapping or null.')
+    required = {'polydisperse_param_names', 'polydisperse_params', 'pd_enabled'}
+    missing = required - set(backup)
+    if missing:
+        raise ValueError(f'Polydispersity backup is missing: {", ".join(sorted(missing))}.')
+    return {
+        'polydisperse_param_names': [str(name) for name in backup['polydisperse_param_names']],
+        'polydisperse_params': {
+            name: _validated_pd(name, info)
+            for name, info in _require_mapping(backup, 'polydisperse_params').items()
+        },
+        'pd_enabled': bool(backup['pd_enabled']),
+    }
+
+
+def _validated_links(links: Any, params: dict[str, dict[str, Any]]) -> dict[str, str]:
+    """Validate the link set against the live parameter names.
+
+    Same rules as :meth:`ParameterManager.link_params` (no self-links, no
+    chains, no double-linking), applied to the whole set at once because a
+    saved file presents it that way rather than one call at a time.
+    """
+    if not isinstance(links, dict):
+        raise ValueError(f'Saved links must be a mapping, got {type(links).__name__}.')
+    resolved: dict[str, str] = {}
+    for follower, target in links.items():
+        if follower not in params:
+            raise ValueError(f"Saved link follower '{follower}' is not a parameter of this model.")
+        if not isinstance(target, str) or target not in params:
+            raise ValueError(f"Saved link target '{target}' is not a parameter of this model.")
+        if follower == target:
+            raise ValueError(f"Saved link makes '{follower}' follow itself.")
+        resolved[follower] = target
+    for follower, target in resolved.items():
+        if target in resolved:
+            raise ValueError(
+                f"Saved links form a chain: '{follower}' follows '{target}', "
+                f"which itself follows '{resolved[target]}'. Link both to the common target."
+            )
+    return resolved
 
 
 class ParameterManager:
@@ -1113,6 +1268,148 @@ class ParameterManager:
             True if polydispersity state has been backed up, False otherwise
         """
         return self._pd_manager.has_backup()
+
+    # =========================================================================
+    # Persistence seam (see MD/79_PLAN.md §4.1)
+    # =========================================================================
+
+    def export_config(self) -> dict[str, Any]:
+        """Return everything this manager holds, as plain nested data.
+
+        The persistence seam. Replaying the public setters instead does not
+        work for a bulk restore, for three separate reasons:
+
+        - ``get_components()`` returns ``(prefix, moniker, part)`` triples while
+          ``register_aliases()`` takes ``(moniker, model)`` pairs;
+        - ``radius_effective_mode='link_radius'`` creates its link when the
+          structure factor is applied, so a later ``set_param()`` on
+          ``radius_effective`` raises before any value can be restored;
+        - ``get_pd_param()`` returns ``pd`` plus a derived ``active`` flag,
+          while ``set_pd_param()`` expects ``pd_width`` and has no ``active``.
+
+        Parameter names are the user-facing ones (aliases on the ``set_models``
+        path). ``description`` is not exported: it is documentation re-derived
+        from the kernel, and pinning it would make files stale against a
+        sasmodels upgrade.
+
+        Numeric fields are normalized to float (``pd_n`` to int). sasmodels
+        defaults arrive as ints for some parameters, and a reloaded value is
+        always a float, so without this the same configuration would hash
+        differently before and after a round trip and every restored fit result
+        would look stale.
+        """
+        return {
+            'model_name': self.model_name,
+            'components': [list(entry) for entry in self._components],
+            'shared': list(self._shared_to_canonicals.keys()),
+            'structure_factor': {
+                'name': self._structure_factor_name,
+                'radius_effective_mode': self._radius_effective_mode,
+                'form_factor_backup': {
+                    name: _normalized_param(info)
+                    for name, info in self._sf_manager.backed_up_params.items()
+                },
+            },
+            'params': {name: _normalized_param(info) for name, info in self.params.items()},
+            'polydispersity': {
+                'enabled': self._pd_manager.is_enabled(),
+                'params': {
+                    name: _normalized_pd(info) for name, info in self._pd_manager.params.items()
+                },
+                'backup': self._export_pd_backup(),
+            },
+            'links': dict(self._links),
+        }
+
+    def _export_pd_backup(self) -> dict[str, Any] | None:
+        """The pre-structure-factor polydispersity backup, as plain data."""
+        backup = self._pd_manager.backup_state
+        if backup is None:
+            return None
+        return {
+            'polydisperse_param_names': list(backup['polydisperse_param_names']),
+            'polydisperse_params': {
+                name: _normalized_pd(info) for name, info in backup['polydisperse_params'].items()
+            },
+            'pd_enabled': bool(backup['pd_enabled']),
+        }
+
+    def import_config(self, config: dict[str, Any]) -> None:
+        """Restore a state produced by :meth:`export_config`.
+
+        Assumes the parameter skeleton already matches: the caller has loaded
+        the model, registered any aliases, and applied any structure factor, so
+        that ``self.params`` has the right keys. Values, bounds, vary flags,
+        polydispersity, links and the manager backups are what this restores.
+
+        Validates everything against the live skeleton first and commits only
+        once every check passes, so a rejected configuration leaves the manager
+        exactly as the model setup left it.
+
+        Raises:
+            ValueError: If the configuration does not describe this model, a
+                parameter or link name is unknown, a bound or flag is invalid,
+                or the link set contradicts ``radius_effective_mode``.
+        """
+        params_cfg = _require_mapping(config, 'params')
+        expected = set(self.params)
+        got = set(params_cfg)
+        if got != expected:
+            missing = ', '.join(sorted(expected - got)) or 'none'
+            unknown = ', '.join(sorted(got - expected)) or 'none'
+            raise ValueError(
+                'Saved parameters do not match the model that was loaded '
+                f"('{self.model_name}'). Missing: {missing}. Unknown: {unknown}."
+            )
+
+        new_params: dict[str, dict[str, Any]] = {}
+        for name, saved in params_cfg.items():
+            new_params[name] = dict(self.params[name]) | _validated_param(name, saved)
+
+        pd_cfg = _require_mapping(config, 'polydispersity', default={})
+        pd_params_cfg = _require_mapping(pd_cfg, 'params', default={})
+        known_pd = set(self._pd_manager.get_parameters())
+        unknown_pd = set(pd_params_cfg) - known_pd
+        if unknown_pd:
+            raise ValueError(
+                f'Saved polydispersity names not supported by this model: '
+                f'{", ".join(sorted(unknown_pd))}. '
+                f'Available: {", ".join(sorted(known_pd)) or "none"}.'
+            )
+        new_pd = {name: dict(info) for name, info in self._pd_manager.params.items()}
+        for name, saved in pd_params_cfg.items():
+            new_pd[name] = dict(new_pd.get(name, {})) | _validated_pd(name, saved)
+
+        new_links = _validated_links(config.get('links') or {}, new_params)
+        mode = self._radius_effective_mode
+        if mode == 'link_radius' and new_links.get('radius_effective') != 'radius':
+            raise ValueError(
+                "radius_effective_mode is 'link_radius' but the saved links do not "
+                "contain 'radius_effective' -> 'radius'. The two would disagree "
+                'about what the fit varies.'
+            )
+        if mode != 'link_radius' and new_links.get('radius_effective') == 'radius':
+            raise ValueError(
+                "The saved links contain 'radius_effective' -> 'radius' but "
+                f"radius_effective_mode is '{mode}'. Use 'link_radius' for that link."
+            )
+
+        sf_cfg = _require_mapping(config, 'structure_factor', default={})
+        backup_cfg = _require_mapping(sf_cfg, 'form_factor_backup', default={})
+        new_backup = {name: _validated_param(name, saved) for name, saved in backup_cfg.items()}
+
+        # Followers always carry their target's value, whatever the file says.
+        for follower, target in new_links.items():
+            new_params[follower]['value'] = new_params[target]['value']
+            new_params[follower]['vary'] = False
+
+        # Commit.
+        self.params = new_params
+        self._links = new_links
+        self._pd_manager.params = new_pd
+        self._pd_manager.set_enabled(bool(pd_cfg.get('enabled', False)))
+        self._pd_manager.backup_state = _validated_pd_backup(pd_cfg.get('backup'))
+        self._sf_manager.backed_up_params = new_backup
 
     def clear(self) -> None:
         """Clear all parameters and reset state."""
