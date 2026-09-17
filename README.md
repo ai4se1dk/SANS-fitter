@@ -18,9 +18,11 @@ A flexible, model-agnostic Python template for fitting Small-Angle Neutron Scatt
 - **Q-Range Restriction**: Fit only a chosen [qmin, qmax] window (e.g. trim beam-stop or background-dominated points)
 - **Dataset Arithmetic**: Add, subtract, multiply, and divide datasets (or scale by constants) with propagated uncertainties via `data_ops` — e.g. background subtraction and transmission correction before fitting
 - **User-Friendly Parameter Management**: Easy-to-use interface for setting parameter values, bounds, and fitting flags
+- **Theory Preview**: See the model at the current parameters before fitting — `plot_model()` for data, curve and residuals, `calculate()` for the intensities on any Q grid, and `compare()` to overlay several parameter sets
 - **Interactive Visualization**: Automatic plotting of data, fitted model, and residuals with Plotly
 - **Bayesian Analysis**: Posterior sampling with BUMPS DREAM (MCMC) plus corner, marginal, predictive-band, correlation, and trace plots
 - **P(r) Inversion**: Model-free pair distance distribution analysis (indirect Fourier transform) via `pr_inversion` — D_max exploration, automatic regularization/term selection, and Rg/I(0)/positivity diagnostics
+- **Fit-Quality Reporting**: Reduced χ² alongside raw χ², point and parameter counts, covariance/correlation matrices, a convergence verdict and a warning when a fitted parameter rests on a bound — all via `fitter.get_fit_report()`, which renders as a table in a notebook, as text, or as Markdown
 - **Result Export**: Save fitted parameters and curves to CSV files
 
 ## Installation
@@ -37,6 +39,9 @@ pip install -e .
 
 # Or install with development dependencies
 pip install -e ".[dev]"
+
+# The Jupyter stack is optional - only needed to run notebooks/
+pip install -e ".[notebooks]"
 ```
 
 ### Option 2: Using Pixi (recommended for development)
@@ -107,14 +112,28 @@ fitter.set_param('background', value=0.01, min=0, max=1, vary=True)
 # View current parameters
 fitter.get_params()
 
+# Check the starting values against the data before fitting
+fitter.plot_model()
+
 # Perform the fit (using BUMPS by default)
 result = fitter.fit(engine='bumps', method='amoeba')
 
 # Visualize results
 fitter.plot_results(show_residuals=True)
 
+# Judge the fit: reduced chi-squared, correlations, bound checks
+report = fitter.get_fit_report()
+print(report)
+
 # Save results
 fitter.save_results('fit_results.csv')
+
+# Save the whole analysis, and reopen it later or elsewhere
+fitter.save_analysis('my_analysis.json')
+fitter = SANSFitter.load_analysis('my_analysis.json')
+
+# One shareable document: settings, tables and the plot
+fitter.report('my_analysis.html')
 ```
 
 ## Switching Models
@@ -158,7 +177,7 @@ result = fitter.fit()
 fitter.remove_structure_factor()
 ```
 
-- **Supported structure factors:** `hardsphere`, `hayter_msa`, `squarewell`, `stickyhardsphere`.
+- **Structure factors:** queried from sasmodels at runtime — call `get_structure_factors()` for the full list (currently includes `hardsphere`, `hayter_msa`, `squarewell`, `stickyhardsphere`, `two_yukawa`).
 - **Radius handling:** use `radius_effective_mode='link_radius'` to keep `radius_effective` equal to the form-factor `radius`, or leave the default `unconstrained` to fit it independently.
 - **State helpers:** `get_structure_factor()` returns the active structure factor so notebooks/scripts can branch as needed.
 
@@ -262,6 +281,7 @@ See the [User Guide](https://ai4se1dk.github.io/SANS-fitter/usage/) for details.
 - [notebooks/sans_fitter_demo.ipynb](notebooks/sans_fitter_demo.ipynb) — comprehensive demonstration of the fitting workflow with examples.
 - [notebooks/bayesian_sampling.ipynb](notebooks/bayesian_sampling.ipynb) — Bayesian posterior sampling API (`fit_bayesian()`) and the associated posterior plots.
 - [notebooks/pr_inversion_demo.ipynb](notebooks/pr_inversion_demo.ipynb) — model-free P(r) inversion: D_max exploration, automatic inversion, and diagnostics.
+- [notebooks/resolution_control.ipynb](notebooks/resolution_control.ipynb) — explicit resolution (smearing) control: the four modes, what each hands sasmodels, and what ignoring resolution costs.
 
 
 ## Design Philosophy

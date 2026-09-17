@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sans-fitter"
-version = "0.3.0"
+version = "0.4.0"
 description = "A flexible template for fitting SANS data with SasModels"
 requires-python = ">=3.10"
 license = {text = "BSD-3-Clause"}
@@ -19,10 +19,6 @@ dependencies = [
     "sasmodels>=1.0",
     "sasdata>=0.8",
     "bumps>=1.0",
-    "jupyter>=1.0",
-    "notebook>=7.0",
-    "ipykernel>=6.0",
-    "ipywidgets>=8.0",
 ]
 
 [tool.setuptools.packages.find]
@@ -34,10 +30,25 @@ dev = [
     "pytest-cov>=4.0",
     "pandas>=2.0.0",
 ]
+# Static image export for Markdown reports. HTML reports embed the interactive
+# plot and need nothing beyond the base dependencies; Markdown references a PNG,
+# which has to be rasterized. Note that kaleido also needs a compatible Chrome
+# available on the machine.
+report = [
+    "kaleido>=0.2",
+]
 docs = [
     "mkdocs>=1.5",
     "mkdocs-material>=9.5",
     "mkdocstrings[python]>=0.25",
+]
+# Only needed to run the notebooks in notebooks/; the library itself imports
+# IPython lazily (plotting._running_in_notebook) and works without any of it.
+notebooks = [
+    "jupyter>=1.0",
+    "notebook>=7.0",
+    "ipykernel>=6.0",
+    "ipywidgets>=8.0",
 ]
 
 [tool.pixi.workspace]
@@ -62,7 +73,7 @@ ruff = ">=0.8.0"
 [tool.pixi.tasks]
 test = "pytest tests/ -v"
 test-verbose = "pytest tests/ -vv"
-test-coverage = "pytest tests/ --cov=. --cov-report=html --cov-report=term --cov-report=xml"
+test-coverage = "pytest tests/ --cov=src/sans_fitter --cov-report=html --cov-report=term --cov-report=xml"
 test-quick = "pytest tests/ -v -x"
 lint = "ruff check src/ tests/ --fix"
 lint-check = "ruff check src/ tests/"
@@ -118,7 +129,6 @@ addopts = [
     "--tb=short",                  # Shorter traceback format
     "--strict-markers",            # Strict marker usage
     "-ra",                         # Show summary of all test outcomes
-    "--disable-warnings",          # Disable warnings display
 ]
 
 # Markers
@@ -130,7 +140,7 @@ markers = [
 
 # Coverage options (if pytest-cov is installed)
 [tool.coverage.run]
-source = ["."]
+source = ["src/sans_fitter"]
 omit = [
     "*/tests/*",
     "*/test_*.py",

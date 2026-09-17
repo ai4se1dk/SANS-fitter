@@ -47,7 +47,7 @@ from sasdata.dataloader.data_info import Data1D
 from sasmodels.core import load_model
 from sasmodels.direct_model import DirectModel
 
-from .data.loader import has_real_data, load_sans_data, normalize_sans_data
+from .data.loader import has_real_data, load_sans_data, normalize_sans_data, validate_q_grid
 from .fitter import SANSFitter
 from .modeling.polydispersity import PD_DEFAULTS
 
@@ -587,11 +587,14 @@ def _describe_one(example: Example) -> None:
 
 
 class _maybe_silenced:
-    """Context manager that optionally swallows ``print`` output.
+    """Context manager that optionally swallows stdout.
 
-    ``SANSFitter`` reports progress with ``print``; a preset builder that calls
-    four of those methods would otherwise emit a wall of text before the user
-    has done anything.
+    ``SANSFitter`` reports progress through the package logger, which writes to
+    stdout; a preset builder that calls four of those methods would otherwise
+    emit a wall of text before the user has done anything. Redirecting stdout
+    rather than raising the logger level also covers anything sasmodels prints,
+    and leaves the caller's own :func:`~sans_fitter.set_verbosity` choice
+    untouched.
     """
 
     def __init__(self, active: bool):
@@ -655,9 +658,13 @@ def simulate(
             engine refuses data without uncertainties.
         seed: Seed for the noise, so results are reproducible. Pass ``None``
             for fresh noise on every call.
-        dq: Relative resolution width. When given, ``dx = dq * q`` is attached
-            and the *simulated intensity is smeared accordingly*, matching what
-            an instrument would measure.
+        dq: Relative pinhole resolution width σ_q/q (Gaussian 1-σ, not FWHM).
+            When given, ``dx = dq * q`` is attached and the *simulated
+            intensity is smeared accordingly*, matching what an instrument
+            would measure. The same quantity as ``dq_over_q`` in
+            :meth:`~sans_fitter.SANSFitter.set_resolution`, so data simulated
+            with ``dq`` is fitted correctly under the default ``'data'``
+            resolution mode.
         q: Explicit Q array, overriding *qmin*/*qmax*/*npoints*. Use this to
             simulate onto the grid of a real dataset.
         **params: Model parameters, e.g. ``radius=50``, ``sld=4.0``. Anything
@@ -801,16 +808,7 @@ def _is_grid_kwarg(key: str) -> bool:
 def _build_q(q: np.ndarray | None, qmin: float, qmax: float, npoints: int) -> np.ndarray:
     """Validate and return the Q grid to simulate on."""
     if q is not None:
-        q_values = np.asarray(q, dtype=float)
-        if q_values.ndim != 1 or q_values.size == 0:
-            raise ValueError('q must be a non-empty 1D array.')
-        if not np.all(np.isfinite(q_values)):
-            raise ValueError('Q values must be finite.')
-        if np.any(q_values <= 0):
-            raise ValueError('Q values must be positive.')
-        if np.any(np.diff(q_values) <= 0):
-            raise ValueError('Q values must be strictly increasing.')
-        return q_values
+        return validate_q_grid(q)
 
     if not (np.isfinite(qmin) and np.isfinite(qmax)):
         raise ValueError(f'qmin and qmax must be finite, got qmin={qmin}, qmax={qmax}.')

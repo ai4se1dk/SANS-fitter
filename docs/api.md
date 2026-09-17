@@ -1,5 +1,10 @@
 # API Reference
 
+## Module-level helpers
+
+::: sans_fitter.fitter.get_all_models
+::: sans_fitter.fitter.get_structure_factors
+
 ## SANSFitter
 
 The main class for SANS data fitting.
@@ -14,6 +19,8 @@ The main class for SANS data fitting.
         - set_q_range
         - reset_q_range
         - get_q_range
+        - set_resolution
+        - get_resolution
         - set_model
         - set_models
         - link_params
@@ -25,8 +32,12 @@ The main class for SANS data fitting.
         - remove_structure_factor
         - get_params
         - set_param
+        - calculate
+        - plot_model
+        - compare
         - fit
         - fit_bayesian
+        - get_fit_report
         - get_posterior
         - plot_results
         - plot_posterior_pairs
@@ -35,6 +46,9 @@ The main class for SANS data fitting.
         - plot_param_correlations
         - plot_trace
         - save_results
+        - save_analysis
+        - load_analysis
+        - report
         - supports_polydispersity
         - get_polydisperse_parameters
         - set_pd_param
@@ -65,6 +79,39 @@ prefix is the moniker (`small_radius` → `A_radius`). Parameters listed in
 `shared=` collapse to a single unprefixed name (`sld` → `A_sld` + `B_sld`);
 their prefixed aliases remain addressable for polydispersity configuration.
 
+## FitReport
+
+Goodness-of-fit summary returned by `SANSFitter.get_fit_report()`: the χ²
+statistics, the parameter table, the covariance and correlation matrices, the
+convergence verdict and any parameter resting on a bound. Renders itself as a
+table in a notebook, as plain text, and as Markdown.
+
+::: sans_fitter.report.FitReport
+    options:
+      show_root_heading: true
+      show_source: true
+      members:
+        - from_contract
+        - corr
+        - strongly_correlated
+        - to_markdown
+        - to_dict
+        - to_json
+
+## Report
+
+The analysis document returned by `SANSFitter.report()`: the settings block, the
+`FitReport` tables and the fit plot, as one HTML page or Markdown document.
+
+::: sans_fitter.reporting.Report
+    options:
+      show_root_heading: true
+      show_source: true
+      members:
+        - to_markdown
+        - to_html
+        - write
+
 ## PosteriorSummary
 
 Posterior sample chain and per-parameter statistics returned by `fit_bayesian()`.
@@ -77,6 +124,20 @@ Posterior sample chain and per-parameter statistics returned by `fit_bayesian()`
         - index_of
         - format_summary
         - save_posterior_csv
+
+## PosteriorDigest
+
+Posterior statistics without the sample chain: what an analysis loaded from a
+file carries. The statistics tables render exactly as they would after a fit,
+while displays that need the samples themselves raise instead of inventing them.
+
+::: sans_fitter.results.PosteriorDigest
+    options:
+      show_root_heading: true
+      show_source: true
+      members:
+        - from_summary
+        - format_summary
 
 ## data_ops
 
@@ -143,6 +204,30 @@ See the [Example Data](examples.md) guide for the full collection.
         - simulate_pair
         - Example
 
+
+## Console output
+
+Methods such as `load_data`, `set_model` and `fit` report what they did through
+the `sans_fitter` logger rather than with `print`, so the running commentary can
+be turned off:
+
+```python
+import sans_fitter
+
+sans_fitter.set_verbosity('quiet')   # keep warnings, drop the progress messages
+sans_fitter.set_verbosity('info')    # back to the default
+```
+
+Tables you ask for explicitly - `get_params()`, `get_pd_params()`,
+`examples.describe()` - are printed either way; they are the result of the call
+rather than a side effect of it.
+
+::: sans_fitter.console
+    options:
+      show_root_heading: true
+      show_source: true
+      members:
+        - set_verbosity
 
 ## ParameterManager
 

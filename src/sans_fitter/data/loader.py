@@ -1,3 +1,6 @@
+import os
+import warnings
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -13,6 +16,25 @@ def has_real_data(arr) -> bool:
     if arr is None or getattr(arr, 'size', 0) == 0:
         return False
     return bool(np.any(np.nan_to_num(np.asarray(arr, dtype=float)) != 0))
+
+
+def validate_q_grid(q: Any) -> np.ndarray:
+    """Return *q* as a float array, rejecting grids sasmodels cannot evaluate.
+
+    A Q grid must be 1D, non-empty, finite, positive and strictly increasing.
+    Shared by :func:`sans_fitter.examples.simulate` and the theory-evaluation
+    helpers so both reject the same grids with the same messages.
+    """
+    q_values = np.asarray(q, dtype=float)
+    if q_values.ndim != 1 or q_values.size == 0:
+        raise ValueError('q must be a non-empty 1D array.')
+    if not np.all(np.isfinite(q_values)):
+        raise ValueError('Q values must be finite.')
+    if np.any(q_values <= 0):
+        raise ValueError('Q values must be positive.')
+    if np.any(np.diff(q_values) <= 0):
+        raise ValueError('Q values must be strictly increasing.')
+    return q_values
 
 
 def get_fit_index(data: Any) -> np.ndarray:
@@ -61,15 +83,125 @@ def normalize_sans_data(data: Any) -> Any:
     return data
 
 
-def load_sans_data(filename: str) -> Any:
-    """Load SANS data and normalize required fields for downstream fitting."""
-    loader = Loader()
+def load_sans_data(filename: str, dataset: int | str = 0) -> Any:
+    """Load a single SANS dataset from *filename* and make it fit-ready.
 
+    SANS files may hold several datasets (e.g. a CanSAS XML with multiple
+    ``SASentry`` blocks, or an NXcanSAS file with several entries). By default
+    the first dataset is returned; pass *dataset* to choose another one by
+    0-based index or by name (title, run id or filename). When the file
+    contains more than one dataset, a warning lists them all so the caller
+    knows a different selection was possible.
+
+    Args:
+        filename: Path to the data file.
+        dataset: Which dataset to return — a 0-based index or a name (title,
+            run id or filename). Defaults to the first dataset.
+
+    Returns:
+        A fit-ready dataset with ``qmin``/``qmax``/``mask`` set.
+
+    Raises:
+        ValueError: If the file cannot be loaded, contains no data, or the
+            requested dataset does not exist or is ambiguous.
+    """
+    return load_sans_dataset(filename, dataset=dataset).data
+
+
+@dataclass(slots=True)
+class LoadedDataset:
+    """A loaded dataset together with which entry of the file it came from.
+
+    ``load_sans_data`` resolves a name-based *dataset* selector to a position
+    and then discards it. Provenance recording needs that position, so the
+    resolution is exposed here and ``load_sans_data`` is the thin wrapper.
+    """
+
+    data: Any
+    index: int
+    n_datasets: int
+
+
+def load_sans_dataset(filename: str, dataset: int | str = 0) -> LoadedDataset:
+    """Load one dataset from *filename*, reporting which entry was selected.
+
+    Same arguments, warnings and errors as :func:`load_sans_data`; only the
+    return type differs.
+    """
+    data_list = _load_all(filename)
+    index = _select_dataset(data_list, filename, dataset)
+
+    if len(data_list) > 1:
+        listing = ', '.join(f'{i}: {_dataset_label(d, i)}' for i, d in enumerate(data_list))
+        warnings.warn(
+            f'{os.path.basename(filename)} contains {len(data_list)} datasets '
+            f'({listing}); returning dataset {_dataset_label(data_list[index], index)!r}. '
+            'Pass dataset=<index or name> to load a different one.',
+            stacklevel=3,
+        )
+
+    return LoadedDataset(
+        data=normalize_sans_data(data_list[index]),
+        index=index,
+        n_datasets=len(data_list),
+    )
+
+
+def _load_all(filename: str) -> list[Any]:
+    """Return every dataset found in *filename* via sasdata, or raise."""
+    loader = Loader()
     try:
         data_list = loader.load(filename)
         if not data_list:
             raise ValueError(f'No data loaded from {filename}')
-
-        return normalize_sans_data(data_list[0])
+        return data_list
     except Exception as e:
         raise ValueError(f'Failed to load data from {filename}: {str(e)}') from e
+
+
+def _dataset_names(data: Any) -> list[str]:
+    """Names a dataset can be labelled or selected by (title, run id, filename)."""
+    names: list[str] = []
+    for attr in ('title', 'name'):
+        value = getattr(data, attr, None)
+        if value:
+            names.append(str(value))
+    run = getattr(data, 'run', None)
+    names.extend(str(v) for v in (run if isinstance(run, (list, tuple)) else [run]) if v)
+    filename = getattr(data, 'filename', None)
+    if filename:
+        basename = os.path.basename(filename)
+        names += [basename, os.path.splitext(basename)[0]]
+    return [name for name in dict.fromkeys(names) if name]
+
+
+def _dataset_label(data: Any, index: int) -> str:
+    """Short human-readable name for a loaded dataset, for messages."""
+    names = _dataset_names(data)
+    return names[0] if names else f'dataset #{index}'
+
+
+def _select_dataset(data_list: list[Any], filename: str, dataset: int | str) -> int:
+    """Resolve *dataset* (int index or str name) to a position in *data_list*."""
+    if isinstance(dataset, int) and not isinstance(dataset, bool):  # bool subclasses int
+        if not 0 <= dataset < len(data_list):
+            raise ValueError(
+                f'Dataset index {dataset} is out of range for {filename}: '
+                f'file contains {len(data_list)} dataset(s) (0–{len(data_list) - 1}).'
+            )
+        return dataset
+    if isinstance(dataset, str):
+        matches = [i for i, d in enumerate(data_list) if dataset in _dataset_names(d)]
+        if not matches:
+            available = ', '.join(f'{i}: {_dataset_label(d, i)}' for i, d in enumerate(data_list))
+            raise ValueError(
+                f'No dataset named {dataset!r} in {filename}. Available datasets: {available}.'
+            )
+        if len(matches) > 1:
+            raise ValueError(
+                f'Dataset name {dataset!r} is ambiguous in {filename}: matches datasets '
+                f'{matches} ({", ".join(_dataset_label(data_list[i], i) for i in matches)}). '
+                'Select by 0-based index instead.'
+            )
+        return matches[0]
+    raise TypeError(f'dataset must be an int index or a str name, got {type(dataset).__name__}.')

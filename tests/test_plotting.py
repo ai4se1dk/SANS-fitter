@@ -1,11 +1,74 @@
+import builtins
 import os
 import unittest
 from unittest.mock import patch
 
 import numpy as np
+from sasdata.dataloader.data_info import Data1D
 
-from sans_fitter import SANSFitter
+from sans_fitter import SANSFitter, examples
+from sans_fitter.data.loader import normalize_sans_data
+from sans_fitter.plotting import PREVIEW_MODEL_TRACE_NAME, PREVIEW_TITLE_PREFIX, plot_fit
+from sans_fitter.results import PREVIEW_ENGINE, FitArtifacts, FitResultContract
 from tests.helpers import create_decay_data_file, create_loading_test_data_file_with_resolution
+
+
+def make_preview_contract(data, chisq=1.5, n_free=1, reduced_chisq=None, dof=None):
+    """A preview contract covering every point of *data*."""
+    n_points = len(np.asarray(data.x))
+    resolved_dof = n_points - n_free if dof is None else dof
+    if reduced_chisq is None:
+        reduced_chisq = chisq
+    return FitResultContract(
+        engine=PREVIEW_ENGINE,
+        method=PREVIEW_ENGINE,
+        chisq=chisq,
+        reduced_chisq=reduced_chisq,
+        n_points=n_points,
+        n_free=n_free,
+        dof=resolved_dof,
+        weighting_note='dI',
+        parameters={},
+        artifacts=FitArtifacts(fitted_curve=np.asarray(data.y, dtype=float) * 1.1),
+    )
+
+
+class TestNotebookDetectionWithoutIPython(unittest.TestCase):
+    """IPython is an optional extra, so the import guard is load-bearing."""
+
+    def test_running_in_notebook_is_false_when_ipython_is_absent(self):
+        from sans_fitter import plotting
+
+        real_import = builtins.__import__
+
+        def without_ipython(name, *args, **kwargs):
+            if name.startswith('IPython'):
+                raise ImportError(f'No module named {name!r}')
+            return real_import(name, *args, **kwargs)
+
+        with patch.object(builtins, '__import__', side_effect=without_ipython):
+            self.assertFalse(plotting._running_in_notebook())
+
+    def test_plot_still_returns_a_figure_when_ipython_is_absent(self):
+        real_import = builtins.__import__
+
+        def without_ipython(name, *args, **kwargs):
+            if name.startswith('IPython'):
+                raise ImportError(f'No module named {name!r}')
+            return real_import(name, *args, **kwargs)
+
+        fitter = SANSFitter()
+        data_file = create_decay_data_file(num_points=20)
+        try:
+            fitter.load_data(data_file)
+            with (
+                patch.object(builtins, '__import__', side_effect=without_ipython),
+                patch('plotly.graph_objects.Figure.show'),
+            ):
+                self.assertIsNotNone(fitter.plot_results(show=False))
+        finally:
+            if os.path.exists(data_file):
+                os.unlink(data_file)
 
 
 class TestVisualization(unittest.TestCase):
@@ -88,6 +151,58 @@ class TestVisualization(unittest.TestCase):
             fig = self.fitter.plot_results()
         mock_show.assert_not_called()
         self.assertIsNotNone(fig)
+
+
+class TestPreviewContractPlotting(unittest.TestCase):
+    """plot_fit rendering a preview contract, including data without dI."""
+
+    def test_preview_title_and_trace_name(self):
+        data = examples.simulate('sphere', npoints=15, seed=0)
+        fig = plot_fit(
+            data=data,
+            fit_result=make_preview_contract(data),
+            model_name='sphere',
+            show=False,
+        )
+        self.assertIn(PREVIEW_TITLE_PREFIX, fig.layout.title.text)
+        self.assertIn('χ²/dof = 1.5000', fig.layout.title.text)
+        self.assertIn(PREVIEW_MODEL_TRACE_NAME, [trace.name for trace in fig.data])
+
+    def test_fit_contract_keeps_fit_labels(self):
+        data = examples.simulate('sphere', npoints=15, seed=0)
+        contract = make_preview_contract(data)
+        contract.engine = 'bumps'
+        fig = plot_fit(data=data, fit_result=contract, model_name='sphere', show=False)
+        self.assertIn('SANS Fit', fig.layout.title.text)
+        self.assertIn('Fitted Model', [trace.name for trace in fig.data])
+
+    def test_data_without_dy_column_renders_without_residuals(self):
+        q = np.geomspace(0.01, 0.3, 15)
+        data = normalize_sans_data(Data1D(x=q, y=np.exp(-q * 10)))
+        self.assertIsNone(data.dy)
+
+        fig = plot_fit(
+            data=data,
+            fit_result=make_preview_contract(data, chisq=float('nan')),
+            model_name='sphere',
+            show=False,
+        )
+        self.assertIn('χ²/dof n/a (no dI)', fig.layout.title.text)
+        self.assertNotIn('Residuals', [trace.name for trace in fig.data])
+        self.assertEqual(fig.layout.yaxis2.title.text, 'Residuals (no dI)')
+
+    def test_zero_uncertainties_render_without_error(self):
+        data = examples.simulate('sphere', npoints=15, noise=0, seed=0)
+        np.testing.assert_array_equal(data.dy, np.zeros_like(data.dy))
+
+        fig = plot_fit(
+            data=data,
+            fit_result=make_preview_contract(data, chisq=float('nan')),
+            model_name='sphere',
+            show=False,
+        )
+        self.assertIn('χ²/dof n/a (no dI)', fig.layout.title.text)
+        self.assertEqual(fig.layout.yaxis2.title.text, 'Residuals (no dI)')
 
 
 if __name__ == '__main__':

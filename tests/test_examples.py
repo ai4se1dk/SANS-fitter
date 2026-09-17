@@ -416,7 +416,7 @@ class TestSimulateRoundTrip:
         for param, expected in truth.items():
             assert result['parameters'][param]['value'] == pytest.approx(expected, rel=0.05)
         # Error bars that honestly describe the scatter put reduced chi2 near 1.
-        assert result['chisq'] < 5
+        assert result['reduced_chisq'] < 5
 
 
 class TestSimulatePair:
