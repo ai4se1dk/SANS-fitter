@@ -50,8 +50,6 @@ class TestNotebookDetectionWithoutIPython(unittest.TestCase):
             self.assertFalse(plotting._running_in_notebook())
 
     def test_plot_still_returns_a_figure_when_ipython_is_absent(self):
-        from sans_fitter import plotting
-
         real_import = builtins.__import__
 
         def without_ipython(name, *args, **kwargs):
