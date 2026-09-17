@@ -30,6 +30,13 @@ dev = [
     "pytest-cov>=4.0",
     "pandas>=2.0.0",
 ]
+# Static image export for Markdown reports. HTML reports embed the interactive
+# plot and need nothing beyond the base dependencies; Markdown references a PNG,
+# which has to be rasterized. Note that kaleido also needs a compatible Chrome
+# available on the machine.
+report = [
+    "kaleido>=0.2",
+]
 docs = [
     "mkdocs>=1.5",
     "mkdocs-material>=9.5",

@@ -127,6 +127,13 @@ print(report)
 
 # Save results
 fitter.save_results('fit_results.csv')
+
+# Save the whole analysis, and reopen it later or elsewhere
+fitter.save_analysis('my_analysis.json')
+fitter = SANSFitter.load_analysis('my_analysis.json')
+
+# One shareable document: settings, tables and the plot
+fitter.report('my_analysis.html')
 ```
 
 ## Switching Models

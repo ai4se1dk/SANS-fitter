@@ -268,6 +268,94 @@ order `Q, I, dI, dQ`. If your file stores `dQ` in the third column, it will
 be misinterpreted as `dI`. The summary printed by `load_data()` shows which
 columns were detected.
 
+### 7. Saving and sharing an analysis
+
+`save_results()` writes the *outcome* of a fit. `save_analysis()` writes how the
+fit was set up, so the analysis can be reproduced later or by someone else:
+
+```python
+fitter.save_analysis('silica_35C.json')
+
+fitter = SANSFitter.load_analysis('silica_35C.json')
+fitter.plot_results()      # the saved result, no refit needed
+```
+
+The file is JSON, so it is readable, reviewable in a pull request, and safe to
+accept from a collaborator. It records the model expression and its component
+names, every parameter value, bound and vary flag, polydispersity, links, the
+structure factor, the resolution mode and the Q range. It does not record data
+curves or posterior sample chains; the covariance matrix, being small and
+useful, is kept.
+
+**Saving and loading guarantee the configuration, not a refit.** A restored
+fitter is identical in setup and produces the same theory, residuals and fit
+index as the one that was saved. Calling `fit()` afterwards runs a fresh
+optimization with the current API defaults, because the file records the engine
+and method but not the iteration budget, random seed or starting point, and
+several optimizers are not deterministic.
+
+#### The result is saved only while it still describes the setup
+
+Changing a parameter, the Q range, the resolution or the data does not clear
+the last fit result. Saving both together would pair a χ² with a configuration
+that never produced it, so `save_analysis()` compares the two and leaves the
+result out when they disagree:
+
+```
+✓ Analysis saved to silica_35C.json
+  Fit result NOT included: the model or its parameters changed after the fit
+```
+
+The setup is still written, so nothing is lost. Fit before you save, or save
+before you experiment. The same check runs on load: an analysis opened against
+different data restores the configuration and reports that the result was not
+restored.
+
+#### Finding the data again
+
+The path to the data file is recorded twice, relative to the analysis file and
+absolute, so moving both together to another machine still works. Supply
+another dataset with `data=`:
+
+```python
+# A different sample, same model setup
+fitter = SANSFitter.load_analysis('silica_35C.json', data='silica_45C.dat')
+
+# An in-memory dataset (required for an analysis saved from set_data)
+fitter = SANSFitter.load_analysis('difference.json', data=data_ops.subtract(a, b))
+```
+
+An analysis saved with `include_result=False` is a template: a configured model
+with no sample-specific outcome, ready to apply to the next dataset.
+
+!!! note "Custom models"
+    By default only models built into sasmodels are loaded. Loading a
+    `custom.<name>` expression imports a plugin module named by the file, which
+    is code execution chosen by whoever wrote it, so it needs
+    `load_analysis(path, allow_custom_models=True)`.
+
+#### Reports
+
+`report()` renders one document holding the settings, the fit tables and the
+plot:
+
+```python
+fitter.report('fit.html')     # self-contained page, opens in any browser
+fitter.report('fit.md')       # for an issue, a pull request or a logbook
+doc = fitter.report()         # renders in a notebook; str(doc) is the Markdown
+```
+
+Before any fit this produces a configuration report, showing the settings and
+the current parameter values with a theory preview in place of the fit plot.
+
+HTML embeds the interactive Plotly figure and needs nothing beyond the standard
+dependencies; `offline=True` inlines the library for a file that needs no
+network. Markdown references a PNG next to the report, named after it, which
+has to be rasterized: install the optional extra with
+`pip install "sans-fitter[report]"` (it also needs a compatible Chrome on the
+machine). Without it the report is still written, without the figure, and says
+so.
+
 ## Advanced Usage
 
 ### Resolution (Smearing)
