@@ -1126,7 +1126,9 @@ class SANSFitter:
             )
         return FitReport.from_contract(self._fit_contract, self.model_name)
 
-    def _compute_component_curves(self) -> dict[str, np.ndarray] | None:
+    def _compute_component_curves(
+        self, canonical_values: dict[str, float] | None = None
+    ) -> dict[str, np.ndarray] | None:
         """Compute per-component curves after a fit of a '+' mixture model.
 
         Each component curve is ``scale · I_part(q, scale=part_scale,
@@ -1136,6 +1138,13 @@ class SANSFitter:
         Returns None for atomic models and '*' mixtures (where part curves
         would not stack to the total and would mislead when overlaid).
         Evaluation happens on the same masked q-points as the total curve.
+
+        Args:
+            canonical_values: Parameter values keyed by canonical sasmodels
+                name, overriding this fitter's own. A simultaneous fit resolves
+                its values through the constraint graph rather than from each
+                child's parameter table, and must be able to say so; the default
+                reads this fitter's values and is what the single-fit path uses.
         """
         components = self._param_manager.get_components()
         if not components:
@@ -1147,7 +1156,8 @@ class SANSFitter:
         if operation != '+':
             return None
 
-        canonical_values = self._param_manager.get_canonical_param_values()
+        if canonical_values is None:
+            canonical_values = self._param_manager.get_canonical_param_values()
         global_scale = canonical_values.get('scale', 1.0)
 
         # Active polydispersity settings, keyed by canonical base names.

@@ -164,8 +164,8 @@ Each entry in `result['parameters']` carries the same five fields:
 | Field | Meaning |
 |---|---|
 | `value` | Fitted value, or the value the parameter was held at |
-| `stderr` | Uncertainty on a fitted value; `0.0` for anything not fitted |
-| `formatted` | Display string, e.g. `45.041(46)`, `2 (fixed)`, `45.041 (linked)` |
+| `stderr` | Uncertainty on the value; `0.0` for a genuinely fixed parameter |
+| `formatted` | Display string, e.g. `45.041(46)`, `2 (fixed)` |
 | `fixed` | `False` for the parameters the optimizer varied, `True` otherwise |
 | `linked_to` | Name of the parameter this one follows, or `None` |
 
@@ -178,6 +178,19 @@ fitted = {
 A parameter that follows another one - through `link_params()` or
 `radius_effective_mode='link_radius'` - reports its target's *fitted* value and
 names that target in `linked_to`.
+
+**It also reports its target's uncertainty.** An equality link makes the two
+parameters one quantity under two names, so the follower's error is the
+target's, not zero. `fixed=True` still separates the optimizer's coordinates
+from everything else, but it no longer implies a zero uncertainty: read
+`linked_to` to tell a follower from a genuinely fixed parameter, whose error
+really is zero. A follower of a *fixed* target keeps the zero, because its
+target never moved.
+
+*Changed in 0.5.* Before, a follower reported `stderr = 0.0` and a `(linked)`
+suffix in `formatted`. Analyses saved earlier are normalized on load wherever
+the target's uncertainty is still in the file; where it cannot be recovered the
+saved value stands rather than being invented.
 
 #### The fit report
 
@@ -543,6 +556,49 @@ normalizes it so it is fit-ready.
 See `examples/data_operations_example.py` and
 `notebooks/data_operations_demo.ipynb` for a complete walkthrough.
 
+### Simultaneous Fitting of Several Datasets
+
+Contrast variation, a temperature or concentration series, and one sample
+measured on several instrument configurations all need the same thing: one
+model fitted to N datasets with some parameters shared and some kept separate.
+`MultiFitter` does that through a single joint optimization rather than a
+sequence of independent fits.
+
+```python
+from sans_fitter import MultiFitter
+
+fit = MultiFitter()
+fit.add('h2o', 'contrast_h2o.xml', model='sphere')
+fit.add('d2o', 'contrast_d2o.xml', model='sphere')
+
+for name in ('h2o', 'd2o'):
+    fit[name].set_param('radius', value=45, min=10, max=100, vary=True)
+    fit[name].set_param('scale', value=0.02, min=0.001, max=0.1, vary=True)
+    fit[name].set_param('background', value=0.01, min=0, max=0.1, vary=True)
+
+fit.share('radius', 'scale')             # one radius and scale for both curves
+fit.constrain('h2o.sld_solvent', -0.56)  # the known solvent contrasts
+fit.constrain('d2o.sld_solvent', 6.34)
+
+fit.describe()                 # datasets, relationships, free-parameter count
+result = fit.fit()
+print(fit.get_fit_report())
+fit.plot_results()
+```
+
+Parameters are addressed as `dataset.parameter`. Three relationships are
+available — `share()` for one quantity held by several datasets,
+`link_params()` for one parameter following another, and `constrain()` for a
+constant or an arithmetic expression such as `'0.8 * h2o.scale'`. Each dataset
+keeps its own Q range, mask and resolution; nothing is interpolated or merged,
+and a shared parameter costs exactly one degree of freedom.
+
+See the [Simultaneous Fitting](multifit.md) guide for the full picture:
+choosing what to share, how expression bounds are enforced, what dataset
+weights do to the reported uncertainties, and the CSV export. A runnable
+walkthrough is in `examples/simultaneous_fitting_example.py` and
+`notebooks/simultaneous_fitting.ipynb`.
+
 ### P(r) Inversion
 
 The `sans_fitter.inversion` module recovers the real-space pair distance
@@ -751,8 +807,14 @@ fitter.unlink_params('large_sld')  # escape hatch
 ```
 
 A follower is forced `vary=False` and mirrors the target's value before,
-during, and after the fit; writing it directly raises. Link chains are not
-supported.
+during, and after the fit; writing it directly raises. It also inherits the
+target's uncertainty, because the link makes the two one quantity. Link chains
+are not supported.
+
+To relate parameters *across datasets* rather than within one model, see
+[Simultaneous Fitting](multifit.md), where the same vocabulary — `share()`,
+`link_params()` and `constrain()` — works on qualified `dataset.parameter`
+names.
 
 **Raw string syntax (advanced).** `set_model()` accepts sasmodels' native
 composite expressions directly and keeps the canonical `A_`/`B_` parameter

@@ -63,19 +63,19 @@ def _running_in_notebook() -> bool:
     return shell is not None and 'ZMQInteractiveShell' in type(shell).__name__
 
 
-def _error_bars(arr) -> dict | None:
+def error_bars(arr) -> dict | None:
     """Build a plotly error-bar spec, or None when the column carries no data."""
     if not has_real_data(arr):
         return None
     return {'type': 'data', 'array': arr, 'visible': True}
 
 
-def _subset(arr, index):
+def subset(arr, index):
     """Slice an optional data column by a boolean index."""
     return None if arr is None else np.asarray(arr)[index]
 
 
-def _resolve_show(show: bool | None) -> bool:
+def resolve_show(show: bool | None) -> bool:
     return not _running_in_notebook() if show is None else show
 
 
@@ -119,8 +119,8 @@ def plot_fit(
     if data is None:
         raise ValueError('No data to plot. Use load_data() first.')
 
-    error_y = _error_bars(data.dy)
-    error_x = _error_bars(data.dx)
+    error_y = error_bars(data.dy)
+    error_x = error_bars(data.dx)
 
     if fit_result is None:
         logger.warning('No fit results available. Plotting data only.')
@@ -144,7 +144,7 @@ def plot_fit(
             yaxis_type='log' if log_scale else 'linear',
             template='plotly_white',
         )
-        if _resolve_show(show):
+        if resolve_show(show):
             fig.show()
         return fig
 
@@ -156,10 +156,10 @@ def plot_fit(
             f'fitted points ({int(index.sum())}).'
         )
 
-    q = _subset(data.x, index)
-    y = _subset(data.y, index)
-    dy = _subset(data.dy, index)
-    dx = _subset(data.dx, index)
+    q = subset(data.x, index)
+    y = subset(data.y, index)
+    dy = subset(data.dy, index)
+    dx = subset(data.dx, index)
     excluded = ~index
 
     # Residuals are in sigma units, so they need real uncertainties. A theory
@@ -192,8 +192,8 @@ def plot_fit(
     data_trace = go.Scatter(
         x=q,
         y=y,
-        error_y=_error_bars(dy),
-        error_x=_error_bars(dx),
+        error_y=error_bars(dy),
+        error_x=error_bars(dx),
         mode='markers',
         name='Experimental Data',
         opacity=0.6,
@@ -203,10 +203,10 @@ def plot_fit(
     excluded_trace = None
     if excluded.any():
         excluded_trace = go.Scatter(
-            x=_subset(data.x, excluded),
-            y=_subset(data.y, excluded),
-            error_y=_error_bars(_subset(data.dy, excluded)),
-            error_x=_error_bars(_subset(data.dx, excluded)),
+            x=subset(data.x, excluded),
+            y=subset(data.y, excluded),
+            error_y=error_bars(subset(data.dy, excluded)),
+            error_x=error_bars(subset(data.dx, excluded)),
             mode='markers',
             name='Excluded Data',
             opacity=0.4,
@@ -312,7 +312,7 @@ def plot_fit(
         width=900,
     )
 
-    if _resolve_show(show):
+    if resolve_show(show):
         fig.show()
     return fig
 
@@ -345,7 +345,7 @@ def plot_model_comparison(
             go.Scatter(
                 x=data.x,
                 y=data.y,
-                error_y=_error_bars(data.dy),
+                error_y=error_bars(data.dy),
                 mode='markers',
                 name='Experimental Data',
                 opacity=0.6,
@@ -383,7 +383,7 @@ def plot_model_comparison(
         width=900,
     )
 
-    if _resolve_show(show):
+    if resolve_show(show):
         fig.show()
     return fig
 
@@ -508,7 +508,7 @@ def plot_posterior_pairs(
         showlegend=False,
     )
 
-    if _resolve_show(show):
+    if resolve_show(show):
         fig.show()
     return fig
 
@@ -578,7 +578,7 @@ def plot_param_distribution(
         showlegend=False,
     )
 
-    if _resolve_show(show):
+    if resolve_show(show):
         fig.show()
     return fig
 
@@ -616,7 +616,7 @@ def plot_posterior_predictive(
     index = resolve_fit_index(fit_index, len(data.x))
     q = np.asarray(data.x)[index]
     y = np.asarray(data.y)[index]
-    dy = _subset(data.dy, index)
+    dy = subset(data.dy, index)
 
     n_samples = posterior.n_samples
     rng = np.random.default_rng(0)
@@ -690,7 +690,7 @@ def plot_posterior_predictive(
         go.Scatter(
             x=q,
             y=y,
-            error_y=_error_bars(dy),
+            error_y=error_bars(dy),
             mode='markers',
             name=MEASURED_TRACE_NAME,
             opacity=0.6,
@@ -709,7 +709,7 @@ def plot_posterior_predictive(
         width=900,
     )
 
-    if _resolve_show(show):
+    if resolve_show(show):
         fig.show()
     return fig
 
@@ -764,7 +764,7 @@ def plot_param_correlations(
         yaxis={'autorange': 'reversed'},
     )
 
-    if _resolve_show(show):
+    if resolve_show(show):
         fig.show()
     return fig
 
@@ -833,7 +833,7 @@ def plot_trace(
         width=900,
     )
 
-    if _resolve_show(show):
+    if resolve_show(show):
         fig.show()
     return fig
 
@@ -905,7 +905,7 @@ def plot_pr_distribution(result, show: bool | None = None) -> go.Figure:
         width=800,
     )
 
-    if _resolve_show(show):
+    if resolve_show(show):
         fig.show()
     return fig
 
@@ -932,9 +932,9 @@ def plot_pr_fit(data, result, show: bool | None = None, log_scale: bool = True) 
             f'Result accepted-mask length ({accepted.size}) does not match '
             f'the data length ({np.asarray(data.x).size}).'
         )
-    q = _subset(data.x, accepted)
-    y = _subset(data.y, accepted)
-    dy = _subset(data.dy, accepted)
+    q = subset(data.x, accepted)
+    y = subset(data.y, accepted)
+    dy = subset(data.dy, accepted)
     excluded = ~accepted
 
     q_dense = np.geomspace(q.min(), q.max(), PR_FIT_CURVE_POINTS)
@@ -952,7 +952,7 @@ def plot_pr_fit(data, result, show: bool | None = None, log_scale: bool = True) 
         go.Scatter(
             x=q,
             y=y,
-            error_y=_error_bars(dy),
+            error_y=error_bars(dy),
             mode='markers',
             name='Experimental Data',
             opacity=0.6,
@@ -964,9 +964,9 @@ def plot_pr_fit(data, result, show: bool | None = None, log_scale: bool = True) 
     if excluded.any():
         fig.add_trace(
             go.Scatter(
-                x=_subset(data.x, excluded),
-                y=_subset(data.y, excluded),
-                error_y=_error_bars(_subset(data.dy, excluded)),
+                x=subset(data.x, excluded),
+                y=subset(data.y, excluded),
+                error_y=error_bars(subset(data.dy, excluded)),
                 mode='markers',
                 name='Excluded Data',
                 opacity=0.4,
@@ -1011,7 +1011,7 @@ def plot_pr_fit(data, result, show: bool | None = None, log_scale: bool = True) 
         width=800,
     )
 
-    if _resolve_show(show):
+    if resolve_show(show):
         fig.show()
     return fig
 
@@ -1078,6 +1078,6 @@ def plot_dmax_scan(scan, quantity: str = 'rg', show: bool | None = None) -> go.F
             width=800,
         )
 
-    if _resolve_show(show):
+    if resolve_show(show):
         fig.show()
     return fig
