@@ -20,6 +20,7 @@ A flexible, model-agnostic Python template for fitting Small-Angle Neutron Scatt
 - **User-Friendly Parameter Management**: Easy-to-use interface for setting parameter values, bounds, and fitting flags
 - **Theory Preview**: See the model at the current parameters before fitting — `plot_model()` for data, curve and residuals, `calculate()` for the intensities on any Q grid, and `compare()` to overlay several parameter sets
 - **Interactive Visualization**: Automatic plotting of data, fitted model, and residuals with Plotly
+- **Simultaneous Fitting**: Fit several datasets together with shared or related parameters via `MultiFitter` — contrast variation, temperature series and multi-configuration data, with per-dataset models, Q ranges and resolution, plus constraints such as `'0.8 * h2o.scale'`
 - **Bayesian Analysis**: Posterior sampling with BUMPS DREAM (MCMC) plus corner, marginal, predictive-band, correlation, and trace plots
 - **P(r) Inversion**: Model-free pair distance distribution analysis (indirect Fourier transform) via `pr_inversion` — D_max exploration, automatic regularization/term selection, and Rg/I(0)/positivity diagnostics
 - **Fit-Quality Reporting**: Reduced χ² alongside raw χ², point and parameter counts, covariance/correlation matrices, a convergence verdict and a warning when a fitted parameter rests on a bound — all via `fitter.get_fit_report()`, which renders as a table in a notebook, as text, or as Markdown
@@ -233,6 +234,44 @@ overlays one dashed curve per component, each drawn as
 > `fitter.unlink_params('large_sld')`. Composite models and parameter links
 > currently require the `bumps` engine.
 
+## Simultaneous Fitting
+
+Fit several datasets at once, sharing the parameters they have in common:
+
+```python
+from sans_fitter import MultiFitter
+
+fit = MultiFitter()
+fit.add('h2o', 'contrast_h2o.xml', model='sphere')
+fit.add('d2o', 'contrast_d2o.xml', model='sphere')
+
+for name in ('h2o', 'd2o'):
+    fit[name].set_param('radius', value=45, min=10, max=100, vary=True)
+    fit[name].set_param('scale', value=0.02, min=0.001, max=0.1, vary=True)
+    fit[name].set_param('background', value=0.01, min=0, max=0.1, vary=True)
+
+fit.share('radius', 'scale')             # one radius and scale across both curves
+fit.constrain('h2o.sld_solvent', -0.56)  # known solvent contrasts
+fit.constrain('d2o.sld_solvent', 6.34)
+
+fit.describe()                 # datasets, relationships, free-parameter count
+result = fit.fit()
+print(fit.get_fit_report())
+fit.plot_results()             # one data/fit + residual panel per dataset
+fit.save_results('contrast_results')
+```
+
+Parameters are addressed as `dataset.parameter`. Beyond `share()`, use
+`link_params('cyl.radius', to='sph.radius')` to make one parameter follow
+another, and `constrain('d2o.scale', '0.8 * h2o.scale')` for a fixed value or
+an arithmetic relationship. Each dataset keeps its own model, Q range, mask and
+resolution — nothing is merged or interpolated — and a shared parameter costs
+exactly one degree of freedom.
+
+See the [Simultaneous Fitting guide](docs/multifit.md) for choosing what to
+share, how constraint bounds are enforced, and what dataset weights mean for
+the reported uncertainties.
+
 ## Bayesian Analysis
 
 Sample the full posterior distribution of the varying parameters with the
@@ -282,6 +321,7 @@ See the [User Guide](https://ai4se1dk.github.io/SANS-fitter/usage/) for details.
 - [notebooks/bayesian_sampling.ipynb](notebooks/bayesian_sampling.ipynb) — Bayesian posterior sampling API (`fit_bayesian()`) and the associated posterior plots.
 - [notebooks/pr_inversion_demo.ipynb](notebooks/pr_inversion_demo.ipynb) — model-free P(r) inversion: D_max exploration, automatic inversion, and diagnostics.
 - [notebooks/resolution_control.ipynb](notebooks/resolution_control.ipynb) — explicit resolution (smearing) control: the four modes, what each hands sasmodels, and what ignoring resolution costs.
+- [notebooks/simultaneous_fitting.ipynb](notebooks/simultaneous_fitting.ipynb) — fitting several datasets together with `MultiFitter`: contrast variation, shared parameters, constraints, and joint diagnostics.
 
 
 ## Design Philosophy
