@@ -1,3 +1,9 @@
+<p align="center">
+  <a href="https://ai4se1dk.github.io/SANS-fitter/">
+    <img src="SANS-fitter-logo.png" alt="SANS-fitter — Small-Angle Neutron Scattering model fitting" width="360">
+  </a>
+</p>
+
 # SANS Model Fitter
 
 [![Tests](https://github.com/ai4se1dk/SANS-fitter/actions/workflows/ci.yml/badge.svg)](https://github.com/ai4se1dk/SANS-fitter/actions/workflows/ci.yml)
