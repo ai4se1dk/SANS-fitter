@@ -282,6 +282,7 @@ See the [User Guide](https://ai4se1dk.github.io/SANS-fitter/usage/) for details.
 - [notebooks/bayesian_sampling.ipynb](notebooks/bayesian_sampling.ipynb) — Bayesian posterior sampling API (`fit_bayesian()`) and the associated posterior plots.
 - [notebooks/pr_inversion_demo.ipynb](notebooks/pr_inversion_demo.ipynb) — model-free P(r) inversion: D_max exploration, automatic inversion, and diagnostics.
 - [notebooks/resolution_control.ipynb](notebooks/resolution_control.ipynb) — explicit resolution (smearing) control: the four modes, what each hands sasmodels, and what ignoring resolution costs.
+- [notebooks/four_form_factors.ipynb](notebooks/four_form_factors.ipynb) — fitting a sum of four form factors against one dataset: what to fix, why a global optimizer is needed, and how to read the parameter correlations that remain.
 
 
 ## Design Philosophy

@@ -770,6 +770,9 @@ only; `fit(engine='lmfit')` and `fit_bayesian()` raise `NotImplementedError`
 when one is active. Parameter links themselves work with every engine.
 
 See `examples/composite_model_example.py` for a complete runnable example.
+For a harder case, four form factors against one dataset, see
+`notebooks/four_form_factors.ipynb` (script version:
+`examples/four_form_factors_example.py`).
 
 ## Polydispersity
 
