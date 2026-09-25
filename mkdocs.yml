@@ -7,23 +7,30 @@ edit_uri: edit/main/docs/
 
 theme:
   name: material
+  logo: assets/images/sans-fitter-icon.svg
+  favicon: assets/images/sans-fitter-icon.svg
+  # Cinder fonts (Open Sans, Inter, Hack) are loaded by stylesheets/extra.css
+  font: false
   features:
     - navigation.sections
     - navigation.expand
     - content.code.copy
   palette:
     - scheme: default
-      primary: indigo
-      accent: indigo
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
     - scheme: slate
-      primary: indigo
-      accent: indigo
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-4
         name: Switch to light mode
+
+extra_css:
+  - stylesheets/extra.css
 
 plugins:
   - search
