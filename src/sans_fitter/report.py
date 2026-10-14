@@ -19,7 +19,7 @@ from typing import Any
 
 import numpy as np
 
-from .console import ARROW, CHI_SQUARED
+from .console import ARROW, CHI_SQUARED, MIDDLE_DOT
 from .data.resolution import ResolutionSetting
 from .fitting.base import correlation_matrix
 from .results import FitResultContract, PosteriorSummary
@@ -281,10 +281,12 @@ class FitReport:
             rows.append(('Optimizer message', self.message))
         return rows
 
-    def _header(self) -> str:
+    def _header(self, dot: str = '·') -> str:
+        # Terminal text passes MIDDLE_DOT, which falls back to ASCII on a
+        # console that cannot encode '·'; Markdown and HTML are UTF-8 documents.
         return (
-            f'{self.model} · {self.engine}/{self.method} · '
-            f'resolution: {self.resolution} · weighting: {self.weighting_note}'
+            f'{self.model} {dot} {self.engine}/{self.method} {dot} '
+            f'resolution: {self.resolution} {dot} weighting: {self.weighting_note}'
         )
 
     def _show_correlations(self) -> bool:
@@ -301,7 +303,7 @@ class FitReport:
         ``console.CHI_SQUARED``, which degrades to ASCII.
         """
         symbol = CHI_SQUARED
-        lines = [f'Fit report: {self._header()}', '=' * 72]
+        lines = [f'Fit report: {self._header(MIDDLE_DOT)}', '=' * 72]
 
         quality = self._quality_rows(symbol)
         width = max(len(label) for label, _ in quality)

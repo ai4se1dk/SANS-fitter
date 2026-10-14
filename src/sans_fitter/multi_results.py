@@ -33,7 +33,7 @@ try:  # bumps >= 1.0.4
 except ImportError:  # bumps <= 1.0.3
     from bumps.formatnum import format_uncertainty
 
-from .console import ARROW, CHI_SQUARED
+from .console import ARROW, CHI_SQUARED, MIDDLE_DOT
 from .fitting.base import correlation_matrix
 from .report import (
     DEFAULT_CORRELATION_THRESHOLD,
@@ -413,7 +413,7 @@ class MultiFitReport:
     def __str__(self) -> str:
         result = self.result
         lines = [
-            f'Simultaneous fit report: {result.n_datasets} datasets · '
+            f'Simultaneous fit report: {result.n_datasets} datasets {MIDDLE_DOT} '
             f'{result.engine}/{result.method}',
             '=' * 78,
         ]

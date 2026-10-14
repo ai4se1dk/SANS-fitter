@@ -62,6 +62,7 @@ from .data.resolution import ResolutionSetting
 from .fileio import atomic_write
 from .fitter import SANSFitter
 from .fitting.base import at_bound, reduced_chisq
+from .fitting.bumps_engine import DEFAULT_BUMPS_METHOD
 from .fitting.multi_bumps import MultiEntrySpec, run_multi_bumps
 from .fitting.theory import build_model_parameters, evaluate_theory, theory_data
 from .modeling.constraints import (
@@ -70,6 +71,7 @@ from .modeling.constraints import (
     ConstraintSpec,
     ParameterDescriptor,
     ParameterRef,
+    Reference,
     ShareGroup,
     compile_graph,
     parse_expression,
@@ -487,9 +489,12 @@ class MultiFitter:
         if q_range is not None:
             owned.data.qmin, owned.data.qmax = q_range
         owned._resolution = ResolutionSetting(**fitter.get_resolution())
-        # The kernel is rebuilt from the model expression rather than shared:
-        # a sasmodels kernel can own C or OpenCL runtime state, and two entries
-        # holding one object is exactly the aliasing this class avoids.
+        # The kernel is shared with the source fitter, deliberately. A sasmodels
+        # KernelModel is a compiled model definition, not evaluation state:
+        # DirectModel and the bumps Experiment each build their own per-call
+        # kernel from it, so two holders cannot interfere. Rebuilding it would
+        # recompile for nothing, and _Entry.snapshot() already holds it by
+        # reference for the same reason. Everything mutable is copied above.
         owned.kernel = fitter.kernel
         owned._param_manager = copy.deepcopy(fitter._param_manager)
         owned._data_source = copy.deepcopy(fitter._data_source)
@@ -779,8 +784,10 @@ class MultiFitter:
         """Remove a constraint, restoring an independent parameter.
 
         The parameter keeps the value the constraint last resolved to — that is
-        the state the rest of the analysis was built around — and gets back the
-        bounds and vary flag it had before being constrained.
+        the state the rest of the analysis was built around — and its current
+        bounds, including any set while it was constrained, since the constraint
+        honoured those. It gets back the vary flag it had before being
+        constrained, which is the one setting a constraint overrides.
 
         Raises:
             ValueError: If the parameter is not constrained.
@@ -791,11 +798,12 @@ class MultiFitter:
             raise ValueError(f'{ref.qualified} is not constrained.')
 
         resolved = self._resolved_values().get(ref)
-        # Bounds and the vary flag come back; the value does not. The rest of the
-        # analysis was configured around what the constraint resolved to, so
-        # reinstating the value from before it was applied would silently move
-        # the parameter as a side effect of deleting a relationship.
-        previous = {key: spec.previous.get(key) for key in ('vary', 'min', 'max')}
+        # Only the vary flag comes back. The value stays where the constraint put
+        # it — the rest of the analysis was configured around that — and the
+        # bounds stay as they are now: set_param() may have changed them while
+        # the constraint held, and the constraint's bound proof respected that
+        # change, so reverting it here would silently undo a user's edit.
+        previous = {'vary': spec.previous.get('vary')}
 
         def apply() -> None:
             del self._constraints[ref]
@@ -825,18 +833,28 @@ class MultiFitter:
         named member only; the group's effective range is the intersection, and
         is recomputed here.
 
+        A link follower's value and vary flag are its leader's, so they are set
+        on the leader. Writing them through the follower is refused, as
+        :meth:`SANSFitter.set_param` refuses it, rather than quietly moving the
+        parameter the follower is attached to.
+
         Raises:
             KeyError: If the reference is unknown.
-            ValueError: If the parameter is defined by a constraint — change or
-                remove the constraint instead.
+            ValueError: If the parameter is defined by a constraint or follows
+                another through a link — change the relationship instead — or
+                if bounds are given for a polydispersity width, which is always
+                fitted on ``[0, 1]``.
         """
         ref = self._reference(reference)
-        spec = self._constraints.get(ref)
-        if spec is not None and (value is not None or vary is not None):
+        if ref.pd and (min is not None or max is not None):
+            low, high = PD_WIDTH_RANGE
             raise ValueError(
-                f"{ref.qualified} is defined by the constraint '{spec.text}', so its value "
-                'is not free to set. Use unconstrain() first, or change the constraint.'
+                f'{ref.qualified} is a polydispersity width, which is always fitted on '
+                f'[{low:g}, {high:g}]; its bounds cannot be set. Use '
+                f"fit['{ref.dataset}'].set_pd_param() for the width and vary flag."
             )
+        if value is not None or vary is not None:
+            self._refuse_defined(ref, 'value')
 
         # Value and vary belong to the quantity, bounds to the individual
         # parameter, so the two travel different distances through the graph.
@@ -888,11 +906,23 @@ class MultiFitter:
         ]
 
     def get_parameter_table(self) -> list[dict[str, Any]]:
-        """Every parameter of every dataset, with its status in the graph."""
+        """Every parameter of every dataset, with its status in the graph.
+
+        ``min``/``max`` are the configured bounds of the quantity (intersected
+        across a shared group). ``fit_min``/``fit_max`` are the range the fit
+        actually uses: a constraint whose target has limits narrows the range of
+        the parameter that drives it, so ``h2o.scale`` can be held below its own
+        ``max`` by ``constrain('d2o.scale', '2 * h2o.scale')``. That narrowed
+        range is also what "on a bound" is judged against after a fit. For a
+        fixed or constant quantity both equal its value.
+        """
         graph = self._compiled()
         values = graph.class_values()
         rows: list[dict[str, Any]] = []
         for entry_class in graph.classes:
+            fit_min, fit_max = graph.ranges.get(
+                entry_class.index, (entry_class.minimum, entry_class.maximum)
+            )
             for ref in entry_class.members:
                 rows.append(
                     {
@@ -903,6 +933,8 @@ class MultiFitter:
                         'expression': entry_class.constraint_text,
                         'min': entry_class.minimum,
                         'max': entry_class.maximum,
+                        'fit_min': fit_min,
+                        'fit_max': fit_max,
                     }
                 )
         return sorted(rows, key=lambda row: row['parameter'])
@@ -938,9 +970,17 @@ class MultiFitter:
             for row in rows:
                 detail = f' = {row["expression"]}' if row['expression'] else ''
                 root = '' if row['parameter'] == row['root'] else f'  [= {row["root"]}]'
+                narrowed = ''
+                if row['status'] in ('free', 'shared') and (
+                    row['fit_min'] > row['min'] or row['fit_max'] < row['max']
+                ):
+                    narrowed = (
+                        f'  fitted on [{row["fit_min"]:.6g}, {row["fit_max"]:.6g}] '
+                        f'by a constraint (configured [{row["min"]:.6g}, {row["max"]:.6g}])'
+                    )
                 print(
                     f'  {row["parameter"]:<{width}}  {row["value"]:>12.6g}  '
-                    f'{row["status"]}{detail}{root}'
+                    f'{row["status"]}{detail}{root}{narrowed}'
                 )
 
         constraints = self.get_constraints()
@@ -1140,9 +1180,10 @@ class MultiFitter:
         self._preflight(graph)
 
         specs = [self._entry_spec(entry) for entry in self._entries.values()]
-        outcome = run_multi_bumps(specs, graph, method=method or 'amoeba', **kwargs)
+        method = method or DEFAULT_BUMPS_METHOD
+        outcome = run_multi_bumps(specs, graph, method=method, **kwargs)
 
-        result = self._build_result(graph, outcome, method or 'amoeba')
+        result = self._build_result(graph, outcome, method)
         # Commit last: a failure anywhere above leaves every dataset exactly as
         # it was, which is what makes a failed fit safe to retry. The context is
         # taken afterwards, because it digests the parameter values and would
@@ -1423,9 +1464,7 @@ class MultiFitter:
         # rather than carrying as an expression — same relationship, one fewer
         # moving part, and an uncertainty that is copied rather than propagated.
         # The target keeps its own bounds either way; see compile_graph.
-        from .modeling.constraints import Reference as _Reference
-
-        if isinstance(parsed.root, _Reference):
+        if isinstance(parsed.root, Reference):
             return ConstraintSpec(
                 target=ref,
                 kind='equality',
@@ -1695,16 +1734,42 @@ class MultiFitter:
             if value is not None:
                 self._write_value(ref, value)
 
+    def _leader_of(self, ref: ParameterRef) -> ParameterRef | None:
+        """The parameter *ref* follows through a link, or None.
+
+        Covers both the cross-dataset :meth:`link_params` and a link the dataset
+        carries itself; an equality *constraint* is reported by the caller from
+        the constraint instead, since its message names the constraint text.
+        """
+        if ref in self._directed:
+            return self._directed[ref]
+        if ref.pd:
+            return None
+        target = self._entry(ref.dataset).fitter.get_links().get(ref.name)
+        return None if target is None else ParameterRef(ref.dataset, target)
+
+    def _refuse_defined(self, ref: ParameterRef, what: str) -> None:
+        """Refuse a value/vary write to a parameter another relationship defines."""
+        spec = self._constraints.get(ref)
+        if spec is not None:
+            raise ValueError(
+                f"{ref.qualified} is defined by the constraint '{spec.text}', so its {what} "
+                'is not free to set. Use unconstrain() first, or change the constraint.'
+            )
+        leader = self._leader_of(ref)
+        if leader is not None:
+            raise ValueError(
+                f'{ref.qualified} follows {leader.qualified} through a link, so its {what} '
+                f'and vary flag are those of {leader.qualified}. Set them there, or unlink '
+                'first.'
+            )
+
     def _configure_pd(self, dataset: str, param_name: str, **changes: Any) -> None:
         """Apply one polydispersity setter call as a single transaction."""
         ref = self._reference(f'{dataset}.{param_name}_pd')
-        spec = self._constraints.get(ref)
         width, vary = changes.pop('pd_width', None), changes.pop('vary', None)
-        if spec is not None and (width is not None or vary is not None):
-            raise ValueError(
-                f"{ref.qualified} is defined by the constraint '{spec.text}', so its width "
-                'is not free to set. Use unconstrain() first, or change the constraint.'
-            )
+        if width is not None or vary is not None:
+            self._refuse_defined(ref, 'width')
 
         # The width is the quantity and travels to every member; the
         # distribution and quadrature settings describe how this dataset
@@ -1746,6 +1811,21 @@ class MultiFitter:
                 for canonical in _canonical_names(manager, ref.name):
                     overrides[canonical] = value
         return overrides
+
+    def _canonical_values(
+        self, entry: _Entry, resolved: Mapping[ParameterRef, float]
+    ) -> dict[str, float]:
+        """The entry's canonical parameter table with graph-resolved values laid over it.
+
+        What :meth:`SANSFitter._compute_component_curves` needs to draw a preview:
+        before a fit, a shared or constrained value lives in the graph rather than
+        in the entry's own table, so reading the table alone would draw the
+        components at values the total curve is not using.
+        """
+        return {
+            **entry.fitter._param_manager.get_canonical_param_values(),
+            **self._overrides(entry, resolved),
+        }
 
     def _evaluate_entry(
         self, entry: _Entry, target: Any, resolved: Mapping[ParameterRef, float]

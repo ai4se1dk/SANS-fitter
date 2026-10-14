@@ -39,8 +39,12 @@ DEFAULT_DREAM_SAMPLES = 10000
 DEFAULT_DREAM_BURN = 200
 DEFAULT_DREAM_THIN = 1
 DEFAULT_DREAM_POP = 10
+#: Optimizer used when a bumps fit names none. Shared by the single-dataset
+#: and simultaneous paths so a one-entry MultiFitter and a SANSFitter agree.
+DEFAULT_BUMPS_METHOD = 'amoeba'
 
 __all__ = [
+    'DEFAULT_BUMPS_METHOD',
     'DEFAULT_DREAM_SAMPLES',
     'DEFAULT_DREAM_BURN',
     'DEFAULT_DREAM_THIN',
@@ -219,7 +223,7 @@ def fit_bumps(
     data: Any,
     kernel: Any,
     fit_state: ParameterStateSnapshot,
-    method: str = 'amoeba',
+    method: str = DEFAULT_BUMPS_METHOD,
     **kwargs: Any,
 ) -> EngineFitOutput:
     """Fit using the BUMPS engine."""

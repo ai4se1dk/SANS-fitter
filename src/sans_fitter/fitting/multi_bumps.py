@@ -42,7 +42,7 @@ from ..console import CHI_SQUARED, logger
 from ..modeling.constraints import CompiledGraph, Constant, Negate, Power, Reference
 from ..results import ParameterStateSnapshot
 from .base import extract_fit_index, validate_covariance
-from .bumps_engine import _configured_budget, build_bumps_model
+from .bumps_engine import DEFAULT_BUMPS_METHOD, _configured_budget, build_bumps_model
 
 __all__ = ['MultiEntrySpec', 'MultiFitOutcome', 'DatasetOutcome', 'run_multi_bumps']
 
@@ -258,15 +258,27 @@ def _point_weights(outcomes: list[DatasetOutcome]) -> np.ndarray:
     )
 
 
-def _rank_note(curvature: np.ndarray, labels: list[str]) -> str:
+def _rank_note(jacobian: np.ndarray, labels: list[str]) -> str:
     """A diagnosis when the free coordinates are not separately identifiable.
 
     Computed on both covariance paths, so the diagnosis does not appear and
     disappear with the dataset weights. What each path then *does* with it
     differs, and deliberately: see :func:`_covariance`.
+
+    The rank is taken of the Jacobian itself, with each column scaled to unit
+    norm, rather than of ``JᵀJ``. Forming the normal matrix squares every
+    singular value, and SANS parameters routinely differ by many orders of
+    magnitude in sensitivity (a background beside a scale), so a well-posed but
+    badly scaled problem would read as deficient — and under priority weights
+    that would withhold the covariance altogether. Column scaling removes the
+    parameter units from the question, leaving only genuine collinearity.
     """
-    size = curvature.shape[0]
-    rank = int(np.linalg.matrix_rank(curvature))
+    size = jacobian.shape[1]
+    norms = np.linalg.norm(jacobian, axis=0)
+    # A column of zeros is a parameter the data does not see at all; leaving it
+    # unscaled keeps it at zero, so it still counts against the rank.
+    scaled = jacobian / np.where(norms > 0, norms, 1.0)
+    rank = int(np.linalg.matrix_rank(scaled))
     if rank >= size:
         return ''
     return (
@@ -306,7 +318,7 @@ def _covariance(
     # jacobian() differentiates problem.residuals(), which already carries the
     # sqrt(a) factors, so this is J_w and the curvature needs no reweighting.
     curvature = jacobian.T @ jacobian
-    note = _rank_note(curvature, labels)
+    note = _rank_note(jacobian, labels)
 
     if np.allclose(weights, 1.0):
         if note:
@@ -365,7 +377,7 @@ def _collect(entries: list[MultiEntrySpec], experiments: dict[str, Any]) -> list
 def run_multi_bumps(
     entries: list[MultiEntrySpec],
     graph: CompiledGraph,
-    method: str = 'amoeba',
+    method: str = DEFAULT_BUMPS_METHOD,
     **kwargs: Any,
 ) -> MultiFitOutcome:
     """Optimize the joint problem and read everything back at the best point."""

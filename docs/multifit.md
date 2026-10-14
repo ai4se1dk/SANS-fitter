@@ -53,6 +53,12 @@ fit.share('radius')
 fit.set_param('radius', value=48)          # updates every member
 ```
 
+A link follower's value and vary flag are its leader's, so set them on the
+leader; writing them through the follower raises, exactly as it does on a
+single `SANSFitter`. A polydispersity width is always fitted on `[0, 1]`, so
+`set_param()` refuses `min`/`max` for one; use the handle's `set_pd_param()`
+for the width and its vary flag.
+
 Dataset names must be plain identifiers (`h2o`, `run_2`, `cold`) because they
 appear unquoted on the left of the dot.
 
@@ -95,6 +101,12 @@ the members as equals and intersects their bounds, and `constrain()`, which
 defines only the target's value and leaves its limits in force. Reach for
 `link_params()` when the follower's own configuration is not meant to survive.
 
+`fit['d2o'].get_links()` lists every equality whose follower belongs to `d2o`,
+both the dataset's own links and the cross-dataset ones, with targets in other
+datasets qualified. `MultiFitter` itself has no `get_links()`: the analysis-wide
+view is `get_constraints()`, where a `link_params()` edge appears with
+`kind='equality'`.
+
 ### `constrain()` — a constant or an expression
 
 ```python
@@ -110,10 +122,11 @@ are **interpreted, never executed** — the text is parsed and walked against an
 allowlist, so a constraint is data rather than code.
 
 `unconstrain('d2o.scale')` removes it. The parameter keeps the value the
-constraint last resolved to and gets its bounds and vary flag back. The same
-holds for `unshare()` and `unlink_params()`: a detached parameter keeps the
-value the relationship gave it rather than reverting to whatever it happened to
-be configured with beforehand.
+constraint last resolved to and its current bounds, including any you set while
+it was constrained, and gets back the vary flag it had before. The same holds
+for `unshare()` and `unlink_params()`: a detached parameter keeps the value the
+relationship gave it rather than reverting to whatever it happened to be
+configured with beforehand.
 
 A parameter can have one definition, not two. Constraining a parameter that
 already follows another through `link_params()` is refused — unlink it first —
@@ -136,6 +149,12 @@ fit['d2o'].set_param('scale', min=0.0, max=0.03)
 fit.constrain('d2o.scale', '2 * h2o.scale')
 # h2o.scale is now restricted to at most 0.015, whatever its own max said
 ```
+
+`get_parameter_table()` shows both ranges: `min`/`max` are the configured
+bounds, and `fit_min`/`fit_max` are the range the fit actually uses after
+narrowing. `describe()` prints the narrowed range next to any parameter it
+applies to. It is also the range "on a bound" is judged against after a fit, so
+`h2o.scale` above can be reported at its maximum at 0.015.
 
 Where the arithmetic cannot certify it — a divisor whose range straddles zero,
 a nonlinear expression whose interval bound is too loose — the constraint is

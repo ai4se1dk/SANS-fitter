@@ -32,6 +32,7 @@ from .data.loader import (
 from .data.provenance import DataSource, fingerprint_arrays
 from .data.resolution import ResolutionSetting, apply_resolution, validate_resolution
 from .fitting import (
+    DEFAULT_BUMPS_METHOD,
     DEFAULT_DREAM_BURN,
     DEFAULT_DREAM_POP,
     DEFAULT_DREAM_SAMPLES,
@@ -1355,7 +1356,7 @@ class SANSFitter:
         self._log_active_resolution()
 
         if engine == 'bumps':
-            return self._fit_bumps(method or 'amoeba', **kwargs)
+            return self._fit_bumps(method or DEFAULT_BUMPS_METHOD, **kwargs)
         if not LMFIT_AVAILABLE:
             raise ValueError("scipy is not installed. Use 'bumps' engine or install scipy.")
         return self._fit_lmfit(method or 'leastsq', **kwargs)
@@ -1446,7 +1447,7 @@ class SANSFitter:
             stacklevel=2,
         )
 
-    def _fit_bumps(self, method: str = 'amoeba', **kwargs: Any) -> dict[str, Any]:
+    def _fit_bumps(self, method: str = DEFAULT_BUMPS_METHOD, **kwargs: Any) -> dict[str, Any]:
         """Fit using BUMPS engine."""
         engine_output = fit_bumps(
             data=self._evaluation_data(),

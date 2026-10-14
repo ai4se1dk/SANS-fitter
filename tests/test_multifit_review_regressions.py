@@ -638,3 +638,207 @@ class TestResultOwnership:
         payload['chisq'] = -1.0
         assert result.chisq != -1.0
         assert math.isfinite(result.chisq)
+
+
+# =========================================================================
+# PR #85 review (85-REVIEW-CC.md), sections 2 and 3
+# =========================================================================
+
+
+def mixture(curves):
+    fit = MultiFitter()
+    for name, data in curves.items():
+        fit.add(name, copy.deepcopy(data))
+        fit[name].set_models('dab', 'peak_lorentz')
+    return fit
+
+
+class TestPreviewComponents:
+    """2.1: plot_model(show_components=True) used to raise AttributeError."""
+
+    def test_a_mixture_preview_draws_its_components(self, curves):
+        figure = mixture(curves).plot_model(show=False, show_components=True)
+        names = {trace.name for trace in figure.data}
+        assert 'a: dab' in names
+        assert 'b: peak_lorentz' in names
+
+    def test_preview_components_use_graph_resolved_values(self, curves):
+        fit = mixture(curves)
+        # The component must see the constrained value, not the dataset's table.
+        fit.constrain('b.scale', 3.0)
+        assert fit['b'].params['scale']['value'] == 3.0  # resolved view
+        figure = fit.plot_model(show=False, show_components=True)
+        traces = {trace.name: np.asarray(trace.y, dtype=float) for trace in figure.data}
+        reference = mixture(curves)
+        reference.set_param('b.scale', value=3.0)
+        expected = reference.plot_model(show=False, show_components=True)
+        expected = {trace.name: np.asarray(trace.y, dtype=float) for trace in expected.data}
+        np.testing.assert_allclose(traces['b: dab'], expected['b: dab'], rtol=1e-6)
+        np.testing.assert_allclose(traces['a: dab'] * 3.0, traces['b: dab'], rtol=1e-6)
+
+    def test_an_atomic_preview_has_no_components_and_no_error(self, curves):
+        figure = two_sphere(curves).plot_model(show=False, show_components=True)
+        assert not any(':' in (trace.name or '') for trace in figure.data)
+
+
+class TestRefusedWrites:
+    def test_bounds_on_a_polydispersity_width_are_refused(self, curves):
+        """2.2: they used to be dropped without a word."""
+        fit = two_sphere(curves)
+        fit['a'].enable_polydispersity(True)
+        fit['a'].set_pd_param('radius', pd_width=0.1, vary=True)
+        with pytest.raises(ValueError, match='always fitted on'):
+            fit.set_param('a.radius_pd', min=0.05, max=0.3)
+        with pytest.raises(ValueError, match='always fitted on'):
+            fit['a'].set_param('radius_pd', max=0.3)
+
+    def test_a_width_value_through_set_param_still_works(self, curves):
+        fit = two_sphere(curves)
+        fit['a'].enable_polydispersity(True)
+        fit.set_param('a.radius_pd', value=0.2, vary=True)
+        assert fit['a'].get_pd_param('radius')['pd'] == pytest.approx(0.2)
+
+    def test_a_cross_dataset_follower_cannot_move_its_leader(self, curves):
+        """2.6: a value written through a follower used to land on the leader."""
+        fit = two_sphere(curves)
+        fit.link_params('b.radius', to='a.radius')
+        with pytest.raises(ValueError, match='follows a.radius'):
+            fit.set_param('b.radius', value=55)
+        with pytest.raises(ValueError, match='follows a.radius'):
+            fit['b'].set_param('radius', vary=False)
+        assert fit['a'].params['radius']['value'] == 40
+        assert fit['a'].params['radius']['vary'] is True
+
+    def test_a_local_follower_cannot_move_its_leader(self, curves):
+        fit = two_sphere(curves)
+        fit['a'].link_params('background', to='scale')
+        with pytest.raises(ValueError, match='follows a.scale'):
+            fit.set_param('a.background', value=0.05)
+
+    def test_a_follower_width_cannot_be_written_either(self, curves):
+        fit = two_sphere(curves)
+        for name in ('a', 'b'):
+            fit[name].enable_polydispersity(True)
+            fit[name].set_pd_param('radius', pd_width=0.1, vary=True)
+        fit.link_params('b.radius_pd', to='a.radius_pd')
+        with pytest.raises(ValueError, match='follows a.radius_pd'):
+            fit['b'].set_pd_param('radius', pd_width=0.2)
+        # Quadrature settings are the dataset's own and remain settable.
+        fit['b'].set_pd_param('radius', pd_n=21)
+        assert fit['b'].get_pd_param('radius')['pd_n'] == 21
+
+    def test_writing_the_leader_still_reaches_the_follower(self, curves):
+        fit = two_sphere(curves)
+        fit.link_params('b.radius', to='a.radius')
+        fit.set_param('a.radius', value=55)
+        assert fit['b'].params['radius']['value'] == 55
+
+    def test_a_rejected_write_leaves_nothing_behind(self, curves):
+        fit = two_sphere(curves)
+        fit.link_params('b.radius', to='a.radius')
+        before = fit.get_parameter_table()
+        with pytest.raises(ValueError):
+            fit.set_param('b.radius', value=55, min=30)
+        assert fit.get_parameter_table() == before
+
+
+class TestUnconstrainKeepsBounds:
+    """2.5: bounds set while constrained used to be reverted by unconstrain()."""
+
+    def test_bounds_set_while_constrained_survive(self, curves):
+        fit = two_sphere(curves)
+        fit.constrain('b.scale', '0.5 * a.scale')
+        fit.set_param('b.scale', min=0.005, max=0.05)
+        fit.unconstrain('b.scale')
+        assert fit['b'].params['scale']['min'] == 0.005
+        assert fit['b'].params['scale']['max'] == 0.05
+
+    def test_the_value_stays_and_the_vary_flag_comes_back(self, curves):
+        fit = two_sphere(curves)
+        fit.constrain('b.scale', 0.03)
+        fit.unconstrain('b.scale')
+        assert fit['b'].params['scale']['vary'] is True
+        assert fit['b'].params['scale']['value'] == pytest.approx(0.03)
+
+
+class TestRankOnTheJacobian:
+    """2.4: rank was taken of J^T J, which squares the conditioning."""
+
+    def test_a_badly_scaled_but_independent_problem_is_full_rank(self):
+        from sans_fitter.fitting.multi_bumps import _rank_note
+
+        rng = np.random.default_rng(3)
+        jacobian = rng.standard_normal((60, 3))
+        jacobian[:, 1] *= 1e-9  # a parameter the data barely sees, but does see
+        jacobian[:, 2] *= 1e6
+        assert np.linalg.matrix_rank(jacobian.T @ jacobian) < 3  # what the old check saw
+        assert _rank_note(jacobian, ['x', 'y', 'z']) == ''
+
+    def test_genuine_collinearity_is_still_reported(self):
+        from sans_fitter.fitting.multi_bumps import _rank_note
+
+        rng = np.random.default_rng(4)
+        column = rng.standard_normal(60)
+        jacobian = np.column_stack([column, 1e-6 * column, rng.standard_normal(60)])
+        assert 'rank deficient (2 of 3' in _rank_note(jacobian, ['x', 'y', 'z'])
+
+    def test_a_parameter_the_data_cannot_see_is_reported(self):
+        from sans_fitter.fitting.multi_bumps import _rank_note
+
+        jacobian = np.column_stack([np.linspace(0, 1, 20), np.zeros(20)])
+        assert 'rank deficient' in _rank_note(jacobian, ['x', 'y'])
+
+
+class TestEffectiveRange:
+    """3.2: the narrowed range was only reachable through a private method."""
+
+    @staticmethod
+    def _narrowed(curves):
+        fit = two_sphere(curves)
+        fit.set_param('a.scale', value=0.01)  # inside the range the constraint leaves
+        fit['b'].set_param('scale', min=0.0, max=0.03)
+        fit.constrain('b.scale', '2 * a.scale')
+        return fit
+
+    def test_the_table_reports_configured_and_fitted_ranges(self, curves):
+        table = {row['parameter']: row for row in self._narrowed(curves).get_parameter_table()}
+        row = table['a.scale']
+        assert (row['min'], row['max']) == (0.001, 0.1)
+        assert row['fit_min'] == pytest.approx(0.001)
+        assert row['fit_max'] == pytest.approx(0.015)
+
+    def test_an_unconstrained_parameter_has_equal_ranges(self, curves):
+        table = {row['parameter']: row for row in self._narrowed(curves).get_parameter_table()}
+        row = table['a.radius']
+        assert (row['fit_min'], row['fit_max']) == (row['min'], row['max'])
+
+    def test_describe_states_the_narrowing(self, curves, capsys):
+        self._narrowed(curves).describe()
+        out = capsys.readouterr().out
+        line = next(line for line in out.splitlines() if line.strip().startswith('a.scale'))
+        assert 'fitted on [0.001, 0.015]' in line
+        assert 'configured [0.001, 0.1]' in line
+
+
+class TestSmallCleanups:
+    """3.4."""
+
+    def test_both_fitters_share_one_default_method(self, curves):
+        from sans_fitter.fitting import DEFAULT_BUMPS_METHOD
+
+        result = two_sphere(curves).fit()
+        assert result.method == DEFAULT_BUMPS_METHOD
+
+    def test_terminal_headers_use_the_console_separator(self, curves, monkeypatch):
+        import sans_fitter.multi_results as multi_results
+        import sans_fitter.report as report
+
+        monkeypatch.setattr(multi_results, 'MIDDLE_DOT', '-')
+        monkeypatch.setattr(report, 'MIDDLE_DOT', '-')
+        fit = two_sphere(curves)
+        fit.fit(method='lm')
+        text = str(fit.get_fit_report())
+        assert 'datasets - bumps/lm' in text
+        assert '·' not in text.splitlines()[0]
+        # Markdown is a UTF-8 document and keeps the typographic separator.
+        assert '·' in fit.get_fit_report().to_markdown().splitlines()[0]
