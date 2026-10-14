@@ -1,4 +1,5 @@
 from .bumps_engine import (
+    DEFAULT_BUMPS_METHOD,
     DEFAULT_DREAM_BURN,
     DEFAULT_DREAM_POP,
     DEFAULT_DREAM_SAMPLES,
@@ -10,6 +11,7 @@ from .scipy_engine import SCIPY_AVAILABLE, fit_scipy
 
 __all__ = [
     'DEFAULT_DREAM_BURN',
+    'DEFAULT_BUMPS_METHOD',
     'DEFAULT_DREAM_POP',
     'DEFAULT_DREAM_SAMPLES',
     'DEFAULT_DREAM_THIN',

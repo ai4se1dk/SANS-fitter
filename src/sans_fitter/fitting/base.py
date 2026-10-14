@@ -157,6 +157,14 @@ def build_result_parameters(
     one (``link_params`` or ``radius_effective_mode='link_radius'``) reports its
     target's fitted value rather than the pre-fit value the snapshot carries.
 
+    **A follower of a fitted target also reports that target's uncertainty.** An
+    equality link makes the two parameters one quantity under two names, so the
+    follower's error is the target's error exactly — not zero. ``fixed=True``
+    stays as the flag separating optimizer coordinates from everything else, and
+    no longer implies a zero uncertainty; read ``linked_to`` to tell a follower
+    from a genuinely fixed parameter, whose error really is zero. A follower of a
+    *fixed* target keeps the zero, because its target never moved.
+
     Names here are canonical; ``linked_to`` is translated to the user-facing
     alias alongside the keys, in ``SANSFitter._finalize_fit``.
     """
@@ -173,11 +181,20 @@ def build_result_parameters(
             continue
         target = followers.get(name)
         if target is not None and target in parameters:
-            # The target was fitted, so the snapshot's follower value is stale.
-            # A fixed target needs no correction: its value never moved.
-            value = parameters[target]['value']
-        else:
-            value = info['value']
+            # The target was fitted, so both the snapshot's follower value and a
+            # zero uncertainty would be wrong: the follower *is* the target.
+            # Copying ``formatted`` keeps each engine's own convention, and the
+            # two strings describe the same number.
+            source = parameters[target]
+            parameters[name] = {
+                'value': source['value'],
+                'stderr': source['stderr'],
+                'formatted': source['formatted'],
+                'fixed': True,
+                'linked_to': target,
+            }
+            continue
+        value = info['value']
         parameters[name] = {
             'value': value,
             'stderr': 0.0,

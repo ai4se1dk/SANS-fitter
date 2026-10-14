@@ -19,6 +19,12 @@ class TestPublicApi(unittest.TestCase):
     def test_expected_names_in_all(self):
         expected = {
             'SANSFitter',
+            'MultiFitter',
+            'DatasetHandle',
+            'MultiFitResult',
+            'MultiFitReport',
+            'ConstraintError',
+            'ExpressionError',
             'ParameterManager',
             'PD_DEFAULTS',
             'PD_DISTRIBUTION_TYPES',
@@ -46,6 +52,48 @@ class TestPublicApi(unittest.TestCase):
 
         for name in ('invert', 'auto_invert', 'estimate_alpha', 'estimate_n_terms', 'explore_dmax'):
             self.assertTrue(callable(getattr(pr_inversion, name)), name)
+
+    def test_multifitter_exposes_its_documented_operations(self):
+        from sans_fitter import MultiFitter
+
+        for name in (
+            'add',
+            'add_fitter',
+            'remove',
+            'share',
+            'unshare',
+            'link_params',
+            'unlink_params',
+            'constrain',
+            'unconstrain',
+            'set_param',
+            'set_dataset_weight',
+            'get_constraints',
+            'get_sharing',
+            'get_parameter_table',
+            'describe',
+            'calculate',
+            'plot_model',
+            'fit',
+            'get_fit_report',
+            'plot_results',
+            'save_results',
+        ):
+            self.assertTrue(callable(getattr(MultiFitter, name)), name)
+
+    def test_a_dataset_handle_does_not_offer_analysis_wide_operations(self):
+        """A handle configures one dataset; it must not be able to fit it alone."""
+        from sans_fitter import DatasetHandle
+
+        for name in ('fit', 'fit_bayesian', 'save_analysis', 'load_analysis', 'report'):
+            self.assertFalse(hasattr(DatasetHandle, name), name)
+
+    def test_constraint_errors_are_value_errors(self):
+        """Existing ``except ValueError`` handlers keep working."""
+        from sans_fitter import ConstraintError, ExpressionError
+
+        self.assertTrue(issubclass(ConstraintError, ValueError))
+        self.assertTrue(issubclass(ExpressionError, ConstraintError))
 
 
 if __name__ == '__main__':

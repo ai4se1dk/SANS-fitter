@@ -19,7 +19,7 @@ from typing import Any
 
 import numpy as np
 
-from .console import ARROW, CHI_SQUARED
+from .console import ARROW, CHI_SQUARED, MIDDLE_DOT
 from .data.resolution import ResolutionSetting
 from .fitting.base import correlation_matrix
 from .results import FitResultContract, PosteriorSummary
@@ -81,6 +81,19 @@ def _format_number(value: Any) -> str:
     except (TypeError, ValueError):
         return str(value)
     return f'{number:.6g}' if math.isfinite(number) else 'n/a'
+
+
+def _has_uncertainty(info: dict[str, Any]) -> bool:
+    """True when a parameter entry carries a usable, non-zero standard error.
+
+    Zero is what a genuinely fixed parameter reports, so it reads as "no
+    uncertainty to show" rather than "an uncertainty that happens to be zero".
+    """
+    try:
+        stderr = float(info.get('stderr') or 0.0)
+    except (TypeError, ValueError):
+        return False
+    return math.isfinite(stderr) and stderr > 0.0
 
 
 def _verdict(converged: bool | None) -> str:
@@ -222,9 +235,14 @@ class FitReport:
         """(name, estimate, status) for every parameter, in contract order.
 
         A fitted parameter's estimate is the engine's own ``formatted`` string, so
-        the bumps ``45.041(46)`` convention survives. A fixed or linked one is
-        rendered as a plain number, because its ``formatted`` string carries a
-        ``(fixed)`` / ``(linked)`` suffix that the status column already states.
+        the bumps ``45.041(46)`` convention survives. A fixed one is rendered as a
+        plain number, because its ``formatted`` string carries a ``(fixed)``
+        suffix that the status column already states.
+
+        A follower of a *fitted* target shows the uncertainty it inherits from
+        that target, since an equality link makes the two one quantity. A
+        follower of a fixed target has no uncertainty to show and falls back to
+        the plain number.
         """
         rows: list[tuple[str, str, str]] = []
         for name, info in self.parameters.items():
@@ -233,7 +251,11 @@ class FitReport:
 
             if linked_to:
                 status = f'linked {arrow} {linked_to}'
-                estimate = _format_number(info.get('value'))
+                estimate = (
+                    str(info.get('formatted'))
+                    if _has_uncertainty(info)
+                    else _format_number(info.get('value'))
+                )
             elif is_fixed:
                 status = 'fixed'
                 estimate = _format_number(info.get('value'))
@@ -259,10 +281,12 @@ class FitReport:
             rows.append(('Optimizer message', self.message))
         return rows
 
-    def _header(self) -> str:
+    def _header(self, dot: str = '·') -> str:
+        # Terminal text passes MIDDLE_DOT, which falls back to ASCII on a
+        # console that cannot encode '·'; Markdown and HTML are UTF-8 documents.
         return (
-            f'{self.model} · {self.engine}/{self.method} · '
-            f'resolution: {self.resolution} · weighting: {self.weighting_note}'
+            f'{self.model} {dot} {self.engine}/{self.method} {dot} '
+            f'resolution: {self.resolution} {dot} weighting: {self.weighting_note}'
         )
 
     def _show_correlations(self) -> bool:
@@ -279,7 +303,7 @@ class FitReport:
         ``console.CHI_SQUARED``, which degrades to ASCII.
         """
         symbol = CHI_SQUARED
-        lines = [f'Fit report: {self._header()}', '=' * 72]
+        lines = [f'Fit report: {self._header(MIDDLE_DOT)}', '=' * 72]
 
         quality = self._quality_rows(symbol)
         width = max(len(label) for label, _ in quality)

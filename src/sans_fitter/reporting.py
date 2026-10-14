@@ -24,6 +24,7 @@ import warnings
 from typing import Any
 
 from .console import CHI_SQUARED
+from .fileio import atomic_write
 from .report import FitReport, escape_html_cell, escape_markdown_cell
 
 #: Formats ``SANSFitter.report`` can write, by lowercased file extension.
@@ -89,18 +90,9 @@ class Report:
             raise
 
 
-def _atomic_write(target: str, text: str) -> None:
-    temporary = f'{target}.tmp-{os.getpid()}'
-    try:
-        with open(temporary, 'w', encoding='utf-8', newline='\n') as handle:
-            handle.write(text)
-        os.replace(temporary, target)
-    except BaseException:
-        try:
-            os.remove(temporary)
-        except OSError:
-            pass
-        raise
+#: Kept as a module-local name because this module's tests and callers already
+#: use it; the implementation now lives in one place.
+_atomic_write = atomic_write
 
 
 def format_for(filename: str) -> str:

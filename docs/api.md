@@ -79,6 +79,143 @@ prefix is the moniker (`small_radius` → `A_radius`). Parameters listed in
 `shared=` collapse to a single unprefixed name (`sld` → `A_sld` + `B_sld`);
 their prefixed aliases remain addressable for polydispersity configuration.
 
+## MultiFitter
+
+Simultaneous, constrained fitting of several datasets through one bumps problem.
+See the [Simultaneous Fitting](multifit.md) guide for the workflow and for what
+sharing, linking and constraining each mean.
+
+::: sans_fitter.multifit.MultiFitter
+    options:
+      show_root_heading: true
+      show_source: true
+      members:
+        - add
+        - add_fitter
+        - remove
+        - share
+        - unshare
+        - link_params
+        - unlink_params
+        - constrain
+        - unconstrain
+        - set_param
+        - set_dataset_weight
+        - get_constraints
+        - get_sharing
+        - get_parameter_table
+        - describe
+        - calculate
+        - plot_model
+        - fit
+        - get_fit_report
+        - plot_results
+        - save_results
+
+## DatasetHandle
+
+Returned by `MultiFitter.add()` and by `fit['name']`. Configures one dataset of
+a joint analysis. Deliberately a facade rather than the underlying
+`SANSFitter`: fitting, persistence and reporting belong to the analysis as a
+whole, and a child that could fit itself while enrolled in one would produce a
+result nobody asked for.
+
+::: sans_fitter.multifit.DatasetHandle
+    options:
+      show_root_heading: true
+      show_source: true
+      members:
+        - set_model
+        - set_models
+        - set_structure_factor
+        - remove_structure_factor
+        - set_param
+        - set_pd_param
+        - enable_polydispersity
+        - link_params
+        - unlink_params
+        - set_q_range
+        - reset_q_range
+        - set_resolution
+        - get_params
+        - get_pd_param
+        - get_pd_params
+        - get_polydisperse_parameters
+        - get_varying_pd_params
+        - get_q_range
+        - get_resolution
+        - get_structure_factor
+        - get_components
+        - get_links
+
+## MultiFitResult
+
+The result of a simultaneous fit. Carries the joint statistics, every
+parameter with its status and uncertainty, the joint covariance over the free
+parameters, and a per-dataset breakdown.
+
+::: sans_fitter.multi_results.MultiFitResult
+    options:
+      show_root_heading: true
+      show_source: true
+      members:
+        - weighted
+        - corr
+        - root_parameters
+        - free_parameters
+        - to_dict
+
+::: sans_fitter.multi_results.MultiParameter
+    options:
+      show_root_heading: true
+      show_source: true
+
+::: sans_fitter.multi_results.DatasetResult
+    options:
+      show_root_heading: true
+      show_source: true
+      members:
+        - rms_residual
+        - mean_squared_residual
+        - to_dict
+
+## MultiFitReport
+
+Self-rendering summary returned by `MultiFitter.get_fit_report()`.
+
+::: sans_fitter.multi_results.MultiFitReport
+    options:
+      show_root_heading: true
+      show_source: true
+      members:
+        - strongly_correlated
+        - to_markdown
+        - to_dict
+
+## Constraint graph
+
+The backend-independent parameter graph behind a simultaneous fit: which
+parameters are the same quantity, which are computed from others, and how many
+independent coordinates that leaves. Deliberately free of any optimizer, so the
+same graph can drive other backends later.
+
+::: sans_fitter.modeling.constraints
+    options:
+      show_root_heading: true
+      show_source: true
+      members:
+        - ParameterRef
+        - ParameterDescriptor
+        - ShareGroup
+        - ConstraintSpec
+        - ParameterClass
+        - CompiledGraph
+        - compile_graph
+        - parse_expression
+        - parse_reference
+        - ConstraintError
+        - ExpressionError
+
 ## FitReport
 
 Goodness-of-fit summary returned by `SANSFitter.get_fit_report()`: the χ²
