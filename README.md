@@ -19,8 +19,10 @@ A flexible, model-agnostic Python template for fitting Small-Angle Neutron Scatt
 
 - **Model-Agnostic Design**: Works with any model from the SasModels library (cylinder, sphere, core_shell, etc.)
 - **Multiple Fitting Engines**: Supports both BUMPS (default) and LMFit optimization engines
-- **Flexible Data Loading**: Reads CSV, XML, and HDF5 formats via sasdata
+- **Flexible Data Loading**: Reads CSV, XML, and HDF5 formats via sasdata, including files holding several datasets — pick one with `load_data(path, dataset=...)` by index or name
 - **Example Data Built In**: A curated set of ready-to-fit datasets plus a simulator that generates data  — `examples.load_fitter('silica_spheres')` or `examples.simulate('sphere', radius=50)`
+- **Polydispersity and Custom Models**: Size distributions on any polydisperse parameter via `set_pd_param()`, and your own SasModels plugin models loaded by file path
+- **Resolution Control**: Choose how instrument smearing is applied — dQ from the data, none, custom pinhole (`dq_over_q`) or slit — with `set_resolution()`
 - **Q-Range Restriction**: Fit only a chosen [qmin, qmax] window (e.g. trim beam-stop or background-dominated points)
 - **Dataset Arithmetic**: Add, subtract, multiply, and divide datasets (or scale by constants) with propagated uncertainties via `data_ops` — e.g. background subtraction and transmission correction before fitting
 - **User-Friendly Parameter Management**: Easy-to-use interface for setting parameter values, bounds, and fitting flags
@@ -30,6 +32,7 @@ A flexible, model-agnostic Python template for fitting Small-Angle Neutron Scatt
 - **P(r) Inversion**: Model-free pair distance distribution analysis (indirect Fourier transform) via `pr_inversion` — D_max exploration, automatic regularization/term selection, and Rg/I(0)/positivity diagnostics
 - **Fit-Quality Reporting**: Reduced χ² alongside raw χ², point and parameter counts, covariance/correlation matrices, a convergence verdict and a warning when a fitted parameter rests on a bound — all via `fitter.get_fit_report()`, which renders as a table in a notebook, as text, or as Markdown
 - **Result Export**: Save fitted parameters and curves to CSV files
+- **Save, Reload and Share**: Store the whole analysis (data source, model, parameters, links, resolution, result) as JSON with `save_analysis()` / `SANSFitter.load_analysis()`, or write a single shareable HTML report with `report()`
 
 ## Installation
 
@@ -285,9 +288,13 @@ See the [User Guide](https://ai4se1dk.github.io/SANS-fitter/usage/) for details.
 ## Demo Notebooks
 
 - [notebooks/sans_fitter_demo.ipynb](notebooks/sans_fitter_demo.ipynb) — comprehensive demonstration of the fitting workflow with examples.
+- [notebooks/example_datasets.ipynb](notebooks/example_datasets.ipynb) — the bundled example datasets and the data simulator, including checking that a fit recovers the known truth.
+- [notebooks/composite_models.ipynb](notebooks/composite_models.ipynb) — several models against one dataset with `set_models()`: per-component curves and shared parameters.
+- [notebooks/data_operations_demo.ipynb](notebooks/data_operations_demo.ipynb) — dataset arithmetic: background subtraction, rescaling and combining datasets with propagated uncertainties, then fitting the result.
 - [notebooks/bayesian_sampling.ipynb](notebooks/bayesian_sampling.ipynb) — Bayesian posterior sampling API (`fit_bayesian()`) and the associated posterior plots.
 - [notebooks/pr_inversion_demo.ipynb](notebooks/pr_inversion_demo.ipynb) — model-free P(r) inversion: D_max exploration, automatic inversion, and diagnostics.
 - [notebooks/resolution_control.ipynb](notebooks/resolution_control.ipynb) — explicit resolution (smearing) control: the four modes, what each hands sasmodels, and what ignoring resolution costs.
+- [notebooks/sasmodels-basic.ipynb](notebooks/sasmodels-basic.ipynb) — the same kind of fit done directly with sasmodels and BUMPS, without SANS Fitter, for comparison.
 
 
 ## Design Philosophy
