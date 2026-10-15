@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from copy import deepcopy
 from typing import Any
 
@@ -39,14 +39,19 @@ DEFAULT_DREAM_SAMPLES = 10000
 DEFAULT_DREAM_BURN = 200
 DEFAULT_DREAM_THIN = 1
 DEFAULT_DREAM_POP = 10
+#: Optimizer used when a bumps fit names none. Shared by the single-dataset
+#: and simultaneous paths so a one-entry MultiFitter and a SANSFitter agree.
+DEFAULT_BUMPS_METHOD = 'amoeba'
 
 __all__ = [
+    'DEFAULT_BUMPS_METHOD',
     'DEFAULT_DREAM_SAMPLES',
     'DEFAULT_DREAM_BURN',
     'DEFAULT_DREAM_THIN',
     'DEFAULT_DREAM_POP',
     'MIN_POSTERIOR_PARAMETER_COUNT',
     'MIN_POSTERIOR_SAMPLE_COUNT',
+    'build_bumps_model',
     'fit_bumps',
     'fit_bumps_dream',
 ]
@@ -135,6 +140,38 @@ def _configured_budget(method: str, problem: Any, options: dict[str, Any]) -> in
         return None
 
 
+def build_bumps_model(
+    kernel: Any,
+    fit_state: ParameterStateSnapshot,
+    extra_pd: Iterable[str] = (),
+) -> Any:
+    """A sasmodels bumps ``Model`` carrying a snapshot's values and PD blocks.
+
+    Deliberately stops short of fit ranges, equality aliasing and expression
+    binding: a simultaneous fit has to build every model *before* it can connect
+    their parameters, so the two halves cannot be one step. The single-dataset
+    path applies the rest immediately in :func:`_build_bumps_problem`.
+
+    *extra_pd* names polydispersity widths whose block must be written even
+    though the entry's own configuration looks inactive. A width shared across
+    datasets is driven by the shared value, not by this entry's zero, and
+    sasmodels ignores a width that arrives without its ``_pd_n`` companion.
+    """
+    pars = {name: info['value'] for name, info in fit_state.params.items()}
+
+    if fit_state.pd_enabled:
+        forced = set(extra_pd)
+        for param_name in fit_state.polydisperse_param_names:
+            pd_config = fit_state.polydisperse_params[param_name]
+            if pd_is_active(pd_config) or param_name in forced:
+                pars[f'{param_name}_pd'] = pd_config['pd']
+                pars[f'{param_name}_pd_n'] = pd_config['pd_n']
+                pars[f'{param_name}_pd_nsigma'] = pd_config['pd_nsigma']
+                pars[f'{param_name}_pd_type'] = pd_config['pd_type']
+
+    return BumpsModel(kernel, **pars)
+
+
 def _build_bumps_problem(
     data: Any,
     kernel: Any,
@@ -145,18 +182,7 @@ def _build_bumps_problem(
     Returns the (problem, experiment) pair so callers can extract the fit
     index from the experiment after fitting.
     """
-    pars = {name: info['value'] for name, info in fit_state.params.items()}
-
-    if fit_state.pd_enabled:
-        for param_name in fit_state.polydisperse_param_names:
-            pd_config = fit_state.polydisperse_params[param_name]
-            if pd_is_active(pd_config):
-                pars[f'{param_name}_pd'] = pd_config['pd']
-                pars[f'{param_name}_pd_n'] = pd_config['pd_n']
-                pars[f'{param_name}_pd_nsigma'] = pd_config['pd_nsigma']
-                pars[f'{param_name}_pd_type'] = pd_config['pd_type']
-
-    model = BumpsModel(kernel, **pars)
+    model = build_bumps_model(kernel, fit_state)
 
     for name, info in fit_state.params.items():
         if info['vary']:
@@ -197,7 +223,7 @@ def fit_bumps(
     data: Any,
     kernel: Any,
     fit_state: ParameterStateSnapshot,
-    method: str = 'amoeba',
+    method: str = DEFAULT_BUMPS_METHOD,
     **kwargs: Any,
 ) -> EngineFitOutput:
     """Fit using the BUMPS engine."""

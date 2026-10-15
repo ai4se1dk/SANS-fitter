@@ -35,6 +35,7 @@ from . import __version__
 from .console import OK, logger
 from .data.provenance import DataSource, fingerprint_arrays
 from .data.resolution import ResolutionSetting
+from .fileio import atomic_write
 from .report import json_safe
 from .results import FitArtifacts, FitResultContract, PosteriorDigest
 
@@ -246,6 +247,62 @@ def result_to_dict(contract: FitResultContract) -> dict[str, Any]:
     return json_safe(payload)
 
 
+def _normalize_linked_uncertainty(
+    parameters: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Give equality followers saved before 0.5 the uncertainty of their target.
+
+    Files written by 0.4 and earlier stored ``stderr = 0.0`` for every follower,
+    because that is what the engines reported then. That zero is not a
+    measurement: an equality link makes follower and target one quantity, so the
+    follower carries whatever its target carries.
+
+    Three cases, and they are not the same:
+
+    - **a fixed target** never moved, so zero is correct and is left alone;
+    - **a varying target** hands over its error verbatim, including ``None``
+      when that error could not be estimated — propagating the absence rather
+      than reading the legacy zero as a precise measurement;
+    - **a target that is not in the file at all** leaves the follower's
+      uncertainty unknowable, so it becomes ``None`` rather than zero.
+
+    A compatibility normalization on read, not a schema change: nothing about
+    the stored document changes, and a file written by this version already
+    carries the corrected numbers, so this is a no-op for it.
+    """
+    for name, info in parameters.items():
+        target = info.get('linked_to')
+        if not target or info.get('stderr'):
+            continue
+
+        source = parameters.get(str(target))
+        if source is None:
+            info['stderr'] = None
+            info['formatted'] = f'{_display_value(info)} (uncertainty unavailable)'
+            logger.debug(
+                f"Restored parameter '{name}' follows '{target}', which is not in the "
+                'file; its uncertainty is recorded as unavailable.'
+            )
+            continue
+        if source.get('fixed', True) and not source.get('linked_to'):
+            continue  # a genuinely fixed target: zero is the right answer
+
+        info['stderr'] = source.get('stderr')
+        info['formatted'] = (
+            source.get('formatted', info.get('formatted'))
+            if info['stderr']
+            else f'{_display_value(info)} (uncertainty unavailable)'
+        )
+    return parameters
+
+
+def _display_value(info: dict[str, Any]) -> str:
+    try:
+        return f'{float(info.get("value")):.6g}'
+    except (TypeError, ValueError):
+        return str(info.get('value'))
+
+
 def result_from_dict(payload: dict[str, Any]) -> FitResultContract:
     """Rebuild a contract from :func:`result_to_dict`, without artifacts."""
     _require(isinstance(payload, dict), 'result', 'must be a mapping')
@@ -272,9 +329,9 @@ def result_from_dict(payload: dict[str, Any]) -> FitResultContract:
         n_free=int(payload.get('n_free') or 0),
         dof=int(payload.get('dof') or 0),
         weighting_note=str(payload['weighting_note']),
-        parameters={
-            str(name): dict(info) for name, info in (payload.get('parameters') or {}).items()
-        },
+        parameters=_normalize_linked_uncertainty(
+            {str(name): dict(info) for name, info in (payload.get('parameters') or {}).items()}
+        ),
         resolution=payload.get('resolution'),
         converged=payload.get('converged'),
         message=str(payload.get('message') or ''),
@@ -436,17 +493,7 @@ def write_analysis(fitter: Any, filename: str, *, include_result: bool = True) -
     directory = os.path.dirname(target)
     if directory and not os.path.isdir(directory):
         raise AnalysisFileError(f'Directory does not exist: {directory}')
-    temporary = f'{target}.tmp-{os.getpid()}'
-    try:
-        with open(temporary, 'w', encoding='utf-8', newline='\n') as handle:
-            handle.write(text)
-        os.replace(temporary, target)
-    except BaseException:
-        try:
-            os.remove(temporary)
-        except OSError:
-            pass
-        raise
+    atomic_write(target, text)
     return document
 
 

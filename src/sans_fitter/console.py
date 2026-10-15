@@ -120,3 +120,5 @@ INVERSE_ANGSTROM = _glyph('Å⁻¹', '1/Ang')
 CHI_SQUARED = _glyph('χ²', 'chi^2')
 #: Gaussian 1-sigma, used for resolution widths (σ_q/q).
 SIGMA = _glyph('σ', 'sigma')
+#: Separator between fields of a one-line report header.
+MIDDLE_DOT = _glyph('·', '-')
