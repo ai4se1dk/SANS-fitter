@@ -105,6 +105,9 @@ def plot_fit(
     log_scale: bool = True,
     show: bool | None = None,
     show_components: bool = False,
+    *,
+    evaluation_data: Any = None,
+    weighting_mode: str = 'dI',
 ) -> go.Figure:
     """Plot experimental data and, when available, the fitted model curve.
 
@@ -115,6 +118,12 @@ def plot_fit(
         show: If True, call fig.show(); if False, only return the figure.
             Default (None) shows the figure except in Jupyter, where the
             returned figure is rendered by the notebook itself.
+        evaluation_data: The fitter's evaluation copy, whose ``dy`` is the σ
+            the active weighting divides by. Used only for residuals the fit
+            result does not carry itself; error bars always come from
+            ``data.dy``, the file's own dI. Defaults to *data*.
+        weighting_mode: The weighting the residuals were computed under.
+            ``'none'`` labels the residual axis in intensity units.
     """
     if data is None:
         raise ValueError('No data to plot. Use load_data() first.')
@@ -162,21 +171,36 @@ def plot_fit(
     dx = subset(data.dx, index)
     excluded = ~index
 
+    # The σ residuals are divided by: the weighting's, not necessarily the
+    # file's dI that the error bars show.
+    sigma_source = data if evaluation_data is None else evaluation_data
+    sigma = subset(sigma_source.dy, index)
+
     # Residuals are in sigma units, so they need real uncertainties. A theory
     # preview can be plotted against data without dI (no fit can be), in which
     # case the residual panel stays empty rather than dividing by nothing.
-    has_dy = has_real_data(dy)
+    has_sigma = has_real_data(sigma)
     stored_residuals = fit_result.artifacts.residuals
     if stored_residuals is not None and len(stored_residuals) == len(y):
         # The residuals the fit minimized, which differ from (y - fit) / dy
         # wherever the scipy engine unit-weighted a zero-dI point.
         residuals = np.asarray(stored_residuals, dtype=float)
-    elif has_dy:
-        # Individual zero-dI points still give inf/NaN; plotly drops them.
+    elif has_sigma:
+        # Individual zero-σ points still give inf/NaN; plotly drops them.
         with np.errstate(divide='ignore', invalid='ignore'):
-            residuals = (y - i_fit) / dy
+            residuals = (y - i_fit) / sigma
     else:
         residuals = None
+
+    if weighting_mode == 'none':
+        # Sign-neutral on purpose: bumps stores fit − I and the scipy engine
+        # I − fit (see persistence._NEGATED_RESIDUAL_ENGINES), and the stored
+        # vector is plotted as is. Naming a sign would be wrong for one of them.
+        residual_title = 'Residuals (intensity units)'
+    elif has_sigma:
+        residual_title = 'Residuals (σ)'
+    else:
+        residual_title = 'Residuals (no dI)'
 
     if show_residuals:
         fig = make_subplots(
@@ -281,9 +305,7 @@ def plot_fit(
             row=1,
             col=1,
         )
-        fig.update_yaxes(
-            title_text='Residuals (σ)' if has_dy else 'Residuals (no dI)', row=2, col=1
-        )
+        fig.update_yaxes(title_text=residual_title, row=2, col=1)
         fig.update_xaxes(type='log' if log_scale else 'linear', row=1, col=1)
     else:
         fig.add_trace(data_trace)

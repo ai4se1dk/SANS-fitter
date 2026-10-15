@@ -654,8 +654,10 @@ def simulate(
             intensity a 2% error bar; uncertainties follow counting statistics
             (``dI = noise * sqrt(|I| * median|I|)``), so the relative error
             grows in the dim form-factor minima and the high-Q tail as it does
-            in real data. Pass ``0`` for noise-free data — note that the bumps
-            engine refuses data without uncertainties.
+            in real data. Pass ``0`` for noise-free data — such data has no
+            uncertainties, so the bumps engine and ``fit_bayesian()`` need a
+            weighting other than ``'dI'``: see
+            :meth:`~sans_fitter.SANSFitter.set_weighting` (``'none'``).
         seed: Seed for the noise, so results are reproducible. Pass ``None``
             for fresh noise on every call.
         dq: Relative pinhole resolution width σ_q/q (Gaussian 1-σ, not FWHM).

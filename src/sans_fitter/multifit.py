@@ -467,6 +467,12 @@ class MultiFitter:
         fitter's fit result and engine handles are deliberately not: they belong
         to a different fit of a different problem.
 
+        A joint fit always weights each dataset by its own ``dI``. A fitter
+        whose weighting is another mode (``set_weighting('sqrt')``, ``'abs'``
+        or ``'none'``) is refused rather than silently refitted under a
+        different objective; weighting modes for joint fits are tracked in
+        issue #87.
+
         Args:
             name: Identifier for this dataset.
             fitter: The fitter to copy. It is left untouched.
@@ -474,7 +480,8 @@ class MultiFitter:
 
         Raises:
             ValueError: If the name is invalid or taken, the weight is invalid,
-                or the source fitter has no data or no model.
+                the source fitter has no data or no model, or its weighting
+                mode is not ``'dI'``.
         """
         self._validate_name(name)
         weight = self._validate_weight(weight)
@@ -482,6 +489,15 @@ class MultiFitter:
             raise ValueError(f"Cannot add '{name}': the fitter has no data loaded.")
         if fitter.kernel is None:
             raise ValueError(f"Cannot add '{name}': the fitter has no model set.")
+        mode = fitter.get_weighting()['mode']
+        if mode != 'dI':
+            raise ValueError(
+                f"Cannot add '{name}': the fitter weights by {mode!r}, and a joint fit "
+                'weights every dataset by its own dI (other weighting modes are not '
+                'yet supported for MultiFitter, see issue #87). Call '
+                "fitter.set_weighting('dI') first; if the data has no dI, fit it "
+                'on its own with SANSFitter.'
+            )
 
         owned = SANSFitter()
         owned.set_data(copy.deepcopy(fitter.data))

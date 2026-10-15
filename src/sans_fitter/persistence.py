@@ -40,8 +40,14 @@ from .report import json_safe
 from .results import FitArtifacts, FitResultContract, PosteriorDigest
 
 SCHEMA_FORMAT = 'sans-fitter-analysis'
-SCHEMA_VERSION = 1
-SUPPORTED_VERSIONS = (1,)
+# Version 2 (#72 item 3) fills the 'weighting' key that version 1 reserved,
+# and records the weighting in each fit context. Version 1 documents read as
+# 'dI', the only weighting that existed when they were written.
+SCHEMA_VERSION = 2
+SUPPORTED_VERSIONS = (1, 2)
+
+#: The weighting every pre-weighting (0.4, schema 1) fit was made under.
+DEFAULT_WEIGHTING = {'mode': 'dI'}
 
 #: Relative tolerance for the reconstructed-chi-squared self-check.
 CHISQ_TOLERANCE = 1e-6
@@ -139,11 +145,18 @@ def build_fit_context(
     q_range: tuple[float, float] | None,
     n_points: int,
     data_fingerprint: str | None,
+    *,
+    weighting: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Describe the configuration and data a fit result belongs to."""
+    """Describe the configuration and data a fit result belongs to.
+
+    A built context always carries ``weighting``; ``None`` means the default
+    ``'dI'``.
+    """
     return {
         'config_digest': config_digest(config),
         'resolution': dict(resolution),
+        'weighting': dict(weighting or DEFAULT_WEIGHTING),
         'qmin': None if q_range is None else float(q_range[0]),
         'qmax': None if q_range is None else float(q_range[1]),
         'n_points': int(n_points),
@@ -156,14 +169,21 @@ def compare_fit_context(saved: dict[str, Any] | None, current: dict[str, Any]) -
 
     Checked facet by facet so the message can name what moved. Comparing fitted
     parameter values alone would not do: polydispersity, bounds, vary flags,
-    links, the Q selection, the resolution mode and the data itself all change
-    what a chi-squared means.
+    links, the Q selection, the resolution mode, the weighting and the data
+    itself all change what a chi-squared means.
+
+    A saved context without ``weighting`` predates the setting (0.4, schema 1)
+    and was necessarily fitted under ``'dI'``; it is compared as such, or every
+    such file would lose its result on load. Only the saved side is
+    normalised: a context built now always carries the key.
     """
     if saved is None:
         return 'the fit predates analysis saving, so its configuration is unknown'
+    saved = {**saved, 'weighting': saved.get('weighting') or DEFAULT_WEIGHTING}
     checks = (
         ('config_digest', 'the model or its parameters changed after the fit'),
         ('resolution', 'the resolution setting changed after the fit'),
+        ('weighting', 'the weighting setting changed after the fit'),
         ('qmin', 'the fitting Q range changed after the fit'),
         ('qmax', 'the fitting Q range changed after the fit'),
         ('data_fingerprint', 'the data changed after the fit'),
@@ -234,6 +254,7 @@ def result_to_dict(contract: FitResultContract) -> dict[str, Any]:
         'converged': contract.converged,
         'message': contract.message,
         'resolution': contract.resolution,
+        'weighting': contract.weighting,
         'parameters': {name: dict(info) for name, info in contract.parameters.items()},
         'cov': None if contract.cov is None else np.asarray(contract.cov).tolist(),
         'cov_labels': list(contract.cov_labels),
@@ -333,6 +354,7 @@ def result_from_dict(payload: dict[str, Any]) -> FitResultContract:
             {str(name): dict(info) for name, info in (payload.get('parameters') or {}).items()}
         ),
         resolution=payload.get('resolution'),
+        weighting=payload.get('weighting'),
         converged=payload.get('converged'),
         message=str(payload.get('message') or ''),
         cov=matrix,
@@ -423,7 +445,7 @@ def build_analysis_dict(
         ),
         'configuration': encode_numbers(config, 'configuration'),
         'resolution': fitter.get_resolution(),
-        'weighting': None,  # reserved for item 3 of #72
+        'weighting': fitter.get_weighting(),
         'fit_range': _fit_range_section(fitter),
         'result': None,
         'result_omitted': None,
@@ -468,6 +490,7 @@ def _current_fit_context(fitter: Any, config: dict[str, Any]) -> dict[str, Any]:
         fitter.get_q_range(),
         _fitted_point_count(fitter),
         None if fitter.data is None else fingerprint_arrays(fitter.data),
+        weighting=fitter.get_weighting(),
     )
 
 
@@ -831,6 +854,12 @@ def read_analysis(
             slit_length=setting.slit_length,
             slit_width=setting.slit_width,
         )
+
+    # None or absent: a schema-1 document, written before weighting existed,
+    # whose fits were all weighted by dI — the fitter's default already.
+    weighting = document.get('weighting')
+    if isinstance(weighting, dict):
+        fitter.set_weighting(weighting.get('mode', DEFAULT_WEIGHTING['mode']))
 
     fit_range = document.get('fit_range')
     if isinstance(fit_range, dict):

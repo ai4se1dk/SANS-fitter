@@ -42,9 +42,14 @@ def fit_scipy(
     kernel: Any,
     fit_state: ParameterStateSnapshot,
     method: str = 'leastsq',
+    weighting_note: str = 'dI',
     **kwargs: Any,
 ) -> EngineFitOutput:
-    """Fit using scipy.optimize based fitting methods."""
+    """Fit using scipy.optimize based fitting methods.
+
+    *weighting_note* labels the σ already written into ``data.dy`` (the
+    fitter's weighting mode); the engine itself only ever reads ``dy``.
+    """
     param_names = [name for name, info in fit_state.params.items() if info['vary']]
     x0_list = [fit_state.params[name]['value'] for name in param_names]
     bounds_lower_list = [fit_state.params[name]['min'] for name in param_names]
@@ -72,21 +77,25 @@ def fit_scipy(
     # 1.0 instead — they will dominate χ² relative to small-error points, but
     # masking them would silently change the degrees of freedom.
     zero_dy = np.nan_to_num(dy_fit) == 0
-    weighting_note = 'dI'
     if zero_dy.any():
+        # Under the default 'dI' weighting σ *is* dI; under any other mode it
+        # is the weighting's σ, so the messages name that instead.
+        sigma_name = 'dI' if weighting_note == 'dI' else 'sigma'
+        what = 'intensity uncertainties (dI)' if weighting_note == 'dI' else 'weighting sigmas'
         if zero_dy.all():
             warnings.warn(
-                'All intensity uncertainties (dI) are zero; using unweighted residuals.',
+                f'All {what} are zero; using unweighted residuals.',
                 stacklevel=2,
             )
         else:
             warnings.warn(
-                f'{int(zero_dy.sum())} of {zero_dy.size} fitted points have zero intensity '
-                'uncertainty (dI); weighting them as 1.0.',
+                f'{int(zero_dy.sum())} of {zero_dy.size} fitted points have zero '
+                f'{what}; weighting them as 1.0.',
                 stacklevel=2,
             )
         weighting_note = (
-            f'dI ({int(zero_dy.sum())} of {zero_dy.size} points unit-weighted because dI = 0)'
+            f'{weighting_note} ({int(zero_dy.sum())} of {zero_dy.size} points '
+            f'unit-weighted because {sigma_name} = 0)'
         )
         dy_fit = np.where(zero_dy, 1.0, dy_fit)
 
