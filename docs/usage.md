@@ -470,6 +470,82 @@ it double-smears or under-smears.
 See `examples/resolution_example.py` and
 `notebooks/resolution_control.ipynb` for a complete walkthrough.
 
+### Data Weighting
+
+Every engine minimises χ² = Σ((I − I_model)/σ)² over the fitted points. Which
+σ divides each residual is a stated choice too. The four modes, and their
+formulas, are SasView's Fit Page options (*No Weighting* / *Use dI Data* /
+*Use |sqrt(I Data)|* / *Use |I Data|*):
+
+```python
+fitter.set_weighting('dI')     # default: the dataset's own dI column
+fitter.set_weighting('sqrt')   # σ = √|I|
+fitter.set_weighting('abs')    # σ = |I|
+fitter.set_weighting('none')   # σ = 1
+
+fitter.get_weighting()
+# {'mode': 'sqrt'}
+```
+
+| Mode | σ | What it means |
+|---|---|---|
+| `'dI'` | the data's `dI` | Measured uncertainty. The right choice when `dI` is real. |
+| `'sqrt'` | `√|I|` | Poisson statistics for count-like data with no `dI`. |
+| `'abs'` | `|I|` | Constant relative error: residuals become `(I − fit)/I`, so every decade of intensity counts equally, close to fitting `log I`. Emphasises high Q. |
+| `'none'` | `1` | Unweighted least squares, in intensity units. The brightest (lowest-Q) points dominate. |
+
+Which one to use:
+
+| Your data | Use |
+|---|---|
+| has a real `dI` column from the reduction | `'dI'` (default) |
+| counts without `dI` | `'sqrt'` |
+| no `dI`, and you want every decade of I(q) to matter equally | `'abs'` |
+| noise-free simulation, or you want a plain least-squares fit | `'none'` |
+
+Like the resolution mode, the weighting is fitter state: it persists across
+`load_data()` / `set_data()`, the load summary prints it, and it reaches
+`fit(engine='bumps')`, `fit(engine='lmfit')`, `fit_bayesian()` and the χ² of
+`plot_model()` alike. It is also what makes data **without `dI`** fittable
+with the bumps engine and with `fit_bayesian()`: under `'dI'` both refuse such
+data, and the error message points here.
+
+#### Things to know
+
+- **χ² means something different under each mode.** Only `'dI'` with
+  correct uncertainties gives a reduced χ² near 1 for a good fit; under the
+  other modes χ² compares fits of the same data under the same mode. Do not
+  pick the mode that minimises χ².
+- **Uncertainties inherit the caveat.** `stderr`, the covariance and DREAM
+  credible intervals are computed from the σ you chose. Under `'none'` they
+  scale with the intensity units and are not uncertainties, and
+  `fit_bayesian()` warns. Nothing is rescaled by χ²/dof.
+- **`fitter.data` is never modified.** Error bars, the `dI_exp` column of
+  `save_results()`, `data_ops` and P(r) inversion all see the file's `dI`.
+  The CSV header records both the `# Weighting mode:` that was set and the
+  engine's `# Weighting:` note; the HTML report has a *Weighting* row.
+- **Zero σ is caught before the fit.** Under `'sqrt'` or `'abs'` a point with
+  intensity exactly zero gets σ = 0; bumps and DREAM refuse it, and lmfit
+  unit-weights it with a warning and records that in `weighting_note`.
+- **The residual panel follows the mode**: residuals are in σ units, or in
+  intensity units (`Residuals (I − fit)`) under `'none'`.
+- **Saved analyses** restore the mode, and a saved fit is dropped on reload
+  if the weighting changed after it — exactly as for resolution.
+- **SESANS data** is always weighted by its own uncertainties; a mode other
+  than `'dI'` is refused at fit time.
+
+Noise-free simulated data has no uncertainties at all, so it pairs with
+`'none'`:
+
+```python
+data = examples.simulate('sphere', radius=50, noise=0)
+fitter.set_data(data)
+fitter.set_weighting('none')
+fitter.fit()
+```
+
+See `examples/weighting_example.py` for a complete walkthrough.
+
 ### Restricting the Q Range
 
 Real datasets often contain points you do not want to fit: beam-stop

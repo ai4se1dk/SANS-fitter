@@ -122,6 +122,7 @@ def round_trip(f, tmp_path, name='analysis.json', **kwargs):
 def assert_same_configuration(a, b):
     assert a._param_manager.export_config() == b._param_manager.export_config()
     assert a.get_resolution() == b.get_resolution()
+    assert a.get_weighting() == b.get_weighting()
     assert a.get_q_range() == pytest.approx(b.get_q_range())
 
 
@@ -1124,12 +1125,11 @@ def test_schema_header_identifies_the_writer(fitter, tmp_path):
     assert schema['written_by']
 
 
-def test_weighting_key_is_reserved(fitter, tmp_path):
-    """Item 3 of #72 fills this in; it is present and null until then."""
+def test_weighting_key_records_the_setting(fitter, tmp_path):
+    """Item 3 of #72 fills the key schema 1 reserved: the default is dI."""
     _, path = round_trip(fitter, tmp_path)
     document = json.load(open(path, encoding='utf-8'))
-    assert 'weighting' in document
-    assert document['weighting'] is None
+    assert document['weighting'] == {'mode': 'dI'}
 
 
 # =========================================================================

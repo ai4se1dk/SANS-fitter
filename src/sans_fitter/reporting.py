@@ -124,10 +124,12 @@ def _settings_rows(fitter: Any) -> list[tuple[str, str]]:
         rows.append(('Q range', f'{qmin:.4g} to {qmax:.4g} 1/A{suffix}'))
 
     from .data.resolution import ResolutionSetting
+    from .data.weighting import WeightingSetting
 
     rows.append(
         ('Resolution', ResolutionSetting(**fitter.get_resolution()).describe(ascii_only=True))
     )
+    rows.append(('Weighting', WeightingSetting(**fitter.get_weighting()).describe(ascii_only=True)))
 
     structure_factor = fitter.get_structure_factor()
     if structure_factor:

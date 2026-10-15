@@ -22,7 +22,7 @@ from sasmodels.core import load_model
 from sasmodels.direct_model import DirectModel
 
 from . import plotting
-from .console import ARROW, CHI_SQUARED, INVERSE_ANGSTROM, OK, logger
+from .console import ARROW, CHI_SQUARED, INVERSE_ANGSTROM, OK, SIGMA, logger
 from .data.loader import (
     get_fit_index,
     has_real_data,
@@ -31,6 +31,7 @@ from .data.loader import (
 )
 from .data.provenance import DataSource, fingerprint_arrays
 from .data.resolution import ResolutionSetting, apply_resolution, validate_resolution
+from .data.weighting import WeightingSetting, apply_weighting, validate_weighting
 from .fitting import (
     DEFAULT_BUMPS_METHOD,
     DEFAULT_DREAM_BURN,
@@ -175,6 +176,9 @@ class SANSFitter:
         # default 'data' means "whatever the loaded dataset carries", so it
         # keeps doing the right thing when the dataset is swapped.
         self._resolution = ResolutionSetting()
+        # Weighting is the same kind of choice: which sigma divides each
+        # residual. The default 'dI' means "the loaded dataset's own column".
+        self._weighting = WeightingSetting()
 
         # Parameter management delegated to ParameterManager
         self._param_manager = ParameterManager()
@@ -227,7 +231,8 @@ class SANSFitter:
             f'  Data points: {len(self.data.x)}\n'
             f'  Error (dI) column: {"yes" if has_dy else "no"}\n'
             f'  Resolution (dQ) column: {"yes" if has_dx else "no"}\n'
-            f'  Resolution mode: {self._resolution.describe()}'
+            f'  Resolution mode: {self._resolution.describe()}\n'
+            f'  Weighting mode: {self._weighting.describe()}'
         )
 
     def set_data(self, data: Any) -> None:
@@ -286,7 +291,8 @@ class SANSFitter:
             f'  Data points: {len(self.data.x)}\n'
             f'  Error (dI) column: {"yes" if has_dy else "no"}\n'
             f'  Resolution (dQ) column: {"yes" if has_dx else "no"}\n'
-            f'  Resolution mode: {self._resolution.describe()}'
+            f'  Resolution mode: {self._resolution.describe()}\n'
+            f'  Weighting mode: {self._weighting.describe()}'
         )
 
     def set_q_range(self, qmin: float | None = None, qmax: float | None = None) -> None:
@@ -452,13 +458,79 @@ class SANSFitter:
         """
         return self._resolution.as_dict()
 
+    def set_weighting(self, mode: str = 'dI') -> None:
+        """
+        Choose which uncertainty divides each residual in the fit.
+
+        Every engine minimises χ² = Σ((I − I_model) / σ)² over the fitted
+        points. The four modes choose σ, and mirror SasView's Fit Page
+        (*No Weighting* / *Use dI Data* / *Use |sqrt(I Data)|* /
+        *Use |I Data|*), with the same formulas::
+
+            fitter.set_weighting('dI')     # default: the dataset's own dI column
+            fitter.set_weighting('sqrt')   # σ = √|I|  (counting statistics)
+            fitter.set_weighting('abs')    # σ = |I|   (constant relative error)
+            fitter.set_weighting('none')   # σ = 1     (unweighted least squares)
+
+        Which one to use:
+
+        ========================================================  ==========
+        Your data                                                 Mode
+        ========================================================  ==========
+        has a real dI column from the reduction                   ``'dI'``
+        counts without dI                                         ``'sqrt'``
+        no dI, and every decade of I(q) should matter equally     ``'abs'``
+        noise-free simulation, or a plain least-squares fit       ``'none'``
+        ========================================================  ==========
+
+        The setting is applied to a **copy** of the dataset made for
+        evaluation; ``fitter.data`` is never modified, so plots keep drawing
+        the file's dI as error bars and ``save_results()`` keeps exporting it.
+        It reaches ``fit(engine='bumps')``, ``fit(engine='lmfit')``,
+        ``fit_bayesian()`` and the χ² of ``plot_model()``/``calculate()``.
+
+        Like the resolution mode, the choice is fitter state: it **persists**
+        across ``load_data()`` / ``set_data()``, and the load summary reports
+        it.
+
+        Note:
+            Reduced χ² is a goodness-of-fit statistic only under ``'dI'`` with
+            correct uncertainties. Under the other modes it compares fits of
+            the same data under the same mode, and the reported ``stderr``,
+            covariance and credible intervals inherit that caveat: under
+            ``'none'`` they scale with the intensity units and are not
+            uncertainties. Do not choose the mode that minimises χ².
+
+        Args:
+            mode: One of ``'dI'``, ``'sqrt'``, ``'abs'``, ``'none'``. Matching
+                is exact and case-sensitive. Calling with no argument resets
+                to ``'dI'``.
+
+        Raises:
+            ValueError: If the mode is not one of the four. A rejected call
+                leaves the fitter unchanged.
+        """
+        self._weighting = validate_weighting(mode)
+        logger.info(f'{OK} Weighting: {self._weighting.describe()}')
+
+    def get_weighting(self) -> dict[str, Any]:
+        """
+        Return the active weighting setting.
+
+        Works before any data is loaded.
+
+        Returns:
+            A fresh dict, e.g. ``{'mode': 'sqrt'}``. Mutating it does not
+            affect the fitter.
+        """
+        return self._weighting.as_dict()
+
     def _evaluation_data(self, data: Any = None, *, warn: bool = True) -> Any:
         """Return the dataset copy that sasmodels should be handed.
 
         The single seam through which every calculator built from fitter state
         gets its data. Keeping it single is what lets the engines stay
-        untouched, and it is where the ``dy`` rewriting of the data-weighting
-        work will go too: copy once, apply resolution, then weighting.
+        untouched: copy once, apply resolution, then weighting.
 
         Args:
             data: Dataset to base the copy on. Defaults to ``self.data``.
@@ -466,7 +538,12 @@ class SANSFitter:
                 resolution columns. Post-fit evaluation paths pass ``False``
                 because the fit they follow has already warned.
         """
-        return apply_resolution(self.data if data is None else data, self._resolution, warn=warn)
+        evaluation_data = apply_resolution(
+            self.data if data is None else data, self._resolution, warn=warn
+        )
+        # apply_resolution returned a fresh deep copy nobody else holds, so the
+        # weighting is written onto it rather than copying a second time.
+        return apply_weighting(evaluation_data, self._weighting, copy=False)
 
     def set_model(self, model_name: str, platform: str = 'cpu') -> None:
         """
@@ -996,6 +1073,9 @@ class SANSFitter:
         # something alongside the resolution that produced them, and χ² is not
         # comparable across modes.
         self._fit_contract.resolution = self._resolution.as_dict()
+        # Likewise the weighting: χ² and the stderr values are only comparable
+        # between fits that divided by the same σ.
+        self._fit_contract.weighting = self._weighting.as_dict()
 
         # Translate engine result names (canonical) back to user-facing names
         # so saved results and displays never expose A_/B_ on the set_models
@@ -1021,6 +1101,7 @@ class SANSFitter:
             self.get_q_range(),
             self._fit_contract.n_points,
             None if self.data is None else fingerprint_arrays(self.data),
+            weighting=self._weighting.as_dict(),
         )
 
         # Attach per-component curves for '+' mixture models (no-op otherwise).
@@ -1234,7 +1315,9 @@ class SANSFitter:
                 'n_points': fit_result['n_points'],
                 'n_free': fit_result['n_free'],
                 'dof': fit_result['dof'],
-                'weighting_note': fit_result.get('weighting_note', 'dI'),
+                'weighting_note': fit_result.get(
+                    'weighting_note', self._weighting.note(ascii_only=True)
+                ),
                 'converged': fit_result.get('converged'),
                 'message': fit_result.get('message', ''),
                 'cov': fit_result.get('cov'),
@@ -1259,7 +1342,7 @@ class SANSFitter:
             'n_points': n_points,
             'n_free': n_free,
             'dof': dof,
-            'weighting_note': 'dI',
+            'weighting_note': self._weighting.note(ascii_only=True),
             'message': 'legacy result adapted from fit_result',
         }
 
@@ -1281,6 +1364,7 @@ class SANSFitter:
                 parameters=self.fit_result['parameters'],
                 artifacts=FitArtifacts(fitted_curve=curve, fit_index=fit_index),
                 resolution=self._resolution.as_dict(),
+                weighting=self._weighting.as_dict(),
                 **self._legacy_quality_block(self.fit_result, resolved_index),
             )
 
@@ -1300,6 +1384,7 @@ class SANSFitter:
                 fit_index=fit_index,
             ),
             resolution=self._resolution.as_dict(),
+            weighting=self._weighting.as_dict(),
             **self._legacy_quality_block(self.fit_result, resolved_index),
         )
 
@@ -1352,22 +1437,27 @@ class SANSFitter:
 
         self._check_composite_engine_support(engine)
         self._check_scale_degeneracy()
-        self._check_fit_uncertainties(engine)
+        # Built once: the guard inspects exactly the σ the engine will divide by.
+        evaluation_data = self._evaluation_data()
+        self._check_fit_uncertainties(engine, evaluation_data)
         self._log_active_resolution()
 
         if engine == 'bumps':
-            return self._fit_bumps(method or DEFAULT_BUMPS_METHOD, **kwargs)
+            return self._fit_bumps(evaluation_data, method or DEFAULT_BUMPS_METHOD, **kwargs)
         if not LMFIT_AVAILABLE:
             raise ValueError("scipy is not installed. Use 'bumps' engine or install scipy.")
-        return self._fit_lmfit(method or 'leastsq', **kwargs)
+        return self._fit_lmfit(evaluation_data, method or 'leastsq', **kwargs)
 
     def _log_active_resolution(self) -> None:
-        """Report the resolution a fit is about to use, before the engine runs.
+        """Report the resolution and weighting a fit is about to use.
 
         Before, not after: the engine's own "Initial χ²" line is already a
-        smeared number, so the reader needs to know what smeared it first.
+        smeared, weighted number, so the reader needs to know what produced it
+        first.
         """
-        logger.info(f'Resolution: {self._resolution.describe()}')
+        logger.info(
+            f'Resolution: {self._resolution.describe()}\nWeighting: {self._weighting.describe()}'
+        )
 
     def _check_composite_engine_support(self, engine: str) -> None:
         """Gate composite models to the bumps engine.
@@ -1410,16 +1500,36 @@ class SANSFitter:
                 stacklevel=3,
             )
 
-    def _check_fit_uncertainties(self, engine: str) -> None:
-        """Validate intensity uncertainties (dI) before fitting.
+    def _check_fit_uncertainties(self, engine: str, evaluation_data: Any) -> None:
+        """Validate the per-point σ a fit is about to divide by.
 
-        Both engines weight residuals by dI. Zero (or absent) uncertainties
-        make the BUMPS χ² infinite for every parameter set, so the fit cannot
-        proceed; the scipy/lmfit engine falls back to unit weights for the
-        affected points (with a warning from the engine itself).
+        Inspects the **evaluation copy** — the σ the engine will actually see
+        under the active weighting mode — rather than ``self.data``. Zero (or
+        absent) σ makes the bumps χ² infinite for every parameter set, so the
+        bumps engine and the DREAM sampler cannot proceed; the scipy/lmfit
+        engine falls back to unit weights for the affected points (with a
+        warning from the engine itself).
+
+        Args:
+            engine: ``'bumps'``, ``'lmfit'`` or ``'dream'`` (``fit_bayesian``).
+                ``'dream'`` raises like ``'bumps'``, but its message does not
+                offer ``engine='lmfit'``, which is no exit from sampling.
+            evaluation_data: The copy built by :meth:`_evaluation_data` that
+                will be handed to the engine.
+
+        Raises:
+            ValueError: On zero σ under bumps or DREAM, and on SESANS data
+                under any mode but ``'dI'``.
         """
-        index = get_fit_index(self.data)
-        dy = getattr(self.data, 'dy', None)
+        mode = self._weighting.mode
+        if mode != 'dI' and getattr(evaluation_data, 'isSesans', False):
+            raise ValueError(
+                f"Weighting mode '{mode}' applies to I(q) data; SESANS data is "
+                "always weighted by its own uncertainties. Use set_weighting('dI')."
+            )
+
+        index = get_fit_index(evaluation_data)
+        dy = getattr(evaluation_data, 'dy', None)
         if dy is None or np.asarray(dy).size == 0:
             n_zero = int(index.sum())
         else:
@@ -1429,42 +1539,65 @@ class SANSFitter:
             return
 
         n_fit = int(index.sum())
-        detail = (
-            'has no intensity uncertainties (dI)'
-            if n_zero == n_fit
-            else f'has {n_zero} of {n_fit} fitted points with zero intensity uncertainty (dI)'
-        )
-        if engine == 'bumps':
+        if mode == 'dI':
+            detail = (
+                'Data has no intensity uncertainties (dI)'
+                if n_zero == n_fit
+                else f'Data has {n_zero} of {n_fit} fitted points with zero intensity '
+                'uncertainty (dI)'
+            )
+            exits = (
+                'Provide dI values, exclude the points (mask or set_q_range), '
+                "choose another weighting (set_weighting('sqrt') or "
+                "set_weighting('none'))"
+            )
+        else:
+            note = self._weighting.note()
+            detail = (
+                f"Weighting mode '{mode}' ({SIGMA} = {note}) gives {n_zero} of {n_fit} "
+                f'fitted points a zero {SIGMA}, because their intensity is exactly zero'
+            )
+            exits = "Exclude the points (mask or set_q_range), choose set_weighting('none')"
+
+        if engine in ('bumps', 'dream'):
+            who = 'The bumps engine' if engine == 'bumps' else 'The DREAM sampler'
+            lmfit_exit = (
+                ", or use engine='lmfit', which treats them as unweighted"
+                if engine == 'bumps'
+                else ''
+            )
             raise ValueError(
-                f'Data {detail}. The bumps engine cannot weight such points '
-                '(χ² becomes infinite). Provide dI values, exclude the points '
-                "(mask or set_q_range), or use engine='lmfit', which treats "
-                'them as unweighted.'
+                f'{detail}. {who} cannot weight such points ({CHI_SQUARED} becomes infinite). '
+                f'{exits}{lmfit_exit}.'
             )
         warnings.warn(
-            f'Data {detail}. Affected residuals will be unweighted (dI treated as 1.0), '
-            'so these points may dominate χ² relative to points with small errors.',
+            f'{detail}. Affected residuals will be unweighted ({SIGMA} treated as 1.0), '
+            f'so these points may dominate {CHI_SQUARED} relative to points with small errors.',
             stacklevel=2,
         )
 
-    def _fit_bumps(self, method: str = DEFAULT_BUMPS_METHOD, **kwargs: Any) -> dict[str, Any]:
-        """Fit using BUMPS engine."""
+    def _fit_bumps(
+        self, data: Any, method: str = DEFAULT_BUMPS_METHOD, **kwargs: Any
+    ) -> dict[str, Any]:
+        """Fit *data* (the evaluation copy) using the BUMPS engine."""
         engine_output = fit_bumps(
-            data=self._evaluation_data(),
+            data=data,
             kernel=self.kernel,
             fit_state=self._param_manager.snapshot_fit_state(),
             method=method,
+            weighting_note=self._weighting.note(ascii_only=True),
             **kwargs,
         )
         return self._finalize_fit(engine_output)
 
-    def _fit_lmfit(self, method: str = 'leastsq', **kwargs: Any) -> dict[str, Any]:
-        """Fit using scipy.optimize (leastsq/least_squares) engine."""
+    def _fit_lmfit(self, data: Any, method: str = 'leastsq', **kwargs: Any) -> dict[str, Any]:
+        """Fit *data* (the evaluation copy) using the scipy.optimize engine."""
         engine_output = fit_scipy(
-            data=self._evaluation_data(),
+            data=data,
             kernel=self.kernel,
             fit_state=self._param_manager.snapshot_fit_state(),
             method=method,
+            weighting_note=self._weighting.note(ascii_only=True),
             **kwargs,
         )
         return self._finalize_fit(engine_output)
@@ -1524,10 +1657,23 @@ class SANSFitter:
                 "point-estimate engine only (fit(engine='bumps'))."
             )
         self._check_scale_degeneracy()
+        # Built once and checked before any sampling starts: without the guard,
+        # data with no dI failed deep inside bumps with a message naming
+        # nothing the user had set.
+        evaluation_data = self._evaluation_data()
+        self._check_fit_uncertainties('dream', evaluation_data)
         self._log_active_resolution()
+        if self._weighting.mode == 'none':
+            warnings.warn(
+                "Weighting mode 'none' divides every residual by 1, so the "
+                'posterior widths and credible intervals scale with the intensity '
+                'units and are not uncertainties. Use them to compare fits under '
+                'the same mode only.',
+                stacklevel=2,
+            )
 
         engine_output = fit_bumps_dream(
-            data=self._evaluation_data(),
+            data=evaluation_data,
             kernel=self.kernel,
             fit_state=self._param_manager.snapshot_fit_state(),
             method=method,
@@ -1535,6 +1681,7 @@ class SANSFitter:
             burn=burn,
             thin=thin,
             pop=pop,
+            weighting_note=self._weighting.note(ascii_only=True),
             **kwargs,
         )
         return self._finalize_fit(engine_output)
@@ -1788,12 +1935,13 @@ class SANSFitter:
             n_points=quality.n_points,
             n_free=quality.n_free,
             dof=quality.dof,
-            weighting_note='dI',
+            weighting_note=self._weighting.note(ascii_only=True),
             parameters={
                 self._param_manager.to_display_name(name): {'value': info['value']}
                 for name, info in fit_state.params.items()
             },
             resolution=self._resolution.as_dict(),
+            weighting=self._weighting.as_dict(),
             artifacts=FitArtifacts(
                 fitted_curve=curve,
                 fit_index=fit_index,
@@ -1816,6 +1964,8 @@ class SANSFitter:
             log_scale=log_scale,
             show=show,
             show_components=show_components,
+            evaluation_data=evaluation_data,
+            weighting_mode=self._weighting.mode,
         )
 
     def compare(
@@ -1918,14 +2068,24 @@ class SANSFitter:
         Returns:
             Plotly Figure object
         """
+        contract = self._get_active_fit_contract()
+        # The residual axis describes the σ the plotted fit divided by, which
+        # is the fit's recorded weighting even if the mode changed since.
+        weighting_mode = self._weighting.mode
+        if contract is not None and contract.weighting:
+            weighting_mode = contract.weighting.get('mode', weighting_mode)
+        # Error bars stay on the file's dI; the evaluation copy only supplies
+        # the σ for residuals a contract does not carry itself.
         return plot_fit(
             data=self.data,
-            fit_result=self._get_active_fit_contract(),
+            fit_result=contract,
             model_name=self.model_name,
             show_residuals=show_residuals,
             log_scale=log_scale,
             show=show,
             show_components=show_components,
+            evaluation_data=None if self.data is None else self._evaluation_data(warn=False),
+            weighting_mode=weighting_mode,
         )
 
     def save_results(self, filename: str) -> None:

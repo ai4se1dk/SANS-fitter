@@ -224,9 +224,14 @@ def fit_bumps(
     kernel: Any,
     fit_state: ParameterStateSnapshot,
     method: str = DEFAULT_BUMPS_METHOD,
+    weighting_note: str = 'dI',
     **kwargs: Any,
 ) -> EngineFitOutput:
-    """Fit using the BUMPS engine."""
+    """Fit using the BUMPS engine.
+
+    *weighting_note* labels the σ already written into ``data.dy`` (the
+    fitter's weighting mode); the engine itself only ever reads ``dy``.
+    """
     problem, experiment = _build_bumps_problem(data, kernel, fit_state)
 
     # problem.chisq() is already normalized by dof, hence the label.
@@ -263,7 +268,7 @@ def fit_bumps(
         n_points=n_points,
         n_free=n_free,
         dof=dof,
-        weighting_note='dI',
+        weighting_note=weighting_note,
         parameters=build_result_parameters(fit_state, varied),
         # bumps hard-codes result.success=True for every fitter, so there is no
         # convergence verdict to report. The step counts are the closest honest
@@ -461,6 +466,7 @@ def fit_bumps_dream(
     burn: int = DEFAULT_DREAM_BURN,
     thin: int = DEFAULT_DREAM_THIN,
     pop: int = DEFAULT_DREAM_POP,
+    weighting_note: str = 'dI',
     **kwargs: Any,
 ) -> EngineFitOutput:
     """Bayesian fit using bumps' DREAM sampler.
@@ -529,7 +535,7 @@ def fit_bumps_dream(
         n_points=n_points,
         n_free=n_free,
         dof=dof,
-        weighting_note='dI',
+        weighting_note=weighting_note,
         parameters=build_result_parameters(fit_state, varied),
         # A sampler has no convergence verdict of the optimizer kind; R-hat in the
         # message is the diagnostic that plays that role.
