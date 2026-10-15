@@ -130,6 +130,25 @@ class TestRegistry:
         with pytest.raises(ValueError, match='no model'):
             fit.add_fitter('x', empty)
 
+    @pytest.mark.parametrize('mode', ['sqrt', 'abs', 'none'])
+    def test_add_fitter_refuses_a_non_di_weighting(self, curves, mode):
+        # A joint fit always weights by dI. Importing a fitter set to another
+        # mode must not silently refit it under a different objective (#87).
+        source = SANSFitter()
+        source.set_data(copy.deepcopy(curves['a']))
+        source.set_model('sphere')
+        source.set_weighting(mode)
+        fit = MultiFitter()
+        with pytest.raises(ValueError, match=f"weights by '{mode}'") as error:
+            fit.add_fitter('x', source)
+        assert '#87' in str(error.value)
+        assert "set_weighting('dI')" in str(error.value)
+        assert 'x' not in fit.names
+        # Back on the default it is accepted, and the owned copy is dI.
+        source.set_weighting('dI')
+        fit.add_fitter('x', source)
+        assert fit._entries['x'].fitter.get_weighting() == {'mode': 'dI'}
+
 
 # =========================================================================
 # References

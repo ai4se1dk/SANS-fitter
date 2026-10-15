@@ -47,6 +47,20 @@ class TestPublicApi(unittest.TestCase):
         self.assertEqual(data_ops.__name__, 'sans_fitter.data.ops')
         self.assertEqual(pr_inversion.__name__, 'sans_fitter.inversion')
 
+    def test_weighting_api(self):
+        fitter = sans_fitter.SANSFitter()
+        self.assertTrue(callable(fitter.set_weighting))
+        self.assertEqual(fitter.get_weighting(), {'mode': 'dI'})
+
+        from sans_fitter.data import (  # noqa: F401
+            WEIGHTING_MODES,
+            WeightingSetting,
+            apply_weighting,
+            validate_weighting,
+        )
+
+        self.assertEqual(WEIGHTING_MODES, ('dI', 'sqrt', 'abs', 'none'))
+
     def test_pr_inversion_alias_exposes_public_entry_points(self):
         from sans_fitter import pr_inversion
 

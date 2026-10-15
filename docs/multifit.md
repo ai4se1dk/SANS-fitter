@@ -244,6 +244,19 @@ dataset keeps its own resolution kernel, mask and Q interval. That is the point:
 fitting the original curves is what you want, and it is why data merging is not
 a prerequisite.
 
+### Data weighting
+
+A joint fit always divides each residual by the dataset's own `dI`; the
+`set_weighting()` modes of `SANSFitter` (`'sqrt'`, `'abs'`, `'none'`) are not
+available for joint fits yet. `add_fitter()` refuses a fitter whose weighting
+is not `'dI'` rather than silently refitting it under a different objective:
+call `set_weighting('dI')` on it first, or fit it on its own. Every dataset in
+a joint fit therefore needs a real `dI` column. Weighting modes for
+`MultiFitter` are tracked in
+[issue #87](https://github.com/ai4se1dk/SANS-fitter/issues/87). This is
+distinct from the dataset *weights* below, which scale whole datasets in the
+objective.
+
 ### Per-dataset diagnostics
 
 The report gives each dataset its point count, its raw χ², its contribution to

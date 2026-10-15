@@ -122,3 +122,5 @@ CHI_SQUARED = _glyph('χ²', 'chi^2')
 SIGMA = _glyph('σ', 'sigma')
 #: Separator between fields of a one-line report header.
 MIDDLE_DOT = _glyph('·', '-')
+#: Square root, used for the sqrt(|I|) data weighting.
+SQRT = _glyph('√', 'sqrt')

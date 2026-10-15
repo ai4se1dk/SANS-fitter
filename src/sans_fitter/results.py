@@ -5,6 +5,7 @@ import numpy as np
 
 from .data.loader import has_real_data
 from .data.resolution import ResolutionSetting
+from .data.weighting import WeightingSetting
 
 MIN_POSTERIOR_PARAMETER_COUNT = 2
 MIN_POSTERIOR_SAMPLE_COUNT = 2
@@ -18,6 +19,14 @@ def _format_resolution(setting: dict[str, Any]) -> str:
     """Render a stored resolution setting for the CSV header, in plain ASCII."""
     try:
         return ResolutionSetting(**setting).describe(ascii_only=True)
+    except TypeError:  # a setting saved by a future/other shape — show it raw
+        return str(setting)
+
+
+def _format_weighting(setting: dict[str, Any]) -> str:
+    """Render a stored weighting setting for the CSV header, in plain ASCII."""
+    try:
+        return WeightingSetting(**setting).describe(ascii_only=True)
     except TypeError:  # a setting saved by a future/other shape — show it raw
         return str(setting)
 
@@ -260,6 +269,10 @@ class FitResultContract:
     # only means something alongside the smearing that produced it — and
     # because saved analyses will need to restore it.
     resolution: dict[str, Any] | None = None
+    # The weighting setting this fit ran under, as ``WeightingSetting.as_dict()``.
+    # The *setting*; ``weighting_note`` is what the engine actually divided by,
+    # and is the only record of the scipy engine's unit-weight fallback.
+    weighting: dict[str, Any] | None = None
     # Optimizer verdict: True/False when the engine reports one, None when it does
     # not. bumps hard-codes success=True regardless of the outcome, so None is the
     # only honest answer there.
@@ -351,11 +364,17 @@ class FitResultContract:
         """
         fitted_curve = self.require_fitted_curve()
         has_dx = has_real_data(data.dx)
+        # A dataset built without uncertainties (Data1D(x=..., y=...)) has
+        # dy=None, and a non-dI weighting makes such data fittable. The column
+        # stays in the file, as NaN, so every export has the same layout and
+        # nothing is passed off as a measured uncertainty: unit weights or the
+        # mode's sigma would be a claim the data never made.
+        has_dy = data.dy is not None
 
         index = resolve_fit_index(self.artifacts.fit_index, len(data.x))
         x = np.asarray(data.x)[index]
         y = np.asarray(data.y)[index]
-        dy = np.asarray(data.dy)[index]
+        dy = np.asarray(data.dy)[index] if has_dy else np.full(len(x), np.nan)
         dx = np.asarray(data.dx)[index] if has_dx else None
 
         arrays_to_validate = {
@@ -395,7 +414,11 @@ class FitResultContract:
             f.write(f'# Points fitted: {len(x)} of {len(index)}\n')
             f.write(f'# Free parameters: {self.n_free}\n')
             f.write(f'# Degrees of freedom: {self.dof}\n')
+            if self.weighting is not None:
+                f.write(f'# Weighting mode: {_format_weighting(self.weighting)}\n')
             f.write(f'# Weighting: {self.weighting_note}\n')
+            if not has_dy:
+                f.write('# dI_exp: nan (the dataset has no intensity uncertainties)\n')
             if self.converged is not None or self.message:
                 verdict = {True: 'yes', False: 'no', None: 'not reported'}[self.converged]
                 f.write(f'# Converged: {verdict}\n')
@@ -424,7 +447,10 @@ class FitResultContract:
             if has_dx:
                 # The exported dQ is the dataset's own column. Under a custom
                 # resolution mode it is not the width the fit smeared with —
-                # that is on the '# Resolution mode' line above.
+                # that is on the '# Resolution mode' line above. Likewise
+                # dI_exp (both branches): under a non-dI weighting mode it is
+                # not the σ the fit divided by; that is on the
+                # '# Weighting mode' line.
                 f.write('Q,dQ,I_exp,dI_exp,I_fit,Residuals\n')
                 for q, dq, i_exp, di_exp, i_fit, res in zip(
                     x, dx, y, dy, fitted_curve, residuals, strict=True

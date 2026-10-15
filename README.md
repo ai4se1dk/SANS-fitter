@@ -23,6 +23,7 @@ A flexible, model-agnostic Python template for fitting Small-Angle Neutron Scatt
 - **Example Data Built In**: A curated set of ready-to-fit datasets plus a simulator that generates data  — `examples.load_fitter('silica_spheres')` or `examples.simulate('sphere', radius=50)`
 - **Polydispersity and Custom Models**: Size distributions on any polydisperse parameter via `set_pd_param()`, and your own SasModels plugin models loaded by file path
 - **Resolution Control**: Choose how instrument smearing is applied — dQ from the data, none, custom pinhole (`dq_over_q`) or slit — with `set_resolution()`
+- **Data Weighting**: Choose which σ divides each residual — the data's dI, √|I|, |I| or none — with `set_weighting()`, matching SasView's Fit Page; this is also what lets the bumps engine and `fit_bayesian()` fit data without uncertainties
 - **Q-Range Restriction**: Fit only a chosen [qmin, qmax] window (e.g. trim beam-stop or background-dominated points)
 - **Dataset Arithmetic**: Add, subtract, multiply, and divide datasets (or scale by constants) with propagated uncertainties via `data_ops` — e.g. background subtraction and transmission correction before fitting
 - **User-Friendly Parameter Management**: Easy-to-use interface for setting parameter values, bounds, and fitting flags
