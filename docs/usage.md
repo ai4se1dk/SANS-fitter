@@ -528,11 +528,24 @@ data, and the error message points here.
   intensity exactly zero gets σ = 0; bumps and DREAM refuse it, and lmfit
   unit-weights it with a warning and records that in `weighting_note`.
 - **The residual panel follows the mode**: residuals are in σ units, or in
-  intensity units (`Residuals (I − fit)`) under `'none'`.
+  intensity units (`Residuals (intensity units)`) under `'none'`. The label
+  names no sign because the panel shows the residuals the engine stored, and
+  bumps stores `fit − I` where lmfit stores `I − fit`.
 - **Saved analyses** restore the mode, and a saved fit is dropped on reload
   if the weighting changed after it — exactly as for resolution.
 - **SESANS data** is always weighted by its own uncertainties; a mode other
   than `'dI'` is refused at fit time.
+- **Joint fits** (`MultiFitter`) always weight each dataset by its own `dI`,
+  and `add_fitter()` refuses a fitter set to another mode rather than
+  silently refitting it under `'dI'`. Weighting modes for joint fits are
+  tracked in [issue #87](https://github.com/ai4se1dk/SANS-fitter/issues/87).
+- **Exporting data without `dI`.** When the dataset was built with no
+  uncertainties at all (`dy=None`), `save_results()` writes `nan` in the
+  `dI_exp` column and says so in the header, rather than passing off unit
+  weights or the mode's σ as measured errors.
+- **Reports describe the fitted settings.** Changing the weighting (or the
+  resolution) after a fit keeps the result; the report's settings rows then
+  show the setting the fit ran under and note the change.
 
 Noise-free simulated data has no uncertainties at all, so it pairs with
 `'none'`:

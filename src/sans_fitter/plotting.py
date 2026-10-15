@@ -193,7 +193,10 @@ def plot_fit(
         residuals = None
 
     if weighting_mode == 'none':
-        residual_title = 'Residuals (I − fit)'
+        # Sign-neutral on purpose: bumps stores fit − I and the scipy engine
+        # I − fit (see persistence._NEGATED_RESIDUAL_ENGINES), and the stored
+        # vector is plotted as is. Naming a sign would be wrong for one of them.
+        residual_title = 'Residuals (intensity units)'
     elif has_sigma:
         residual_title = 'Residuals (σ)'
     else:

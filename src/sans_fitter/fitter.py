@@ -1682,6 +1682,9 @@ class SANSFitter:
             thin=thin,
             pop=pop,
             weighting_note=self._weighting.note(ascii_only=True),
+            # The predictive plot shows the file's dI, not the weighting σ
+            # the evaluation copy carries.
+            plot_data=self.data,
             **kwargs,
         )
         return self._finalize_fit(engine_output)

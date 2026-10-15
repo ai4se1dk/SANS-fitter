@@ -432,11 +432,20 @@ def _extract_posterior(state: Any, labels: list[str], best_x: np.ndarray) -> Pos
 
 
 def _build_posterior_evaluator(
-    data: Any, kernel: Any, fit_state: ParameterStateSnapshot
+    data: Any, kernel: Any, fit_state: ParameterStateSnapshot, plot_data: Any = None
 ) -> tuple[Any, Callable[[dict[str, float]], np.ndarray]]:
-    """Freeze the data and fixed model state used for posterior predictions."""
-    posterior_data = deepcopy(data)
-    calculator = DirectModel(posterior_data, kernel)
+    """Freeze the data and fixed model state used for posterior predictions.
+
+    *data* is the evaluation copy the sampler fitted (smeared and weighted),
+    and the posterior curves are computed from it. *plot_data*, when given,
+    is what the predictive plot shows under those curves: the dataset with
+    its own ``dI``. Under a non-``'dI'`` weighting the evaluation copy's
+    ``dy`` is the fitting sigma, not a measured uncertainty, so plotting it
+    as error bars would show, say, bars of exactly 1 under ``'none'``. Both
+    are deep-copied so a later change to the fitter cannot alter the plot.
+    """
+    calculator = DirectModel(deepcopy(data), kernel)
+    posterior_data = deepcopy(data if plot_data is None else plot_data)
     base_pars = {name: info['value'] for name, info in fit_state.params.items()}
 
     if fit_state.pd_enabled:
@@ -467,6 +476,7 @@ def fit_bumps_dream(
     thin: int = DEFAULT_DREAM_THIN,
     pop: int = DEFAULT_DREAM_POP,
     weighting_note: str = 'dI',
+    plot_data: Any = None,
     **kwargs: Any,
 ) -> EngineFitOutput:
     """Bayesian fit using bumps' DREAM sampler.
@@ -475,6 +485,10 @@ def fit_bumps_dream(
     fit_bumps, with the posterior chain attached as artifacts.posterior.
     The reported point estimate is the best (maximum-likelihood) posterior
     sample, and the fitted curve/chisq are re-evaluated at that point.
+
+    *plot_data* is the dataset the posterior predictive plot shows, with its
+    own ``dI`` as error bars; it defaults to *data*, which is right only when
+    *data* carries measured uncertainties (see ``_build_posterior_evaluator``).
     """
     problem, experiment = _build_bumps_problem(data, kernel, fit_state)
 
@@ -503,7 +517,9 @@ def fit_bumps_dream(
     chisq, reduced, n_points, n_free, dof, residuals = _quality_block(problem)
 
     posterior = _extract_posterior(state, labels, point_estimate)
-    posterior_data, posterior_model_eval = _build_posterior_evaluator(data, kernel, fit_state)
+    posterior_data, posterior_model_eval = _build_posterior_evaluator(
+        data, kernel, fit_state, plot_data=plot_data
+    )
 
     varied: dict[str, dict[str, Any]] = {}
     fitted_values: dict[str, float] = {}

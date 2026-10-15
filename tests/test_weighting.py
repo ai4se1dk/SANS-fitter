@@ -427,6 +427,123 @@ def test_mode_survives_set_data_and_is_reported(noisy, capsys):
     assert fitter.get_weighting() == {'mode': 'sqrt'}
 
 
+def read_csv(path):
+    """Header comment lines and a column-name -> array mapping of the body."""
+    with open(path, encoding='utf-8') as handle:
+        lines = [line.strip() for line in handle]
+    header = [line for line in lines if line.startswith('#')]
+    body = [line for line in lines if line and not line.startswith('#')]
+    names = body[0].split(',')
+    columns = np.array([[float(cell) for cell in line.split(',')] for line in body[1:]])
+    return header, {name: columns[:, i] for i, name in enumerate(names)}
+
+
+@pytest.mark.parametrize('engine', ['bumps', 'lmfit'])
+@pytest.mark.parametrize('mode', ['none', 'sqrt', 'abs'])
+def test_csv_export_of_data_without_di_writes_nan(noisy, tmp_path, engine, mode):
+    # Data1D(x, y) has dy=None, which a non-dI mode makes fittable. The export
+    # must not crash, must leave the data alone, and must not pass unit
+    # weights or the mode's sigma off as measured uncertainties.
+    data = Data1D(x=np.asarray(noisy.x).copy(), y=np.asarray(noisy.y).copy())
+    fitter = make_fitter(data, mode=mode)
+    fitter.fit(engine=engine)
+    assert fitter.data.dy is None
+    path = os.path.join(str(tmp_path), 'no_di.csv')
+    fitter.save_results(path)
+    assert fitter.data.dy is None
+    header, columns = read_csv(path)
+    assert '# dI_exp: nan (the dataset has no intensity uncertainties)' in header
+    assert any(line.startswith(f'# Weighting mode: {mode}') for line in header)
+    assert np.all(np.isnan(columns['dI_exp']))
+    assert len(columns['dI_exp']) == int(get_fit_index(data).sum())
+    # The residuals are the stored ones, not a re-derivation through NaN.
+    assert np.all(np.isfinite(columns['Residuals']))
+    assert np.sum(columns['Residuals'] ** 2) == pytest.approx(fitter._fit_contract.chisq, rel=1e-6)
+
+
+def test_csv_export_with_di_is_unchanged_by_the_nan_path(noisy, tmp_path):
+    fitter = make_fitter(noisy, mode='none')
+    fitter.fit()
+    path = os.path.join(str(tmp_path), 'results.csv')
+    fitter.save_results(path)
+    header, columns = read_csv(path)
+    assert not any(line.startswith('# dI_exp:') for line in header)
+    assert np.all(np.isfinite(columns['dI_exp']))
+
+
+def test_report_describes_the_weighting_the_fit_ran_under(noisy, tmp_path):
+    # Changing the mode after a fit keeps the result; the settings row must
+    # describe the setting that produced the reported numbers, not the live one.
+    fitter = make_fitter(noisy, mode='none')
+    fitter.fit()
+    fitter.set_weighting('abs')
+    report = fitter.report(fmt='html')
+    html = report.to_html()
+    markdown = report.to_markdown()
+    assert 'changed to abs (sigma = |I|) after the fit' in html
+    for text in (html, markdown):
+        assert 'none (unweighted, sigma = 1)' in text
+        # Markdown escapes the pipes of |I| inside a table cell.
+        assert 'changed to abs' in text
+        assert 'after the fit, run fit() again' in text
+    # The result's own note agrees with the row.
+    assert fitter._fit_contract.weighting_note == 'unweighted'
+
+
+def test_report_without_a_fit_describes_the_live_weighting(noisy):
+    fitter = make_fitter(noisy, mode='abs')
+    html = fitter.report(fmt='html').to_html()
+    assert 'abs (sigma = |I|)' in html
+    assert 'changed to' not in html
+
+
+def test_report_row_has_no_suffix_when_nothing_changed(noisy):
+    fitter = make_fitter(noisy, mode='sqrt')
+    fitter.fit()
+    html = fitter.report(fmt='html').to_html()
+    assert 'sqrt (sigma = sqrt(|I|))' in html
+    assert 'changed to' not in html
+
+
+# =========================================================================
+# 10. Bayesian: the posterior predictive plot shows the file's dI
+# =========================================================================
+
+
+def measured_error_bars(figure):
+    trace = figure.data[-1]
+    assert trace.name == 'Measured'
+    return None if trace.error_y is None else trace.error_y.array
+
+
+@pytest.mark.parametrize('mode', ['none', 'abs'])
+def test_posterior_predictive_error_bars_are_the_files_di(noisy, mode):
+    # The sampler fits the weighted evaluation copy, whose dy is the fitting
+    # sigma (all ones under 'none'). The plot must show the measured dI.
+    fitter = make_fitter(noisy, mode=mode, radius=49)
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        fitter.fit_bayesian(samples=200, burn=10)
+    figure = fitter.plot_posterior_predictive(n_draws=5, show=False)
+    index = get_fit_index(noisy)
+    np.testing.assert_allclose(measured_error_bars(figure), np.asarray(noisy.dy)[index])
+    # Frozen at fit time: editing the fitter's data afterwards changes nothing.
+    fitter.data.dy[:] *= 2
+    figure = fitter.plot_posterior_predictive(n_draws=5, show=False)
+    np.testing.assert_allclose(measured_error_bars(figure), np.asarray(noisy.dy)[index] / 2)
+
+
+def test_posterior_predictive_without_di_has_no_error_bars(noisy):
+    data = Data1D(x=np.asarray(noisy.x).copy(), y=np.asarray(noisy.y).copy())
+    fitter = make_fitter(data, mode='none', radius=49)
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        fitter.fit_bayesian(samples=200, burn=10)
+    figure = fitter.plot_posterior_predictive(n_draws=5, show=False)
+    assert measured_error_bars(figure) is None
+    assert fitter.data.dy is None
+
+
 # =========================================================================
 # 11. Plot
 # =========================================================================
@@ -440,8 +557,25 @@ def test_residual_axis_reads_intensity_units_under_none(noisy):
     # The file has dI, yet the title follows the weighting.
     fitter = make_fitter(noisy, mode='none')
     fitter.fit()
-    assert residual_axis_title(fitter.plot_results(show=False)) == 'Residuals (I − fit)'
-    assert residual_axis_title(fitter.plot_model(show=False)) == 'Residuals (I − fit)'
+    assert residual_axis_title(fitter.plot_results(show=False)) == 'Residuals (intensity units)'
+    assert residual_axis_title(fitter.plot_model(show=False)) == 'Residuals (intensity units)'
+
+
+@pytest.mark.parametrize('engine', ['bumps', 'lmfit'])
+def test_unweighted_residual_trace_matches_the_label_up_to_sign(noisy, engine):
+    # bumps stores fit − I, lmfit I − fit, and the panel plots the stored
+    # vector. The label must not name a sign that is wrong for one engine,
+    # and the magnitudes must be the plain intensity differences.
+    fitter = make_fitter(noisy, mode='none')
+    fitter.fit(engine=engine)
+    contract = fitter._fit_contract
+    index = contract.artifacts.fit_index
+    expected = np.asarray(noisy.y)[index] - np.asarray(contract.artifacts.fitted_curve)
+    figure = fitter.plot_results(show=False)
+    plotted = np.asarray(figure.data[-1].y, dtype=float)
+    np.testing.assert_allclose(np.abs(plotted), np.abs(expected), rtol=1e-6, atol=1e-9)
+    assert '−' not in residual_axis_title(figure)
+    assert '-' not in residual_axis_title(figure)
 
 
 @pytest.mark.parametrize('mode', ['dI', 'sqrt', 'abs'])

@@ -364,11 +364,17 @@ class FitResultContract:
         """
         fitted_curve = self.require_fitted_curve()
         has_dx = has_real_data(data.dx)
+        # A dataset built without uncertainties (Data1D(x=..., y=...)) has
+        # dy=None, and a non-dI weighting makes such data fittable. The column
+        # stays in the file, as NaN, so every export has the same layout and
+        # nothing is passed off as a measured uncertainty: unit weights or the
+        # mode's sigma would be a claim the data never made.
+        has_dy = data.dy is not None
 
         index = resolve_fit_index(self.artifacts.fit_index, len(data.x))
         x = np.asarray(data.x)[index]
         y = np.asarray(data.y)[index]
-        dy = np.asarray(data.dy)[index]
+        dy = np.asarray(data.dy)[index] if has_dy else np.full(len(x), np.nan)
         dx = np.asarray(data.dx)[index] if has_dx else None
 
         arrays_to_validate = {
@@ -411,6 +417,8 @@ class FitResultContract:
             if self.weighting is not None:
                 f.write(f'# Weighting mode: {_format_weighting(self.weighting)}\n')
             f.write(f'# Weighting: {self.weighting_note}\n')
+            if not has_dy:
+                f.write('# dI_exp: nan (the dataset has no intensity uncertainties)\n')
             if self.converged is not None or self.message:
                 verdict = {True: 'yes', False: 'no', None: 'not reported'}[self.converged]
                 f.write(f'# Converged: {verdict}\n')

@@ -106,6 +106,13 @@ def format_for(filename: str) -> str:
     return FORMATS[extension]
 
 
+def _setting_text(fitted: str, live: str) -> str:
+    """A settings-row value: the fitted setting, noting a live one that differs."""
+    if fitted == live:
+        return fitted
+    return f'{fitted}; changed to {live} after the fit, run fit() again to apply it'
+
+
 def _settings_rows(fitter: Any) -> list[tuple[str, str]]:
     """The analysis settings a reader needs to interpret the numbers."""
     rows: list[tuple[str, str]] = [('Model', fitter.model_name or 'not set')]
@@ -126,10 +133,40 @@ def _settings_rows(fitter: Any) -> list[tuple[str, str]]:
     from .data.resolution import ResolutionSetting
     from .data.weighting import WeightingSetting
 
+    # The tables and the plot come from the retained fit, so the settings rows
+    # describe the settings that fit ran under. The live settings can differ
+    # (set_weighting() after fit() keeps the result), and a row showing them
+    # would sit beside numbers they did not produce. Without a fit this is a
+    # configuration report and the live settings are the right ones.
+    contract = fitter._fit_contract
+    live_resolution = fitter.get_resolution()
+    live_weighting = fitter.get_weighting()
+    if contract is None:
+        fitted_resolution, fitted_weighting = live_resolution, live_weighting
+    else:
+        fitted_resolution = contract.resolution or live_resolution
+        # A result without a recorded weighting predates the setting (schema 1)
+        # and could only have been weighted by dI.
+        fitted_weighting = contract.weighting or {'mode': 'dI'}
+
     rows.append(
-        ('Resolution', ResolutionSetting(**fitter.get_resolution()).describe(ascii_only=True))
+        (
+            'Resolution',
+            _setting_text(
+                ResolutionSetting(**fitted_resolution).describe(ascii_only=True),
+                ResolutionSetting(**live_resolution).describe(ascii_only=True),
+            ),
+        )
     )
-    rows.append(('Weighting', WeightingSetting(**fitter.get_weighting()).describe(ascii_only=True)))
+    rows.append(
+        (
+            'Weighting',
+            _setting_text(
+                WeightingSetting(**fitted_weighting).describe(ascii_only=True),
+                WeightingSetting(**live_weighting).describe(ascii_only=True),
+            ),
+        )
+    )
 
     structure_factor = fitter.get_structure_factor()
     if structure_factor:
