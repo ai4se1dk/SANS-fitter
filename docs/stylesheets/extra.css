@@ -1,0 +1,340 @@
+/*
+  Cinder look (https://sourcefoundry.org/cinder/) on top of Material for MkDocs:
+  Open Sans body, Inter headings, Hack code, charcoal navbar with a pale rule,
+  square code blocks, Bootstrap-style admonitions and tables.
+  Fonts are loaded here, so mkdocs.yml sets `theme.font: false`.
+*/
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;700&family=Open+Sans:ital,wght@0,300;0,400;0,600;0,700;1,300;1,400;1,700&display=swap");
+@import url("https://cdn.jsdelivr.net/npm/hack-font@3.3.0/build/web/hack.min.css");
+
+body {
+  --md-text-font-family: "Open Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --md-code-font-family: Hack, SFMono-Regular, Consolas, Menlo, monospace;
+  --cinder-heading-font: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+
+[data-md-color-scheme="default"] {
+  --md-primary-fg-color: #343838;
+  --md-primary-fg-color--light: #4a5050;
+  --md-primary-fg-color--dark: #272a2a;
+  --md-primary-bg-color: #ffffff;
+  --md-primary-bg-color--light: #ffffffb3;
+  --md-accent-fg-color: #00526e;
+  --md-accent-fg-color--transparent: #00526e1a;
+  --md-default-fg-color: #343838;
+  --md-default-bg-color: #ffffff;
+  --md-typeset-a-color: #008cba;
+  --md-code-bg-color: #fcfdff;
+  --md-code-fg-color: #333333;
+  --md-footer-bg-color: #ffffff;
+  --md-footer-bg-color--dark: #ffffff;
+  --md-footer-fg-color: #343838;
+  --md-footer-fg-color--light: #6f6f6f;
+  --md-footer-fg-color--lighter: #b1b7b9;
+
+  /* GitHub scheme, Cinder's default highlight.js style */
+  --md-code-hl-comment-color: #999988;
+  --md-code-hl-keyword-color: #333333;
+  --md-code-hl-string-color: #dd1144;
+  --md-code-hl-number-color: #008080;
+  --md-code-hl-constant-color: #008080;
+  --md-code-hl-function-color: #990000;
+  --md-code-hl-name-color: #333333;
+  --md-code-hl-special-color: #0086b3;
+  --md-code-hl-variable-color: #008080;
+  --md-code-hl-operator-color: #333333;
+  --md-code-hl-punctuation-color: #333333;
+  --md-code-hl-generic-color: #999999;
+
+  --cinder-heading-color: #222222;
+  --cinder-muted-color: #6f6f6f;
+  --cinder-border-color: #dddddd;
+  --cinder-code-border-color: #cccccc;
+  --cinder-box-border-color: #eeeeee;
+  --cinder-navbar-rule-color: #ebf2f2;
+  --cinder-inline-code-color: #c7254e;
+  --cinder-grid-color: #3438380f;
+}
+
+/* Cinder has no dark mode; this keeps its charcoal (hue 180) for the slate toggle. */
+[data-md-color-scheme="slate"] {
+  --md-hue: 180;
+  --md-primary-fg-color: #343838;
+  --md-primary-fg-color--light: #4a5050;
+  --md-primary-fg-color--dark: #272a2a;
+  --md-primary-bg-color: #ffffff;
+  --md-primary-bg-color--light: #ffffffb3;
+  --md-accent-fg-color: #8dd6ee;
+  --md-accent-fg-color--transparent: #8dd6ee1a;
+  --md-typeset-a-color: #4fb8dc;
+  --md-footer-bg-color: var(--md-default-bg-color);
+  --md-footer-bg-color--dark: var(--md-default-bg-color);
+
+  --cinder-heading-color: #f0f4f4;
+  --cinder-muted-color: #a3adad;
+  --cinder-border-color: #465050;
+  --cinder-code-border-color: #465050;
+  --cinder-box-border-color: #3a4444;
+  --cinder-navbar-rule-color: #4b5555;
+  --cinder-inline-code-color: #f0839f;
+  --cinder-grid-color: #ffffff0d;
+}
+
+/* Navbar */
+.md-header {
+  border-bottom: 8px solid var(--cinder-navbar-rule-color);
+}
+
+.md-header,
+.md-header--shadow {
+  box-shadow: none;
+}
+
+.md-header__title {
+  font-family: var(--cinder-heading-font);
+  font-weight: 700;
+}
+
+.md-header__button.md-logo img,
+.md-nav__button.md-logo img {
+  width: 1.8rem;
+  height: 1.8rem;
+}
+
+/* Type */
+.md-typeset {
+  line-height: 1.7;
+}
+
+.md-typeset h1,
+.md-typeset h2,
+.md-typeset h3,
+.md-typeset h4,
+.md-typeset h5,
+.md-typeset h6 {
+  font-family: var(--cinder-heading-font);
+  color: var(--cinder-heading-color);
+  letter-spacing: normal;
+}
+
+.md-typeset h1,
+.md-typeset h2 {
+  font-weight: 700;
+}
+
+.md-typeset h2 {
+  margin-top: 35px;
+}
+
+.md-typeset h3 {
+  font-weight: 300;
+}
+
+.md-typeset h4 {
+  font-weight: 300;
+  font-style: italic;
+}
+
+.md-typeset h5 {
+  font-weight: 300;
+  font-variant: small-caps;
+  text-transform: none;
+}
+
+.md-typeset a:hover,
+.md-typeset a:focus {
+  text-decoration: underline;
+}
+
+.md-typeset .headerlink:hover,
+.md-typeset .headerlink:focus {
+  text-decoration: none;
+}
+
+.md-typeset blockquote {
+  color: var(--cinder-muted-color);
+  border-left: 1px solid var(--cinder-border-color);
+}
+
+.md-typeset hr {
+  border-bottom: 1px solid var(--cinder-border-color);
+}
+
+/* Code */
+.md-typeset code {
+  border-radius: 0;
+}
+
+.md-typeset :not(pre) > code {
+  font-size: 90%;
+  color: var(--cinder-inline-code-color);
+}
+
+.md-typeset a code,
+.md-typeset :is(h1, h2, h3, h4, h5, h6) code {
+  color: currentcolor;
+}
+
+.md-typeset pre {
+  margin-top: 25px;
+  margin-bottom: 25px;
+}
+
+.md-typeset pre > code {
+  font-size: 13px;
+  border: 1px solid var(--cinder-code-border-color);
+}
+
+[data-md-color-scheme="default"] .highlight :is(.k, .kc, .kd, .kn, .kp, .kr, .kt, .nc, .nf, .fm, .ow) {
+  font-weight: 700;
+}
+
+.highlight :is(.c, .c1, .ch, .cm, .cs, .sd) {
+  font-style: italic;
+}
+
+/* Admonitions: pale box, thick coloured left edge, plain coloured title */
+.md-typeset .admonition,
+.md-typeset details {
+  --cinder-admonition-color: #428bca;
+  padding: 0.8rem 1rem;
+  font-size: 0.75rem;
+  background-color: var(--md-code-bg-color);
+  border: 1px solid var(--cinder-box-border-color);
+  border-left: 5px solid var(--cinder-admonition-color);
+  border-radius: 3px;
+  box-shadow: none;
+}
+
+.md-typeset :is(.admonition, details):is(.tip, .hint, .important, .success, .check, .done) {
+  --cinder-admonition-color: #5cb85c;
+}
+
+.md-typeset :is(.admonition, details):is(.warning, .caution, .attention, .question, .help, .faq) {
+  --cinder-admonition-color: #f0ad4e;
+}
+
+.md-typeset :is(.admonition, details):is(.danger, .error, .failure, .fail, .missing, .bug) {
+  --cinder-admonition-color: #d9534f;
+}
+
+.md-typeset :is(.admonition, details):is(.example, .quote, .cite) {
+  --cinder-admonition-color: #999999;
+}
+
+.md-typeset :is(.admonition, details)[class] {
+  border-color: var(--cinder-box-border-color);
+  border-left-color: var(--cinder-admonition-color);
+}
+
+.md-typeset :is(.admonition, details) > :is(.admonition-title, summary) {
+  margin: 0 0 5px;
+  padding: 0;
+  font-size: 0.95rem;
+  font-weight: 400;
+  color: var(--cinder-admonition-color);
+  background-color: transparent;
+  border: 0;
+  border-radius: 0;
+}
+
+.md-typeset :is(.admonition-title, summary) code {
+  box-shadow: none;
+}
+
+.md-typeset :is(.admonition, details) > :is(.admonition-title, summary)::before {
+  display: none;
+}
+
+.md-typeset details > summary {
+  padding-right: 1.4rem;
+}
+
+.md-typeset details > summary::after {
+  top: 0.3em;
+  right: 0;
+  color: var(--cinder-admonition-color);
+}
+
+.md-typeset details:not([open]) > summary {
+  margin-bottom: 0;
+}
+
+.md-typeset :is(.admonition, details) > :last-child {
+  margin-bottom: 0;
+}
+
+.md-typeset .admonition + .admonition {
+  margin-top: -5px;
+}
+
+/* mkdocstrings renders "Source code in ..." as a borderless details block: keep it quiet */
+.md-typeset details.mkdocstrings-source {
+  --cinder-admonition-color: var(--cinder-muted-color);
+  background-color: transparent;
+}
+
+.md-typeset :is(.admonition, details).mkdocstrings-source > summary {
+  font-size: 0.7rem;
+}
+
+/* Tables: Bootstrap rules instead of a bordered card */
+.md-typeset table:not([class]) {
+  font-size: 0.7rem;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.md-typeset table:not([class]) th {
+  font-weight: 700;
+  color: var(--cinder-heading-color);
+  border-bottom: 2px solid var(--cinder-border-color);
+}
+
+.md-typeset table:not([class]) td {
+  border-top: 1px solid var(--cinder-border-color);
+}
+
+.md-typeset table:not([class]) tbody tr:nth-child(odd) {
+  background-color: var(--md-code-bg-color);
+}
+
+/* Sidebars: small Inter type; the table of contents sits on Cinder's grid paper */
+.md-nav {
+  font-family: var(--cinder-heading-font);
+  font-size: 0.65rem;
+}
+
+.md-nav__link--active,
+.md-nav__item .md-nav__link--active {
+  font-weight: 700;
+  color: var(--md-typeset-a-color);
+}
+
+@media screen and (min-width: 60em) {
+  .md-sidebar--secondary .md-nav--secondary {
+    padding: 10px 4px;
+    background-image:
+      linear-gradient(var(--cinder-grid-color) 1px, transparent 1px),
+      linear-gradient(90deg, var(--cinder-grid-color) 1px, transparent 1px);
+    background-size: 11px 11px;
+    border-radius: 5px;
+  }
+
+  .md-sidebar--secondary .md-nav--secondary > .md-nav__title {
+    position: static;
+    background: transparent;
+    box-shadow: none;
+  }
+}
+
+/* Footer: light and centred */
+.md-footer {
+  border-top: 1px solid var(--cinder-border-color);
+}
+
+.md-footer-meta__inner {
+  justify-content: center;
+  text-align: center;
+}

@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">SANS-fitter scattering and fit curve</title>
+  <rect width="64" height="64" rx="12" fill="#f5fafc"/>
+  <g fill="none" stroke-linecap="round">
+    <path d="M12 23a9 9 0 0 1 0 18" stroke="#1b6080" stroke-width="4"/>
+    <path d="M12 15a17 17 0 0 1 0 34" stroke="#86b4c7" stroke-width="4"/>
+    <path d="M12 7c13 0 21 7 25 17" stroke="#c2d9e3" stroke-width="4"/>
+    <path d="M23 15c9 2 10 15 16 24s12 11 18 12" stroke="#1b6080" stroke-width="4"/>
+  </g>
+  <circle cx="10" cy="32" r="4" fill="#1b6080"/>
+  <g fill="#1686a5">
+    <circle cx="39" cy="29" r="2.5"/>
+    <circle cx="44" cy="37" r="2.5"/>
+    <circle cx="51" cy="42" r="2.5"/>
+    <circle cx="57" cy="45" r="2.5"/>
+  </g>
+</svg>
