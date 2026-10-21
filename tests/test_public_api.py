@@ -38,6 +38,8 @@ class TestPublicApi(unittest.TestCase):
             'PrResult',
             'InsufficientDataError',
             'PrEstimationError',
+            'GenericScatteringCalculator',
+            'structure',
         }
         self.assertLessEqual(expected, set(sans_fitter.__all__))
 

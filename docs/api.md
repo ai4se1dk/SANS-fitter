@@ -318,6 +318,30 @@ estimation and D_max exploration.
         - NTermsEstimate
         - InsufficientDataError
         - PrEstimationError
+
+
+## GenericScatteringCalculator
+
+The orientationally averaged I(q) of a real-space structure (PDB, SLD or VTK
+file) by the exact Debye formula: the nuclear, 1D part of SasView's Generic
+Scattering Calculator. See the [usage guide](usage.md) for units and
+conventions.
+
+::: sans_fitter.structure
+    options:
+      show_root_heading: true
+      show_source: true
+      members:
+        - GenericScatteringCalculator
+        - ScatteringProfile
+        - Structure
+        - RgResult
+        - load
+        - read_pdb
+        - read_sld
+        - read_vtk
+        - StructureError
+        - CalculationInterrupted
         - DEFAULT_N_TERMS
         - DEFAULT_R_POINTS
         - REGULARIZERS

@@ -116,6 +116,12 @@ NO = _glyph('✗', 'no')
 ARROW = _glyph('→', '->')
 #: Unit of Q.
 INVERSE_ANGSTROM = _glyph('Å⁻¹', '1/Ang')
+#: Unit of length.
+ANGSTROM = _glyph('Å', 'Ang')
+#: Unit of volume.
+CUBIC_ANGSTROM = _glyph('Å³', 'Ang^3')
+#: Unit of scattering length density, as sasmodels parameters use it.
+SLD_UNIT = _glyph('10⁻⁶ Å⁻²', '1e-6/Ang^2')
 #: Goodness-of-fit symbol.
 CHI_SQUARED = _glyph('χ²', 'chi^2')
 #: Gaussian 1-sigma, used for resolution widths (σ_q/q).

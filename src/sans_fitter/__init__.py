@@ -4,7 +4,7 @@ SANS Model Fitter - A flexible template for fitting SANS data with SasModels
 
 __version__ = '0.4.0'
 
-from . import examples
+from . import examples, structure
 from . import inversion as pr_inversion
 from .console import set_verbosity
 from .data import ops as data_ops
@@ -16,6 +16,7 @@ from .modeling.polydispersity import PD_DEFAULTS, PD_DISTRIBUTION_TYPES
 from .multi_results import MultiFitReport, MultiFitResult
 from .multifit import DatasetHandle, MultiFitter
 from .results import FitResultContract, PosteriorSummary
+from .structure import GenericScatteringCalculator
 
 __all__ = [
     'SANSFitter',
@@ -39,4 +40,6 @@ __all__ = [
     'PrResult',
     'InsufficientDataError',
     'PrEstimationError',
+    'GenericScatteringCalculator',
+    'structure',
 ]

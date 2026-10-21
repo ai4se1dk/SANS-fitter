@@ -19,6 +19,7 @@ dependencies = [
     "sasmodels>=1.0",
     "sasdata>=0.8",
     "bumps>=1.0",
+    "periodictable>=1.6",
 ]
 
 [tool.setuptools.packages.find]
@@ -69,6 +70,7 @@ pytest = ">=7.0"
 pytest-cov = ">=4.0"
 jupyter = ">=1.0"
 ruff = ">=0.8.0"
+periodictable = ">=1.7.1"
 
 [tool.pixi.tasks]
 test = "pytest tests/ -v"
