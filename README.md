@@ -1,5 +1,8 @@
 # SANS Model Fitter
 
+> **⚠️ This project has moved.** SANS-fitter is no longer maintained. Development continues at [**IQuana**](https://github.com/ai4se1dk/IQuana). Please use that repository for new issues, PRs, and releases.
+
+
 [![Tests](https://github.com/ai4se1dk/SANS-fitter/actions/workflows/ci.yml/badge.svg)](https://github.com/ai4se1dk/SANS-fitter/actions/workflows/ci.yml)
 [![Docs](https://github.com/ai4se1dk/SANS-fitter/actions/workflows/docs.yml/badge.svg)](https://ai4se1dk.github.io/SANS-fitter/)
 [![PyPI badge](https://img.shields.io/pypi/v/sans-fitter.svg)](https://pypi.python.org/pypi/sans-fitter)
